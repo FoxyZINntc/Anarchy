@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "figcraft": {
+      "command": "E:\\Crafts\\FigCraft\\figcraft-cli.exe",
+      "args": ["mcp", "--attach", "9333", "--timeout", "300"]
+    }
+  }
+}
