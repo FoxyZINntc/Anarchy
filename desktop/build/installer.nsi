@@ -8,7 +8,13 @@ ManifestDPIAware true
 Name "${APPNAME}"
 Caption "Instalar o Discordia"
 BrandingText "Discordia ${VERSION}"
-OutFile "../../dist/Discordia Setup.exe"
+!ifndef SRC
+!define SRC "../../dist/win-unpacked"
+!endif
+!ifndef OUT
+!define OUT "../../dist/Discordia Setup.exe"
+!endif
+OutFile "${OUT}"
 InstallDir "$LOCALAPPDATA\Programs\Discordia"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
@@ -44,7 +50,7 @@ Section "Discordia" SecMain
   nsExec::Exec 'taskkill /IM "Discordia.exe" /F'
   Sleep 800
   SetOutPath "$INSTDIR"
-  File /r "../../dist/win-unpacked/*.*"
+  File /r "${SRC}/*.*"
   WriteUninstaller "$INSTDIR\Desinstalar Discordia.exe"
   CreateShortcut "$DESKTOP\Discordia.lnk" "$INSTDIR\Discordia.exe" "" "$INSTDIR\Discordia.exe" 0
   CreateShortcut "$SMPROGRAMS\Discordia.lnk" "$INSTDIR\Discordia.exe" "" "$INSTDIR\Discordia.exe" 0

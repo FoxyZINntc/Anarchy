@@ -27,7 +27,8 @@
       "server/**/*",
       "!server/dados/**",
       "!**/.env",
-      "package.json"
+      "package.json",
+      "!desktop/servidor-padrao.json"
     ],
     "directories": {
       "output": "dist",

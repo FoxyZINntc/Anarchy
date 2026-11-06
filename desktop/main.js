@@ -10,9 +10,15 @@ if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
 /* ---------- configuração ---------- */
 const CFG_PATH = path.join(app.getPath('userData'), 'config.json');
-const DEFAULTS = { mode: null, server: '', minimizeToTray: true, startMinimized: false, autoStart: false, hostPort: 3000, hostHttpsPort: 3443, supabaseUrl: '', supabaseKey: '', publicOnStart: false, bounds: null, maximized: false, trayTipShown: false };
+const DEFAULTS = { mode: null, server: '', minimizeToTray: true, startMinimized: false, autoStart: false, hostPort: 3000, hostHttpsPort: 3443, supabaseUrl: '', supabaseKey: '', supabaseToken: '', publicOnStart: false, bounds: null, maximized: false, trayTipShown: false };
 let cfg = { ...DEFAULTS };
 try { cfg = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CFG_PATH, 'utf8')) }; } catch {}
+// instalador do servidor: vem com o Supabase já configurado e abre direto no modo servidor
+try {
+  const pre = JSON.parse(fs.readFileSync(path.join(__dirname, 'servidor-padrao.json'), 'utf8'));
+  if (!cfg.mode && pre.mode) cfg.mode = pre.mode;
+  if (!cfg.supabaseKey && !cfg.supabaseToken && pre.supabaseUrl && pre.supabaseToken) { cfg.supabaseUrl = pre.supabaseUrl; cfg.supabaseToken = pre.supabaseToken; }
+} catch {}
 function saveCfg() { try { fs.mkdirSync(path.dirname(CFG_PATH), { recursive: true }); fs.writeFileSync(CFG_PATH, JSON.stringify(cfg, null, 2)); } catch {} }
 const originOf = u => { try { return new URL(u).origin; } catch { return ''; } };
 const hostOf = u => { try { return new URL(u).host; } catch { return ''; } };
@@ -35,7 +41,7 @@ async function startHost() {
   let lastErr;
   for (let i = 0; i < 6; i++) {
     try {
-      server = await nexo.start({ supabaseUrl: cfg.supabaseUrl || undefined, supabaseKey: cfg.supabaseKey || undefined, log: m => console.log(m), dataDir: path.join(app.getPath('userData'), 'servidor'), publicDir: path.join(__dirname, '..', 'server', 'public'), port: cfg.hostPort + i, httpsPort: cfg.hostHttpsPort + i });
+      server = await nexo.start({ supabaseUrl: cfg.supabaseUrl || undefined, supabaseKey: cfg.supabaseKey || undefined, supabaseToken: cfg.supabaseToken || undefined, log: m => console.log(m), dataDir: path.join(app.getPath('userData'), 'servidor'), publicDir: path.join(__dirname, '..', 'server', 'public'), port: cfg.hostPort + i, httpsPort: cfg.hostHttpsPort + i });
       if (cfg.publicOnStart) startTunnel();
       return server;
     } catch (e) { lastErr = e; if (e.code !== 'EADDRINUSE') break; }
@@ -194,17 +200,17 @@ ipcMain.handle('reset', () => resetMode());
 ipcMain.handle('retry', () => route());
 ipcMain.handle('panel', () => { if (cfg.mode === 'host') openPanel(); });
 ipcMain.handle('tunnel', (e, on) => { on ? startTunnel() : stopTunnel(); return status(); });
-ipcMain.handle('db:get', () => ({ url: cfg.supabaseUrl, hasKey: !!cfg.supabaseKey }));
+ipcMain.handle('db:get', () => ({ url: cfg.supabaseUrl, hasKey: !!(cfg.supabaseKey || cfg.supabaseToken) }));
 ipcMain.handle('db:set', async (e, d) => {
-  const prev = { url: cfg.supabaseUrl, key: cfg.supabaseKey };
-  cfg.supabaseUrl = String(d.url || '').trim(); if (d.key !== undefined) cfg.supabaseKey = String(d.key || '').trim();
-  if (d.clear) { cfg.supabaseUrl = ''; cfg.supabaseKey = ''; }
+  const prev = { url: cfg.supabaseUrl, key: cfg.supabaseKey, token: cfg.supabaseToken };
+  cfg.supabaseUrl = String(d.url || '').trim(); if (d.key !== undefined) { cfg.supabaseKey = String(d.key || '').trim(); cfg.supabaseToken = ''; }
+  if (d.clear) { cfg.supabaseUrl = ''; cfg.supabaseKey = ''; cfg.supabaseToken = ''; }
   try {
     if (server) { await server.stop(); server = null; } await startHost(); saveCfg();
     if (win && !win.isDestroyed()) win.loadURL('http://localhost:' + server.port);
     pushStatus(); return { ok: true, storage: server.storage };
   } catch (err) {
-    cfg.supabaseUrl = prev.url; cfg.supabaseKey = prev.key;
+    cfg.supabaseUrl = prev.url; cfg.supabaseKey = prev.key; cfg.supabaseToken = prev.token;
     try { if (server) { await server.stop(); server = null; } await startHost(); if (win && !win.isDestroyed()) win.loadURL('http://localhost:' + server.port); } catch {}
     pushStatus(); return { ok: false, erro: err.message };
   }

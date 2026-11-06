@@ -37,6 +37,7 @@ const DEFAULT_CFG = {
   abrirNavegador: true,
   supabaseUrl: '',
   supabaseKey: '',
+  supabaseToken: '',
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' }
@@ -54,9 +55,10 @@ const log = opts.standalone ? console.log : (opts.log || (() => {}));
 loadEnv([BASE, path.join(__dirname, '..'), process.cwd()]);
 cfg.supabaseUrl = opts.supabaseUrl ?? process.env.SUPABASE_URL ?? cfg.supabaseUrl;
 cfg.supabaseKey = opts.supabaseKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? cfg.supabaseKey;
+cfg.supabaseToken = opts.supabaseToken ?? process.env.SUPABASE_DISCORDIA_TOKEN ?? cfg.supabaseToken;
 
 /* ---------- banco de dados (Supabase ou arquivo local) ---------- */
-const store = await createStore({ dataDir: DATA, supabaseUrl: cfg.supabaseUrl, supabaseKey: cfg.supabaseKey, log });
+const store = await createStore({ dataDir: DATA, supabaseUrl: cfg.supabaseUrl, supabaseKey: cfg.supabaseKey, supabaseToken: cfg.supabaseToken, log });
 const db = store.db;
 const save = store.save, saveNow = store.saveNow;
 

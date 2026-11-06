@@ -5,3 +5,4 @@ dados/
 .env
 *.log
 .DS_Store
+desktop/servidor-padrao.json

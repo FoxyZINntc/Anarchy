@@ -1,5 +1,5 @@
 // Discordia — onde os dados ficam guardados.
-// Com SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY configurados, tudo vai para o Supabase.
+// Com SUPABASE_URL e SUPABASE_DISCORDIA_TOKEN (ou SUPABASE_SERVICE_ROLE_KEY), tudo vai para o Supabase.
 // Sem eles, usa um arquivo JSON local (bom para testar).
 const fs = require('fs');
 const path = require('path');
@@ -60,19 +60,63 @@ function jsonStore(dataDir, log) {
 }
 
 /* ---------- Supabase ---------- */
-async function supabaseStore({ url, key, dataDir, log }) {
+// Dois jeitos de falar com o Supabase, com as mesmas operações:
+//  - token de servidor: passa pela função "discordia-db" (a chave secreta fica dentro do Supabase)
+//  - chave service_role: fala direto com o banco
+function sdkClient(url, key) {
   const { createClient } = require('@supabase/supabase-js');
   const sb = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const chk = ({ error }, t) => { if (error) throw new Error((t ? t + ': ' : '') + error.message); };
+  return {
+    select: async (t, from, to) => { const r = await sb.from(t).select('*').range(from, to); chk(r, t); return r.data; },
+    upsert: async (t, rows, key) => chk(await sb.from(t).upsert(rows, { onConflict: key.join(',') }), t),
+    deleteIn: async (t, col, values) => chk(await sb.from(t).delete().in(col, values), t),
+    deleteMatch: async (t, match) => chk(await sb.from(t).delete().match(match), t),
+    upload: async (name, buf, type) => {
+      chk(await sb.storage.from('uploads').upload(name, buf, { contentType: type, upsert: false, cacheControl: '2592000' }));
+      return sb.storage.from('uploads').getPublicUrl(name).data.publicUrl;
+    }
+  };
+}
+function edgeClient(url, token) {
+  const endpoint = url.replace(/\/$/, '') + '/functions/v1/discordia-db';
+  async function call(body) {
+    let res;
+    for (let i = 0; i < 3; i++) {
+      try {
+        res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-discordia-token': token }, body: JSON.stringify(body) });
+        if (res.status < 500) break;
+      } catch (e) { if (i === 2) throw new Error('sem conexão com o Supabase (' + e.message + ')'); }
+      await new Promise(r => setTimeout(r, 600 * (i + 1)));
+    }
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || ('erro ' + res.status));
+    return j;
+  }
+  return {
+    ping: () => call({ op: 'ping' }),
+    select: async (t, from, to) => (await call({ op: 'select', table: t, from, to })).data,
+    upsert: (t, rows) => call({ op: 'upsert', table: t, rows }),
+    deleteIn: (t, col, values) => call({ op: 'deleteIn', table: t, values }),
+    deleteMatch: (t, match) => call({ op: 'deleteMatch', table: t, match }),
+    upload: async (name, buf, type) => (await call({ op: 'upload', name, type, data: buf.toString('base64') })).url
+  };
+}
+
+async function supabaseStore({ url, key, token, dataDir, log }) {
+  const client = token ? edgeClient(url, token) : sdkClient(url, key);
   const BUCKET = 'uploads';
+  if (client.ping) await client.ping();
 
   // carrega tudo (em páginas de 1000 linhas)
   const data = {};
   for (const t of TABLES) {
     data[t.name] = [];
     for (let from = 0; ; from += 1000) {
-      const { data: rows, error } = await sb.from(t.name).select('*').range(from, from + 999);
-      if (error) {
-        if (/relation .* does not exist|Could not find the table/i.test(error.message)) throw new Error(`A tabela "${t.name}" não existe no Supabase. Rode o arquivo supabase/schema.sql no SQL Editor do Supabase.`);
+      let rows;
+      try { rows = await client.select(t.name, from, from + 999); }
+      catch (error) {
+        if (/does not exist|Could not find the table/i.test(error.message)) throw new Error(`A tabela "${t.name}" não existe no Supabase. Rode o arquivo supabase/schema.sql no SQL Editor do Supabase.`);
         throw new Error('Supabase: ' + error.message);
       }
       data[t.name].push(...rows);
@@ -83,10 +127,13 @@ async function supabaseStore({ url, key, dataDir, log }) {
 
   // primeira vez: importa o banco.json antigo, se existir
   const legacy = path.join(dataDir, 'banco.json');
-  const empty = !data.usuarios.length;
+  const empty = !data.usuarios.length && !data.grupos.length;
   let imported = false;
   if (empty && fs.existsSync(legacy)) {
-    try { db = { ...EMPTY(), ...JSON.parse(fs.readFileSync(legacy, 'utf8')) }; imported = true; log('Importando banco.json antigo para o Supabase...'); } catch {}
+    try {
+      const old = JSON.parse(fs.readFileSync(legacy, 'utf8'));
+      if (old.users && Object.keys(old.users).length) { db = { ...EMPTY(), ...old }; imported = true; log('Importando banco.json antigo para o Supabase...'); }
+    } catch {}
   }
 
   // fotografia do que já está no Supabase, para mandar só o que mudou
@@ -100,33 +147,21 @@ async function supabaseStore({ url, key, dataDir, log }) {
     let failed = false;
     const current = new Map();
     try {
-      // 1) inserir e atualizar, na ordem das dependências
       for (const t of TABLES) {
         const prev = synced.get(t.name), now = new Map(), changed = [];
         for (const r of t.rows(db)) { const k = keyOf(t, r), j = JSON.stringify(r); now.set(k, j); if (prev.get(k) !== j) changed.push(r); }
         current.set(t.name, now);
-        for (let i = 0; i < changed.length; i += 500) {
-          const { error } = await sb.from(t.name).upsert(changed.slice(i, i + 500), { onConflict: t.key.join(',') });
-          if (error) throw new Error(`${t.name}: ${error.message}`);
-        }
+        for (let i = 0; i < changed.length; i += 500) await client.upsert(t.name, changed.slice(i, i + 500), t.key);
         for (const r of changed) prev.set(keyOf(t, r), JSON.stringify(r));
       }
-      // 2) apagar o que sumiu, na ordem inversa
       for (const t of [...TABLES].reverse()) {
         const prev = synced.get(t.name), now = current.get(t.name);
         const gone = [...prev.keys()].filter(k => !now.has(k));
         if (!gone.length) continue;
         if (t.key.length === 1) {
-          for (let i = 0; i < gone.length; i += 200) {
-            const { error } = await sb.from(t.name).delete().in(t.key[0], gone.slice(i, i + 200));
-            if (error) throw new Error(`${t.name}: ${error.message}`);
-          }
+          for (let i = 0; i < gone.length; i += 200) await client.deleteIn(t.name, t.key[0], gone.slice(i, i + 200));
         } else {
-          for (const k of gone) {
-            const parts = k.split('\u0001'); const match = Object.fromEntries(t.key.map((c, i) => [c, parts[i]]));
-            const { error } = await sb.from(t.name).delete().match(match);
-            if (error) throw new Error(`${t.name}: ${error.message}`);
-          }
+          for (const k of gone) { const parts = k.split('\u0001'); await client.deleteMatch(t.name, Object.fromEntries(t.key.map((c, i) => [c, parts[i]]))); }
         }
         gone.forEach(k => prev.delete(k));
       }
@@ -139,23 +174,21 @@ async function supabaseStore({ url, key, dataDir, log }) {
   }
   if (imported) await sync();
 
+  const prefix = url.replace(/\/$/, '') + '/storage/v1/object/public/' + BUCKET + '/';
   return {
-    kind: 'supabase', label: 'Supabase (' + new URL(url).host + ')', db,
+    kind: 'supabase', label: 'Supabase (' + new URL(url).host + ')' + (token ? '' : ' com chave service_role'), db,
     save: () => { clearTimeout(timer); timer = setTimeout(sync, 250); },
     saveNow: () => { clearTimeout(timer); sync(); },
     flush: async () => { clearTimeout(timer); await sync(); while (running) await new Promise(r => setTimeout(r, 50)); },
     uploadsDir: null,
-    isUpload: u => typeof u === 'string' && u.startsWith(url.replace(/\/$/, '') + '/storage/v1/object/public/' + BUCKET + '/'),
-    upload: async (buf, name, type) => {
-      const { error } = await sb.storage.from(BUCKET).upload(name, buf, { contentType: type, upsert: false, cacheControl: '2592000' });
-      if (error) throw new Error('Não consegui enviar a imagem para o Supabase: ' + error.message);
-      return sb.storage.from(BUCKET).getPublicUrl(name).data.publicUrl;
-    }
+    isUpload: u => typeof u === 'string' && (u.startsWith(prefix) || /^\/uploads\/[\w-]+\.\w+$/.test(u)),
+    upload: (name, buf, type) => client.upload(name, buf, type)
   };
 }
 
-async function createStore({ dataDir, supabaseUrl, supabaseKey, log = () => {} }) {
+async function createStore({ dataDir, supabaseUrl, supabaseKey, supabaseToken, log = () => {} }) {
   fs.mkdirSync(path.join(dataDir, 'uploads'), { recursive: true });
+  if (supabaseUrl && supabaseToken) return supabaseStore({ url: supabaseUrl.trim(), token: supabaseToken.trim(), dataDir, log });
   if (supabaseUrl && supabaseKey) return supabaseStore({ url: supabaseUrl.trim(), key: supabaseKey.trim(), dataDir, log });
   return jsonStore(dataDir, log);
 }
