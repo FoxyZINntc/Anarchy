@@ -91,7 +91,7 @@ if (-not $ts) {
     $envTxt = Get-Content $envFile -Raw
     if ($envTxt -match '(?m)^PUBLIC_URL=') { $envTxt = [regex]::Replace($envTxt, '(?m)^PUBLIC_URL=.*$', "PUBLIC_URL=$url") } else { $envTxt = $envTxt.TrimEnd() + "`r`nPUBLIC_URL=$url`r`n" }
     Set-Content $envFile $envTxt -Encoding ascii -NoNewline
-    Restart-ScheduledTask -TaskName $Tarefa -ErrorAction SilentlyContinue
+    & (Join-Path $PSScriptRoot 'reiniciar.ps1')
     Write-Host ""
     Write-Host "    ENDERECO DO SEU DISCORDIA:  $url" -ForegroundColor Green
     Write-Host "    Coloque esse endereco em desktop\servidor.json antes de gerar o app (veja o SERVIDOR.md)." -ForegroundColor Green

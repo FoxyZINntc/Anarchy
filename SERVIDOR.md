@@ -35,7 +35,7 @@ O script:
 
 Na primeira vez, o Funnel pode mostrar um link pedindo autorização. Abra, aprove e rode o script de novo.
 
-Para ver como está: `.\servidor-windows\status.ps1`. Para remover: `.\servidor-windows\desinstalar.ps1`.
+Para ver como está: `.\servidor-windows\status.ps1`. Para reiniciar: `.\servidor-windows\reiniciar.ps1`. Para remover: `.\servidor-windows\desinstalar.ps1`.
 Os logs ficam em `logs\servidor.log`.
 
 ## 3. Gerar o app dos seus amigos
@@ -66,12 +66,12 @@ O jeito mais fácil e grátis é o TURN da Cloudflare (1000 GB/mês grátis, **n
    CF_TURN_KEY_ID=...
    CF_TURN_API_TOKEN=...
    ```
-4. Reinicie: `Restart-ScheduledTask "Discordia Servidor"`
+4. Reinicie: `.\servidor-windows\reiniciar.ps1` (como Administrador)
 
 O servidor gera credenciais novas sozinho a cada 12 horas.
 
 ## Bom saber
 
 - **Limite das calls:** cada pessoa liga com cada pessoa (mesh). Fica bom até umas 6 pessoas por sala. Para salas grandes, o próximo passo seria um servidor de mídia (LiveKit), que também roda no seu servidor.
-- **Atualizar o servidor:** `git pull` em `C:\Discordia`, depois `Restart-ScheduledTask "Discordia Servidor"`.
+- **Atualizar o servidor:** `git pull` em `C:\Discordia`, depois `.\servidor-windows\reiniciar.ps1`.
 - **Quando comprar um domínio:** dá para trocar o Tailscale pelo Cloudflare Tunnel com `chat.seudominio.com`. Só muda o endereço em `desktop/servidor.json` e gera o app de novo.
