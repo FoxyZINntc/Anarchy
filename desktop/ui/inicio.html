@@ -193,9 +193,10 @@ if (page === 'inicio') {
 if (page === 'offline') {
   $('#offMsg').textContent = q.get('msg');
   $('#retry').onclick = () => D.retry(); $('#change').onclick = () => D.reset();
+  if (q.get('fixed')) $('#change').hidden = true;
   setInterval(() => D.retry(), 15000);
 }
-if (page === 'erro') { $('#errMsg').textContent = q.get('msg'); $('#retry2').onclick = () => D.retry(); $('#change2').onclick = () => D.reset(); }
+if (page === 'erro') { $('#errMsg').textContent = q.get('msg'); $('#retry2').onclick = () => D.retry(); $('#change2').onclick = () => D.reset(); if (q.get('fixed')) $('#change2').hidden = true; }
 
 if (page === 'painel') {
   const draw = s => {

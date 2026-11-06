@@ -1,8 +1,10 @@
 node_modules/
 dist/
+dist-cliente/
 server/dados/
 dados/
 .env
 *.log
+logs/
 .DS_Store
 desktop/servidor-padrao.json

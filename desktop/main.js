@@ -22,6 +22,10 @@ try {
 function saveCfg() { try { fs.mkdirSync(path.dirname(CFG_PATH), { recursive: true }); fs.writeFileSync(CFG_PATH, JSON.stringify(cfg, null, 2)); } catch {} }
 const originOf = u => { try { return new URL(u).origin; } catch { return ''; } };
 const hostOf = u => { try { return new URL(u).host; } catch { return ''; } };
+// app "cliente": o endereço do servidor oficial vem embutido (desktop/servidor.json) e nunca é perguntado
+let FIXED = '';
+try { FIXED = originOf(String(JSON.parse(fs.readFileSync(path.join(__dirname, 'servidor.json'), 'utf8')).url || '').trim()); } catch {}
+if (FIXED) { cfg.mode = 'client'; cfg.server = FIXED; }
 
 // um servidor em http:// na rede local precisa ser tratado como seguro para liberar microfone e tela
 if (cfg.mode === 'client' && /^http:\/\//i.test(cfg.server)) app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', originOf(cfg.server));
@@ -87,7 +91,7 @@ async function startTunnel() {
 function stopTunnel() { if (tunnel.proc) { tunnel.state = 'parando'; try { tunnel.proc.kill(); } catch {} } else tunnel = { proc: null, url: null, state: 'off', error: '' }; pushStatus(); buildTray(); }
 
 /* ---------- janelas ---------- */
-function showLocal(w, page, msg = '') { return w.loadFile(path.join(__dirname, 'ui', 'inicio.html'), { query: { page, msg } }); }
+function showLocal(w, page, msg = '') { return w.loadFile(path.join(__dirname, 'ui', 'inicio.html'), { query: { page, msg, fixed: FIXED ? '1' : '' } }); }
 function createWindow() {
   const b = cfg.bounds || { width: 1280, height: 800 };
   win = new BrowserWindow({
@@ -120,7 +124,7 @@ function createWindow() {
   });
   win.webContents.on('did-fail-load', (e, code, desc, url, isMain) => {
     if (!isMain || code === -3 || url.startsWith('file:')) return;
-    showLocal(win, 'offline', cfg.mode === 'host' ? 'O servidor deste computador não respondeu.' : 'Não consegui falar com ' + hostOf(cfg.server) + '. O servidor do seu amigo pode estar desligado, ou o link mudou.');
+    showLocal(win, 'offline', cfg.mode === 'host' ? 'O servidor deste computador não respondeu.' : FIXED ? 'O servidor do Discordia está fora do ar ou sua internet caiu. Assim que ele voltar, eu conecto sozinho.' : 'Não consegui falar com ' + hostOf(cfg.server) + '. O servidor do seu amigo pode estar desligado, ou o link mudou.');
   });
   win.on('page-title-updated', (e, title) => {
     const m = /^\((\d+)\)/.exec(title); const n = m ? +m[1] : 0;
@@ -167,7 +171,7 @@ function buildTray() {
       { type: 'separator' }
     ] : []),
     { label: 'Iniciar com o Windows', type: 'checkbox', checked: cfg.autoStart, visible: process.platform !== 'linux', click: m => setSettings({ autoStart: m.checked }) },
-    { label: 'Trocar de servidor...', click: resetMode },
+    { label: 'Trocar de servidor...', click: resetMode, visible: !FIXED },
     { type: 'separator' },
     { label: 'Sair do Discordia', click: () => { quitting = true; app.quit(); } }
   ]));
@@ -178,6 +182,7 @@ function setSettings(s) {
   saveCfg(); buildTray();
 }
 async function resetMode() {
+  if (FIXED) return route();
   await stopHost();
   cfg.mode = null; cfg.server = ''; saveCfg();
   quitting = true; app.relaunch(); app.exit(0);

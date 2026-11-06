@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node server/server.js",
     "app": "electron .",
-    "dist:win": "electron-builder --win"
+    "dist:win": "electron-builder --win",
+    "dist:cliente": "electron-builder --win --config electron-builder.cliente.json"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

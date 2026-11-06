@@ -30,6 +30,10 @@ O servidor fala com o Supabase pela função `supabase/functions/discordia-db`, 
 Também funciona com a chave service_role direto (`SUPABASE_SERVICE_ROLE_KEY`). Nenhum token ou chave vai para o GitHub.
 As tabelas têm RLS ligado e sem políticas, então a chave pública (anon) não lê nada.
 
+## Servidor 24/7
+
+Para deixar o Discordia ligado o tempo todo num servidor de casa (Windows Server), com endereço fixo e app sem tela de IP, siga o [SERVIDOR.md](SERVIDOR.md).
+
 ## Rodar
 
 ```bash
@@ -37,6 +41,7 @@ npm install
 npm start          # só o servidor, em http://localhost:3000
 npm run app        # app de computador
 npm run dist:win   # instalador do Windows (rodando no Windows)
+npm run dist:cliente  # instalador enxuto, só o app, com o endereço de desktop/servidor.json
 ```
 
 No Linux, `scripts/build-win-on-linux.sh` gera o instalador do Windows sem Wine.

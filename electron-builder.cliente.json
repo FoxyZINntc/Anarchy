@@ -1,0 +1,30 @@
+{
+  "appId": "com.discordia.app",
+  "productName": "Discordia",
+  "asar": true,
+  "files": [
+    "desktop/**/*",
+    "package.json",
+    "!desktop/servidor-padrao.json",
+    "!desktop/build/**",
+    "!**/node_modules/**"
+  ],
+  "directories": {
+    "output": "dist-cliente",
+    "buildResources": "desktop/assets"
+  },
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "icon": "desktop/build/icon.ico"
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "runAfterFinish": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Discordia",
+    "artifactName": "Discordia Setup.${ext}",
+    "deleteAppDataOnUninstall": false
+  }
+}

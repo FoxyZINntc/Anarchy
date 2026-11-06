@@ -56,6 +56,30 @@ loadEnv([BASE, path.join(__dirname, '..'), process.cwd()]);
 cfg.supabaseUrl = opts.supabaseUrl ?? process.env.SUPABASE_URL ?? cfg.supabaseUrl;
 cfg.supabaseKey = opts.supabaseKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? cfg.supabaseKey;
 cfg.supabaseToken = opts.supabaseToken ?? process.env.SUPABASE_DISCORDIA_TOKEN ?? cfg.supabaseToken;
+if (process.env.SERVIDOR_24H) cfg.abrirNavegador = false;
+
+/* ---------- TURN: repetidor de áudio/vídeo para calls em redes difíceis (4G, CGNAT) ---------- */
+// Cloudflare TURN (grátis até 1000 GB/mês): CF_TURN_KEY_ID + CF_TURN_API_TOKEN no .env.
+// Ou qualquer outro TURN fixo: TURN_URLS (separadas por vírgula) + TURN_USER + TURN_PASS.
+const STUN = cfg.iceServers;
+if (process.env.TURN_URLS) cfg.iceServers = [...STUN, { urls: process.env.TURN_URLS.split(',').map(s => s.trim()).filter(Boolean), username: process.env.TURN_USER || '', credential: process.env.TURN_PASS || '' }];
+let turnTimer = null;
+async function refreshCloudflareTurn() {
+  const id = process.env.CF_TURN_KEY_ID, tok = process.env.CF_TURN_API_TOKEN;
+  if (!id || !tok) return;
+  try {
+    const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(id)}/credentials/generate-ice-servers`, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ ttl: 86400 })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const list = [].concat(j.iceServers || []).filter(s => s && s.urls);
+    if (!list.length) throw new Error('resposta sem iceServers');
+    cfg.iceServers = [...STUN, ...list];
+    log('   TURN da Cloudflare: ativo (calls funcionam em qualquer rede)');
+  } catch (e) { log('   TURN da Cloudflare falhou (' + e.message + '). Tento de novo em 1 hora.'); setTimeout(refreshCloudflareTurn, 3600e3).unref(); }
+}
+if (process.env.CF_TURN_KEY_ID) { await refreshCloudflareTurn(); turnTimer = setInterval(refreshCloudflareTurn, 12 * 3600e3); turnTimer.unref(); }
 
 /* ---------- banco de dados (Supabase ou arquivo local) ---------- */
 const store = await createStore({ dataDir: DATA, supabaseUrl: cfg.supabaseUrl, supabaseKey: cfg.supabaseKey, supabaseToken: cfg.supabaseToken, log });
@@ -513,9 +537,12 @@ httpServer.listen(cfg.portaHttp, () => {
   log('   Banco de dados:     ' + store.label);
   if (httpsOk) ips.forEach(ip => log('   Amigos na sua rede: https://' + ip + ':' + cfg.portaHttps));
   log('');
-  log('   Para amigos pela internet, use o arquivo');
-  log('   "Link publico.bat" (veja o LEIA-ME).');
-  log('   Deixe esta janela aberta enquanto usar o Discordia.');
+  if (process.env.PUBLIC_URL) log('   Endereço público:   ' + process.env.PUBLIC_URL);
+  else {
+    log('   Para amigos pela internet, veja o SERVIDOR.md');
+    log('   (Tailscale Funnel: endereço fixo e grátis).');
+  }
+  if (!process.env.SERVIDOR_24H) log('   Deixe esta janela aberta enquanto usar o Discordia.');
   log('  ================================================');
   log('');
   if (cfg.abrirNavegador) {
@@ -537,6 +564,7 @@ module.exports = { start };
 
 if (require.main === module) {
   start({ standalone: true }).then(srv => {
-    process.on('SIGINT', async () => { await srv.save(); process.exit(0); });
-  }).catch(() => {});
+    const bye = async () => { await srv.save(); process.exit(0); };
+    process.on('SIGINT', bye); process.on('SIGTERM', bye);
+  }).catch(e => { console.error('Falha ao iniciar:', e && e.message ? e.message : e); process.exit(1); });
 }
