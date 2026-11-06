@@ -40,7 +40,11 @@ const P = {
   user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   stage: '<rect x="3" y="3" width="18" height="14" rx="2"/><path d="M7 21h10"/>',
   send: '<path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/>',
-  bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/>'
+  bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  up: '<path d="M18 15l-6-6-6 6"/>',
+  ban: '<circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/>'
 };
 const ic = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
 const EMOJIS = '😀 😂 🥹 😍 😎 🤔 😭 😡 👍 👎 👏 🙏 🔥 💯 ❤️ 💜 🎉 🎮 🏍️ ⚡ 🍕 ☕ 🐱 🐶 👀 💀 ✅ ❌ ⭐ 🌙 🚀 🎵'.split(' ');
@@ -145,7 +149,8 @@ async function api(path, body) {
 }
 function readFile(file) { return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); }); }
 async function shrink(dataUrl, max, q = .86, square) {
-  if (/^data:image\/gif/.test(dataUrl) && !square) return dataUrl;
+  // GIF fica como está, para continuar animado (foto de perfil, banner, ícone do grupo)
+  if (/^data:image\/gif/.test(dataUrl)) return dataUrl;
   const img = new Image(); img.src = dataUrl; await img.decode();
   let w = img.width, h = img.height, sx = 0, sy = 0, sw = w, sh = h;
   if (square) { const m = Math.min(w, h); sx = (w - m) / 2; sy = (h - m) / 2; sw = sh = m; w = h = Math.min(m, max); }
@@ -170,6 +175,31 @@ function pickFile(accept = 'image/*') {
 async function copy(text, label = 'Copiado.') {
   try { await navigator.clipboard.writeText(text); toast(label); } catch { toast('Copie manualmente: ' + text); }
 }
+
+/* =============== cargos e permissões =============== */
+const PERM_INFO = [
+  ['admin', 'Administrador', 'Tem todas as permissões e passa por cima de tudo. Dê só para quem você confia muito.'],
+  ['manageServer', 'Gerenciar grupo', 'Mudar nome, ícone, banner, descrição, boas-vindas e código de convite.'],
+  ['manageChannels', 'Gerenciar canais', 'Criar, editar, ordenar e apagar canais. Também ignora o modo lento.'],
+  ['manageRoles', 'Gerenciar cargos', 'Criar e editar cargos abaixo do seu, e dar ou tirar cargos dos membros.'],
+  ['kick', 'Expulsar membros', 'Remover pessoas do grupo. Elas podem voltar com um convite.'],
+  ['ban', 'Banir membros', 'Remover pessoas e impedir que elas voltem.'],
+  ['manageMessages', 'Gerenciar mensagens', 'Apagar mensagens de outras pessoas. Também ignora o modo lento.']
+];
+const gRoles = (g, uid) => { const mine = g?.memberRoles?.[uid] || []; return (g?.roles || []).filter(r => mine.includes(r.id)); };
+function gCan(g, perm, uid = S.me?.id) {
+  if (!g || !uid || !g.members.includes(uid)) return false;
+  if (g.ownerId === uid) return true;
+  return gRoles(g, uid).some(r => r.perms.includes('admin') || r.perms.includes(perm));
+}
+function gRank(g, uid) { if (g.ownerId === uid) return -1; const i = gRoles(g, uid).map(r => g.roles.indexOf(r)); return i.length ? Math.min(...i) : (g.roles || []).length; }
+const gAbove = (g, target) => gRank(g, S.me.id) < gRank(g, target);
+const gEditRole = (g, r) => g.ownerId === S.me.id || (gCan(g, 'manageRoles') && g.roles.indexOf(r) > gRank(g, S.me.id));
+const nameColor = (uid, g) => (g && gRoles(g, uid).find(r => r.color)?.color) || user(uid).color || 'var(--text)';
+const gManager = g => ['manageServer', 'manageChannels', 'manageRoles', 'kick', 'ban'].some(p => gCan(g, p));
+const curGroup = () => (S.view.kind === 'group' ? S.groups[S.view.gid] : null);
+const SLOW_OPTS = [[0, 'Desligado'], [5, '5 segundos'], [10, '10 segundos'], [15, '15 segundos'], [30, '30 segundos'], [60, '1 minuto'], [120, '2 minutos'], [300, '5 minutos'], [600, '10 minutos'], [3600, '1 hora']];
+const slowLabel = s => (SLOW_OPTS.find(o => o[0] === s) || [0, ''])[1];
 
 /* =============== avatares =============== */
 function av(id, size = 32, dot = true, extra = '') {
@@ -450,6 +480,8 @@ function connect() {
     if (S.view.kind === 'group' && !S.groups[S.view.gid]) S.view = { kind: 'friends', tab: 'online' };
     if (S.view.kind === 'dm' && !S.dms[S.view.id]) S.view = { kind: 'friends', tab: 'online' };
     S.msgs = {}; S.more = {}; mainKey = null; render();
+    // servidor reiniciou com uma interface nova? mostra a barra "Atualizar"
+    if (r.build) { if (UPD.build && UPD.build !== r.build) { UPD.web = true; showUpd(); } if (!UPD.build) UPD.build = r.build; }
   });
   socket.on('connect_error', e => { if (e.message === 'auth') { localStorage.removeItem('discordia:token'); S.token = null; showAuth(); } });
   socket.on('disconnect', () => { S.connected = false; if (V.room) { cleanupVoice(); toast('A conexão caiu. Você saiu da call.', true); } render(); });
@@ -460,9 +492,12 @@ function connect() {
     S.groups[group.id] = group; users.forEach(u => { if (u.id !== S.me.id) S.users[u.id] = u; });
     if (S.view.kind === 'group' && S.view.gid === group.id && !group.channels.some(c => c.id === S.view.cid)) S.view.cid = firstText(group);
     render();
+    // as abas de lista das configurações do grupo acompanham as mudanças
+    if ($('.gset') && gsGid === group.id && ['membros', 'canais', 'convites', 'banimentos'].includes(gsTab)) drawGroupSettings();
   });
   socket.on('group:removed', ({ gid }) => {
     const g = S.groups[gid]; delete S.groups[gid];
+    if ($('.gset') && gsGid === gid) closeSettings();
     if (g && V.room && g.channels.some(c => c.id === V.room)) leaveVoice();
     if (S.view.kind === 'group' && S.view.gid === gid) { S.view = { kind: 'friends', tab: 'online' }; if (g) toast(`Você não está mais em "${g.name}".`); }
     render();
@@ -507,7 +542,7 @@ function onMessage(m) {
   if (S.typing[m.cid]) delete S.typing[m.cid][m.authorId];
   const viewing = viewingCid() === m.cid && !document.hidden && document.hasFocus();
   if (viewingCid() === m.cid) { renderMessages(); renderTyping(); }
-  if (mine || viewing) return;
+  if (mine || viewing || m.system) return;
   const isDm = !!S.dms[m.cid];
   const mention = new RegExp('@' + S.me.username + '\\b', 'i').test(m.content || '');
   S.unread[m.cid] = (S.unread[m.cid] || 0) + 1;
@@ -575,7 +610,7 @@ function renderSide() {
 }
 function renderGroupSide(body) {
   const g = S.groups[S.view.gid]; if (!g) return;
-  const own = g.ownerId === S.me.id;
+  const own = gCan(g, 'manageChannels');
   const row = c => {
     const active = S.view.cid === c.id;
     const peers = S.voice[c.id] || [];
@@ -587,8 +622,10 @@ function renderGroupSide(body) {
     ${peers.length ? `<div class="voice-people">${peers.map(p => `<div class="voice-person">${av(p.uid, 24, false, '').replace('class="av', `data-speak="${p.sid}" class="av`)}<span class="lbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nameOf(p.uid))}</span>${p.screen ? '<span class="live">AO VIVO</span>' : ''}${p.cam ? ic('cam') : ''}${p.deafened ? ic('headOff') : p.muted ? ic('micOff') : ''}</div>`).join('')}</div>` : ''}`;
   };
   const text = g.channels.filter(c => c.type === 'text'), vc = g.channels.filter(c => c.type === 'voice');
+  const ban = g.banner ? (isImg(g.banner) ? `background-image:url('${esc(g.banner)}')` : `background:${esc(g.banner)}`) : '';
   body.innerHTML = `
-    <div class="side-head clickable" data-act="groupMenu"><span class="title">${esc(g.name)}</span>${ic('down')}</div>
+    ${ban ? `<div class="side-banner clickable" data-act="groupMenu" style="${ban}"><div class="side-banner-t"><span class="title">${esc(g.name)}</span>${ic('down')}</div></div>`
+      : `<div class="side-head clickable" data-act="groupMenu"><span class="title">${esc(g.name)}</span>${ic('down')}</div>`}
     <div class="side-sec">
       <button class="nav-row" data-act="invite" style="color:var(--accent)">${ic('users', 'ch')}<span class="lbl">Convidar pessoas</span></button>
     </div>
@@ -655,7 +692,8 @@ function renderHead() {
       <button class="icon-btn" data-act="profile" data-id="${o}" data-tip="Perfil">${ic('user')}</button>`;
   } else {
     const g = S.groups[v.gid], c = chan(v.gid, v.cid); if (!g || !c) return;
-    h.innerHTML = `${tog}<span class="ttl">${ic(c.type === 'voice' ? 'voice' : 'hash')}${esc(c.name)}</span><span class="sub">${esc(g.name)}</span><span class="spacer"></span>
+    h.innerHTML = `${tog}<span class="ttl">${ic(c.type === 'voice' ? 'voice' : 'hash')}${esc(c.name)}</span><span class="sub" ${c.topic ? `title="${esc(c.topic)}"` : ''}>${esc(c.topic || g.name)}</span>${c.slowmode ? `<span class="slow-pill" data-tip="Modo lento: uma mensagem a cada ${esc(slowLabel(c.slowmode))}">🐢 ${esc(slowLabel(c.slowmode))}</span>` : ''}<span class="spacer"></span>
+      ${gManager(g) ? `<button class="icon-btn" data-act="groupSettings" data-tip="Configurações do grupo">${ic('gear')}</button>` : ''}
       <button class="icon-btn" data-act="invite" data-tip="Convidar">${ic('link')}</button>
       <button class="icon-btn ${prefs.showMembers ? 'active' : ''}" data-act="toggleMembers" data-tip="Membros">${ic('users')}</button>`;
   }
@@ -701,9 +739,17 @@ function renderMembers() {
   m.hidden = false;
   const ord = { online: 0, ocupado: 1, ausente: 2, offline: 3 };
   const list = g.members.slice().sort((a, b) => (ord[user(a).status] ?? 3) - (ord[user(b).status] ?? 3) || nameOf(a).localeCompare(nameOf(b)));
-  const on = list.filter(id => user(id).status !== 'offline'), off = list.filter(id => user(id).status === 'offline');
-  const r = id => { const u = user(id); return `<div class="mem ${u.status === 'offline' ? 'off' : ''}" data-act="profile" data-id="${id}">${av(id, 32)}<div class="info"><b style="color:${esc(u.color)}">${esc(u.displayName)} ${g.ownerId === id ? '<span class="crown" title="Dono do grupo">👑</span>' : ''}</b>${u.customStatus ? `<span>${esc(u.customStatus)}</span>` : ''}</div></div>`; };
-  m.innerHTML = `${on.length ? `<div class="mem-h">Online — ${on.length}</div>${on.map(r).join('')}` : ''}${off.length ? `<div class="mem-h">Offline — ${off.length}</div>${off.map(r).join('')}` : ''}`;
+  const r = id => { const u = user(id); return `<div class="mem ${u.status === 'offline' ? 'off' : ''}" data-act="profile" data-id="${id}">${av(id, 32)}<div class="info"><b style="color:${esc(nameColor(id, g))}">${esc(u.displayName)} ${g.ownerId === id ? '<span class="crown" title="Dono do grupo">👑</span>' : ''}</b>${u.customStatus ? `<span>${esc(u.customStatus)}</span>` : ''}</div></div>`; };
+  // como no Discord: quem está online aparece no primeiro cargo "separado" que tiver; offline fica no fim
+  const placed = new Set(); let html = '';
+  for (const role of (g.roles || []).filter(x => x.hoist)) {
+    const ids = list.filter(id => !placed.has(id) && user(id).status !== 'offline' && (g.memberRoles?.[id] || []).includes(role.id));
+    if (!ids.length) continue;
+    ids.forEach(id => placed.add(id));
+    html += `<div class="mem-h" style="${role.color ? `color:${esc(role.color)}` : ''}">${esc(role.name)} — ${ids.length}</div>${ids.map(r).join('')}`;
+  }
+  const on = list.filter(id => !placed.has(id) && user(id).status !== 'offline'), off = list.filter(id => user(id).status === 'offline');
+  m.innerHTML = `${html}${on.length ? `<div class="mem-h">Online — ${on.length}</div>${on.map(r).join('')}` : ''}${off.length ? `<div class="mem-h">Offline — ${off.length}</div>${off.map(r).join('')}` : ''}`;
 }
 
 /* ---------- mensagens ---------- */
@@ -737,6 +783,7 @@ function md(text) {
     .replace(/@([a-z0-9_.]{3,20})/gi, (m, n) => Object.values(S.users).some(u => u.username === n.toLowerCase()) ? `<span class="mention">@${n}</span>` : m);
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[i]);
 }
+const JOIN_LINES = ['{n} entrou no grupo. Dá um oi!', '{n} chegou chegando. 🎉', 'Bem-vindo, {n}! Pega uma cadeira.', '{n} apareceu do nada.', 'Um {n} selvagem apareceu!', '{n} pousou no grupo. 🛬', 'Todo mundo dá as boas-vindas para {n}!', '{n} acabou de chegar. Alguém faz um café.'];
 const onlyEmoji = t => t && t.length <= 12 && /^(\p{Extended_Pictographic}|️|‍|\s)+$/u.test(t);
 
 function renderMessages(forceBottom) {
@@ -756,9 +803,15 @@ function renderMessages(forceBottom) {
   for (const m of list) {
     const day = new Date(m.ts).toDateString();
     if (day !== lastDay) { html += `<div class="day-sep">${fmtDay(m.ts)}</div>`; lastDay = day; prev = null; }
+    if (m.system === 'join') {
+      const n = `<b data-act="profile" data-id="${m.authorId}" style="color:${esc(nameColor(m.authorId, g))}">${esc(nameOf(m.authorId))}</b>`;
+      const line = JOIN_LINES[[...m.id].reduce((a, c) => a + c.charCodeAt(0), 0) % JOIN_LINES.length].replace('{n}', n);
+      html += `<div class="msg sys" id="m-${m.id}"><span class="sys-ic">${ic('reply').replace('<svg', '<svg style="transform:scaleX(-1) rotate(180deg)"')}</span><span class="sys-t">${line} <time>${fmtDay(m.ts) === 'Hoje' ? 'Hoje às ' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></span></div>`;
+      prev = null; continue;
+    }
     const head = !prev || prev.authorId !== m.authorId || m.ts - prev.ts > 7 * 60e3 || m.replyTo;
     const u = user(m.authorId), mine = m.authorId === S.me.id;
-    const canDel = mine || (g && g.ownerId === S.me.id);
+    const canDel = mine || (g && gCan(g, 'manageMessages'));
     const ref = m.replyTo && list.find(x => x.id === m.replyTo);
     const reacts = Object.entries(m.reactions || {});
     const editing = S.editing === m.id;
@@ -767,7 +820,7 @@ function renderMessages(forceBottom) {
       ${head ? av(m.authorId, 40, false) : `<div class="gutter">${fmtTime(m.ts)}</div>`}
       <div class="mc" style="min-width:0">
         ${m.replyTo ? `<div class="reply-ref" data-act="jump" data-id="${m.replyTo}">${ic('reply').replace('<svg', '<svg style="width:14px;height:14px;transform:scaleX(-1)"')}${ref ? `<b>${esc(nameOf(ref.authorId))}</b> ${esc((ref.content || '🖼️ imagem').slice(0, 90))}` : '<i>mensagem apagada</i>'}</div>` : ''}
-        ${head ? `<div class="who"><b data-act="profile" data-id="${m.authorId}" style="color:${esc(u.color)}">${esc(u.displayName)}</b>${g && g.ownerId === m.authorId ? '<span class="crown">👑</span>' : ''}<time>${fmtDay(m.ts) === 'Hoje' ? '' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></div>` : ''}
+        ${head ? `<div class="who"><b data-act="profile" data-id="${m.authorId}" style="color:${esc(nameColor(m.authorId, g))}">${esc(u.displayName)}</b>${g && g.ownerId === m.authorId ? '<span class="crown">👑</span>' : ''}<time>${fmtDay(m.ts) === 'Hoje' ? '' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></div>` : ''}
         ${editing ? `<div class="edit-box"><textarea id="editArea" rows="2">${esc(m.content)}</textarea><span class="small muted">Enter salva · Esc cancela</span></div>`
           : m.content ? `<div class="body" style="${big ? 'font-size:2.4em;line-height:1.2' : ''}">${md(m.content)}${m.edited ? ' <span class="ed">(editado)</span>' : ''}</div>` : ''}
         ${m.image ? `<img class="img" src="${esc(m.image)}" alt="Imagem enviada por ${esc(u.displayName)}" data-act="zoom" loading="lazy">` : ''}
@@ -892,12 +945,16 @@ function emojiPicker(anchor, onPick) {
   p.onclick = e => { const b = e.target.closest('[data-e]'); if (b) { onPick(b.dataset.e); closePops(); } };
 }
 
-function profileCard(id) {
+function profileCard(id, g) {
   const u = user(id);
   const banner = u.banner ? (isImg(u.banner) ? `background-image:url('${esc(u.banner)}')` : `background:${esc(u.banner)}`) : `background:${esc(u.color)}`;
-  return `<div class="profile-prev"><div class="banner" style="${banner}"></div><div class="pbody">${av(id, 80)}<h3>${esc(u.displayName)}</h3><div class="un">@${esc(u.username)}</div>
+  const th = Array.isArray(u.theme) && u.theme.length === 2 ? `background:linear-gradient(170deg, ${esc(u.theme[0])}, ${esc(u.theme[1])})` : '';
+  const roles = g && g.members.includes(id) ? gRoles(g, id) : [];
+  return `<div class="profile-prev ${th ? 'themed' : ''}" style="${th}"><div class="banner" style="${banner}"></div><div class="pbody">${av(id, 80)}<h3>${esc(u.displayName)}</h3><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}</div>
     ${u.customStatus ? `<div style="margin-top:6px">${esc(u.customStatus)}</div>` : ''}
-    <div class="bio">${u.bio ? esc(u.bio) : '<span class="muted">Sem bio.</span>'}${u.createdAt ? `<div class="muted small" style="margin-top:8px">No Discordia desde ${new Date(u.createdAt).toLocaleDateString('pt-BR')}</div>` : ''}</div></div></div>`;
+    <div class="bio">${u.bio ? md(u.bio) : '<span class="muted">Sem bio.</span>'}${u.createdAt ? `<div class="muted small" style="margin-top:8px">No Discordia desde ${new Date(u.createdAt).toLocaleDateString('pt-BR')}</div>` : ''}</div>
+    ${g && g.members.includes(id) ? `<div class="pf-roles"><div class="pf-h">${roles.length ? 'Cargos' : 'Sem cargos'}${g.ownerId === id ? ' · 👑 dono' : ''}</div>${roles.map(r => `<span class="role-chip"><i style="background:${esc(r.color || 'var(--muted)')}"></i>${esc(r.name)}</span>`).join('')}</div>` : ''}
+    </div></div>`;
 }
 function openProfile(id, anchor) {
   const isMe = id === S.me.id, fr = S.friends.friends.includes(id), inc = S.friends.incoming.includes(id), out = S.friends.outgoing.includes(id);
@@ -906,9 +963,10 @@ function openProfile(id, anchor) {
     : inc ? `<button class="btn primary sm" data-act="accept" data-id="${id}">Aceitar pedido</button>`
     : out ? `<button class="btn sm" disabled>Pedido enviado</button>`
     : `<button class="btn primary sm" data-act="addUser" data-id="${id}">${ic('plus')}Adicionar amigo</button>`;
-  const g = S.view.kind === 'group' && S.groups[S.view.gid];
-  const kick = g && g.ownerId === S.me.id && !isMe && g.members.includes(id) ? `<button class="btn danger sm" data-act="kick" data-id="${id}">Remover do grupo</button>` : '';
-  pop(`${profileCard(id)}<div class="acts">${acts}${kick}</div>`, anchor, 'profile', anchor.closest('#members') ? 'left' : 'right');
+  const g = curGroup();
+  const inG = g && !isMe && g.members.includes(id) && gAbove(g, id);
+  const mod = `${inG && gCan(g, 'manageRoles') ? `<button class="btn sm" data-act="memberRoles" data-id="${id}">${ic('shield')}Cargos</button>` : ''}${inG && gCan(g, 'kick') ? `<button class="btn danger sm" data-act="kick" data-id="${id}">Expulsar</button>` : ''}${inG && gCan(g, 'ban') ? `<button class="btn danger sm" data-act="ban" data-id="${id}">Banir</button>` : ''}`;
+  pop(`${profileCard(id, g)}<div class="acts">${acts}${mod}</div>`, anchor, 'profile', anchor.closest('#members') ? 'left' : 'right');
   const p = $('.pop'); if (anchor.closest('#members')) { const r = anchor.getBoundingClientRect(); p.style.left = clamp(r.left - p.offsetWidth - 10, 8, innerWidth - p.offsetWidth - 8) + 'px'; }
 }
 
@@ -987,15 +1045,22 @@ function channelModal(gid, type, ch) {
       ${ch ? '' : `<label class="choice"><input type="radio" name="ct" value="text" ${type !== 'voice' ? 'checked' : ''}>${ic('hash')}<span><b>Texto</b><br><span class="muted small">Mensagens, imagens, emojis</span></span></label>
       <label class="choice"><input type="radio" name="ct" value="voice" ${type === 'voice' ? 'checked' : ''}>${ic('voice')}<span><b>Voz</b><br><span class="muted small">Call, câmera e compartilhamento de tela</span></span></label>`}
       <label class="field">Nome do canal<input id="cName" maxlength="32" value="${esc(ch?.name || '')}" placeholder="${type === 'voice' ? 'Sala de jogo' : 'novo-canal'}"></label>
+      <div id="cText" ${(ch ? ch.type : type) === 'voice' ? 'hidden' : ''}>
+        <label class="field">Tópico<input id="cTopic" maxlength="200" value="${esc(ch?.topic || '')}" placeholder="Sobre o que se fala aqui (aparece no topo do canal)"></label>
+        <label class="field">Modo lento<select id="cSlow">${SLOW_OPTS.map(([v, l]) => `<option value="${v}" ${(ch?.slowmode || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="muted small">Cada pessoa só manda uma mensagem a cada X tempo. Quem gerencia canais ou mensagens não espera.</span></label>
+      </div>
     </div>
     <div class="modal-f">${ch ? '<button class="btn danger" id="cDel" style="margin-right:auto">Apagar canal</button>' : ''}<button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="cOk">${ch ? 'Salvar' : 'Criar canal'}</button></div>`,
   (m, close) => {
+    $$('input[name=ct]', m).forEach(i => i.onchange = () => { $('#cText', m).hidden = $('input[name=ct]:checked', m).value === 'voice'; });
     const ok = async () => {
       const name = $('#cName', m).value.trim(); if (!name) return;
-      if (ch) { const r = await act('channel:update', { gid, cid: ch.id, name }); if (r.ok) close(); }
-      else { const t = $('input[name=ct]:checked', m).value; const r = await act('channel:create', { gid, name, type: t }); if (r.ok) { close(); if (t === 'text') go({ kind: 'group', gid, cid: r.channel.id }); } }
+      const extra = { topic: $('#cTopic', m).value, slowmode: +$('#cSlow', m).value };
+      if (ch) { const r = await act('channel:update', { gid, cid: ch.id, name, ...extra }); if (r.ok) { close(); if ($('.gset')) drawGroupSettings(); } }
+      else { const t = $('input[name=ct]:checked', m).value; const r = await act('channel:create', { gid, name, type: t, ...extra }); if (r.ok) { close(); if ($('.gset')) drawGroupSettings(); else if (t === 'text') go({ kind: 'group', gid, cid: r.channel.id }); } }
     };
     $('#cOk', m).onclick = ok; $('#cName', m).onkeydown = e => { if (e.key === 'Enter') ok(); };
+    $('#cTopic', m).onkeydown = e => { if (e.key === 'Enter') ok(); };
     if (ch) $('#cDel', m).onclick = async () => { if (await confirmBox('Apagar canal', `Apagar #${ch.name} e todas as mensagens dele?`, 'Apagar')) { close(); act('channel:delete', { gid, cid: ch.id }); } };
   });
 }
@@ -1015,6 +1080,207 @@ function statusModal() {
     $('#csClr', m).onclick = async () => { await act('profile:update', { customStatus: '' }); close(); };
     $('#csTxt', m).onkeydown = e => { if (e.key === 'Enter') $('#csOk', m).click(); };
   });
+}
+
+/* =============== atualização (barra no topo) =============== */
+const UPD = { build: null, web: false, desk: null, hidden: false };
+function showUpd() {
+  const bar = $('#updBar'); const on = !!(UPD.web || UPD.desk) && !UPD.hidden;
+  bar.hidden = !on; document.body.classList.toggle('has-upd', on);
+  if (!on) return;
+  bar.innerHTML = `<span class="upd-t">${ic('refresh')}${UPD.desk ? `A versão <b>${esc(UPD.desk)}</b> do Discordia está pronta.` : 'Saiu uma versão nova do Discordia.'}</span>
+    <button class="upd-go" data-act="updateNow">${UPD.desk ? 'Atualizar e reiniciar' : 'Atualizar agora'}</button>
+    <button class="upd-x" id="updX" aria-label="Agora não" data-tip="Agora não">${ic('x')}</button>`;
+  $('#updX').onclick = () => { UPD.hidden = true; showUpd(); };
+}
+if (DESK && DESK.onUpdate) {
+  DESK.onUpdate(s => { if (s && s.ready) { UPD.desk = s.version; UPD.hidden = false; showUpd(); } });
+  DESK.updateGet().then(s => { if (s && s.ready) { UPD.desk = s.version; showUpd(); } }).catch(() => {});
+}
+
+/* =============== cargos de um membro, banir =============== */
+function rolePicker(g, uid, anchor) {
+  const roles = (g.roles || []).filter(r => gEditRole(g, r));
+  if (!roles.length) { toast(g.roles?.length ? 'Você não pode dar nenhum dos cargos que existem.' : 'Este grupo ainda não tem cargos. Crie em Configurações do grupo > Cargos.', true); return; }
+  const p = pop(`<div class="pop-h">Cargos de ${esc(nameOf(uid))}</div>${roles.map(r => `<button data-r="${r.id}"><span style="display:flex;gap:8px;align-items:center"><i class="role-dot" style="background:${esc(r.color || 'var(--muted)')}"></i>${esc(r.name)}</span>${(g.memberRoles?.[uid] || []).includes(r.id) ? ic('check').replace('<svg', '<svg style="width:16px;height:16px"') : ''}</button>`).join('')}`, anchor, 'menu');
+  p.onclick = async e => {
+    const b = e.target.closest('[data-r]'); if (!b) return;
+    const cur = new Set(g.memberRoles?.[uid] || []); cur.has(b.dataset.r) ? cur.delete(b.dataset.r) : cur.add(b.dataset.r);
+    const r = await act('member:roles', { gid: g.id, userId: uid, roles: [...cur] });
+    closePops(); if (r.ok && $('.gset') && gsTab === 'membros') drawGroupSettings();
+  };
+}
+function banModal(g, uid) {
+  modal(`<div class="modal-h"><h2>Banir ${esc(nameOf(uid))}</h2><p>A pessoa sai de "${esc(g.name)}" e não consegue voltar, nem com convite, até alguém revogar o banimento.</p></div>
+    <div class="modal-b"><label class="field">Motivo (opcional)<input id="bnWhy" maxlength="200" placeholder="Só a moderação vê isso"></label></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" id="bnOk">Banir</button></div>`,
+  (m, close) => { $('#bnOk', m).onclick = async () => { const r = await act('group:ban', { gid: g.id, userId: uid, reason: $('#bnWhy', m).value }, `${nameOf(uid)} foi banido.`); if (r.ok) close(); }; });
+}
+
+/* =============== configurações do grupo =============== */
+let gsGid = null, gsTab = 'geral', gsRole = null, gsSearch = '';
+function openGroupSettings(gid, tab) {
+  closeSettings(); gsGid = gid; gsTab = tab || 'geral'; gsRole = null; gsSearch = '';
+  const el = document.createElement('div'); el.className = 'settings gset'; el.setAttribute('role', 'dialog');
+  el.innerHTML = `<nav class="set-nav"><div class="set-nav-in" id="gsNav"></div></nav>
+    <div class="set-body"><div class="set-body-in" id="setBody"></div></div>
+    <div class="set-close"><button class="icon-btn" id="setX" aria-label="Fechar">${ic('x')}</button><span>ESC</span></div>`;
+  document.body.appendChild(el);
+  $('#setX').onclick = closeSettings;
+  $('#gsNav').onclick = async e => {
+    const b = e.target.closest('[data-gs]'); if (!b) return; const g = S.groups[gsGid]; if (!g) return;
+    if (b.dataset.gs === 'apagar') { if (await confirmBox('Apagar grupo', `"${g.name}" e todas as mensagens serão apagados para todo mundo. Não dá para desfazer.`, 'Apagar grupo')) { closeSettings(); act('group:delete', { gid: g.id }); } return; }
+    if (b.dataset.gs === 'sair') { if (await confirmBox('Sair do grupo', `Sair de "${g.name}"? Você pode voltar com um código de convite.`, 'Sair')) { closeSettings(); act('group:leave', { gid: g.id }); } return; }
+    gsTab = b.dataset.gs; drawGroupSettings();
+  };
+  drawGroupSettings();
+}
+function drawGroupSettings() {
+  const g = S.groups[gsGid]; if (!g) return closeSettings();
+  const tabs = [['geral', 'Visão geral', gCan(g, 'manageServer')], ['cargos', 'Cargos', gCan(g, 'manageRoles')], ['membros', 'Membros', true], ['canais', 'Canais', gCan(g, 'manageChannels')], ['convites', 'Convites', true], ['banimentos', 'Banimentos', gCan(g, 'ban')]].filter(t => t[2]);
+  if (!tabs.some(t => t[0] === gsTab)) gsTab = tabs[0][0];
+  $('#gsNav').innerHTML = `<div class="gs-nav-g">${groupIcon(g).replace('class="inner"', 'class="inner gs-nav-ic"')}<b>${esc(g.name)}</b></div>
+    ${tabs.map(([k, l]) => `<button data-gs="${k}" class="${gsTab === k ? 'active' : ''}">${l}</button>`).join('')}
+    <h4></h4>${g.ownerId === S.me.id ? '<button data-gs="apagar" class="out">Apagar grupo</button>' : '<button data-gs="sair" class="out">Sair do grupo</button>'}`;
+  const b = $('#setBody');
+  const T = { geral: gsGeral, cargos: gsCargos, membros: gsMembros, canais: gsCanais, convites: gsConvites, banimentos: gsBans };
+  T[gsTab](g, b);
+}
+
+function gsGeral(g, b) {
+  const d = { icon: g.icon || '', color: g.color || COLORS[0], banner: g.banner || null };
+  const texts = g.channels.filter(c => c.type === 'text');
+  b.innerHTML = `<h2>Visão geral</h2>
+    <div class="gs-hero" id="gsHero"></div>
+    <div class="set-card">
+      <div class="icon-pick"><div class="icon-preview" id="gPrev"></div><div style="display:grid;gap:8px;flex:1">
+        <div class="colors" id="gColors">${COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}" aria-label="Cor ${c}"></button>`).join('')}<input type="color" id="gColor" aria-label="Outra cor" value="${esc(d.color)}"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm primary" id="gImg" type="button">Enviar ícone (pode ser GIF)</button><button class="btn sm ghost" id="gClr" type="button">Usar iniciais</button></div></div></div>
+      <div class="emoji-grid" id="gEmo">${GROUP_EMOJIS.map(e => `<button type="button" data-e="${e}">${e}</button>`).join('')}</div>
+      <label class="field">Nome do grupo<input id="gName" maxlength="40" value="${esc(g.name)}"></label>
+      <label class="field">Descrição<textarea id="gDesc" maxlength="300" placeholder="Sobre o que é este grupo? Aparece aqui e no cartão do grupo.">${esc(g.description || '')}</textarea></label>
+    </div>
+    <div class="set-card"><h3>Banner</h3><p class="muted small" style="margin:0">Aparece no topo da lista de canais, como no Discord. Pode ser imagem ou GIF animado.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn sm primary" id="gBan">Enviar banner</button><input type="color" id="gBanC" value="${d.banner && d.banner.startsWith('#') ? esc(d.banner) : '#6c7cff'}" title="Usar uma cor"><button class="btn sm ghost" id="gBanX">Sem banner</button></div></div>
+    <div class="set-card"><h3>Boas-vindas</h3>
+      ${setRow('Avisar quando alguém entrar', 'Manda uma mensagem divertida quando uma pessoa entra no grupo.', sw('gSys', g.systemJoin !== false))}
+      <label class="field">Canal das boas-vindas<select id="gWel"><option value="">Primeiro canal de texto</option>${texts.map(c => `<option value="${c.id}" ${g.welcomeCid === c.id ? 'selected' : ''}>#${esc(c.name)}</option>`).join('')}</select></label>
+    </div>
+    <div class="gs-save"><button class="btn primary" id="gSave">Salvar alterações</button></div>`;
+  const draw = () => {
+    const name = $('#gName').value || g.name;
+    const p = $('#gPrev');
+    if (isImg(d.icon)) { p.style.background = `center/cover url('${d.icon}')`; p.textContent = ''; }
+    else { p.style.background = d.color; p.textContent = d.icon || name.split(/\s+/).map(w => w[0]).join('').slice(0, 3).toUpperCase(); }
+    $$('#gColors button').forEach(x => x.classList.toggle('on', x.dataset.c === d.color));
+    const ban = d.banner ? (isImg(d.banner) ? `background-image:url('${esc(d.banner)}')` : `background:${esc(d.banner)}`) : `background:linear-gradient(135deg, ${esc(d.color)}, color-mix(in srgb, ${esc(d.color)} 40%, #000))`;
+    const icon = isImg(d.icon) ? `<div class="gs-hero-ic" style="background:center/cover url('${esc(d.icon)}')"></div>` : `<div class="gs-hero-ic" style="background:${esc(d.color)}">${esc(d.icon || name.split(/\s+/).map(w => w[0]).join('').slice(0, 3).toUpperCase())}</div>`;
+    $('#gsHero').innerHTML = `<div class="gs-hero-b" style="${ban}"></div><div class="gs-hero-in">${icon}<div><b>${esc(name)}</b><span>${g.members.length} ${g.members.length === 1 ? 'membro' : 'membros'}</span></div></div>${$('#gDesc').value ? `<p>${esc($('#gDesc').value)}</p>` : ''}`;
+  };
+  $('#gColors').onclick = e => { const x = e.target.closest('[data-c]'); if (x) { d.color = x.dataset.c; if (isImg(d.icon)) d.icon = ''; draw(); } };
+  $('#gColor').oninput = e => { d.color = e.target.value; if (isImg(d.icon)) d.icon = ''; draw(); };
+  $('#gEmo').onclick = e => { const x = e.target.closest('[data-e]'); if (x) { d.icon = x.dataset.e; draw(); } };
+  $('#gName').oninput = draw; $('#gDesc').oninput = draw;
+  $('#gClr').onclick = () => { d.icon = ''; draw(); };
+  $('#gImg').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 256, square: true }); if (url) { d.icon = url; draw(); } };
+  $('#gBan').onclick = async () => { const f = await pickFile(); if (!f) return; toast('Enviando banner...'); const url = await uploadImage(f, { max: 1200 }); if (url) { d.banner = url; draw(); } };
+  $('#gBanC').oninput = e => { d.banner = e.target.value; draw(); };
+  $('#gBanX').onclick = () => { d.banner = null; draw(); };
+  $('#gSave').onclick = () => act('group:update', { gid: g.id, name: $('#gName').value.trim() || g.name, icon: d.icon, color: d.color, description: $('#gDesc').value, banner: d.banner, systemJoin: $('#gSys').checked, welcomeCid: $('#gWel').value || null }, 'Grupo salvo.');
+  draw();
+}
+
+function gsCargos(g, b) {
+  const roles = g.roles || [];
+  if (!roles.some(r => r.id === gsRole)) gsRole = roles[0]?.id || null;
+  const r = roles.find(x => x.id === gsRole);
+  const count = role => g.members.filter(m => (g.memberRoles?.[m] || []).includes(role.id)).length;
+  const can = r && gEditRole(g, r);
+  b.innerHTML = `<h2>Cargos</h2><p class="muted" style="margin-top:-6px">Cargos dão cor ao nome e permissões. Quem está mais acima na lista manda em quem está abaixo.</p>
+    <div class="gs-roles">
+      <div class="gs-rlist">
+        <button class="btn primary sm" id="rNew">${ic('plus')}Criar cargo</button>
+        ${roles.map(x => `<button class="gs-ritem ${x.id === gsRole ? 'on' : ''}" data-r="${x.id}"><i class="role-dot" style="background:${esc(x.color || 'var(--muted)')}"></i><span>${esc(x.name)}</span><small>${count(x)}</small></button>`).join('')}
+        <div class="gs-every"><b>@todos</b><span>Todo mundo pode conversar, mandar imagens, entrar em calls e convidar amigos.</span></div>
+      </div>
+      <div class="set-card gs-red">${!r ? `<div class="empty" style="padding:30px 10px"><div class="ill">🛡️</div><p>Crie o primeiro cargo, tipo "Moderador" ou "Amigos de longa data".</p></div>` : `
+        ${can ? '' : '<p class="gs-lock">🔒 Este cargo está no mesmo nível ou acima do seu. Só dá para ver.</p>'}
+        <label class="field">Nome do cargo<input id="rName" maxlength="32" value="${esc(r.name)}" ${can ? '' : 'disabled'}></label>
+        <div class="field">Cor<div class="colors" id="rColors"><button type="button" data-c="" class="${!r.color ? 'on' : ''} no-color" title="Sem cor">✕</button>${COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}" class="${r.color === c ? 'on' : ''}"></button>`).join('')}<input type="color" id="rColor" value="${esc(r.color || '#6c7cff')}" ${can ? '' : 'disabled'}></div></div>
+        ${setRow('Mostrar separado', 'Quem tem este cargo aparece num grupo próprio na lista de membros.', sw('rHoist', r.hoist).replace('<input', `<input ${can ? '' : 'disabled'}`))}
+        <h3 style="margin-top:8px">Permissões</h3>
+        ${PERM_INFO.map(([k, l, dsc]) => setRow(l, dsc, sw('rp-' + k, r.perms.includes(k)).replace('<input', `<input data-perm="${k}" ${can && (g.ownerId === S.me.id || gCan(g, k)) ? '' : 'disabled'}`))).join('')}
+        ${can ? `<div class="gs-save"><button class="btn sm" id="rUp" data-tip="Subir">${ic('up')}</button><button class="btn sm" id="rDown" data-tip="Descer">${ic('down')}</button><button class="btn danger sm" id="rDel" style="margin-right:auto">Apagar cargo</button><button class="btn primary" id="rSave">Salvar cargo</button></div>` : ''}`}
+      </div>
+    </div>`;
+  $('#rNew').onclick = async () => { const x = await act('role:create', { gid: g.id, name: 'novo cargo', color: COLORS[(roles.length + 2) % COLORS.length] }); if (x.ok) { gsRole = x.role.id; drawGroupSettings(); setTimeout(() => { $('#rName')?.select(); }, 30); } };
+  $$('.gs-ritem').forEach(x => x.onclick = () => { gsRole = x.dataset.r; drawGroupSettings(); });
+  if (!r || !can) return;
+  let color = r.color;
+  $('#rColors').onclick = e => { const x = e.target.closest('[data-c]'); if (!x) return; color = x.dataset.c || null; $$('#rColors button').forEach(y => y.classList.toggle('on', y === x)); };
+  $('#rColor').oninput = e => { color = e.target.value; $$('#rColors button').forEach(y => y.classList.remove('on')); };
+  $('#rSave').onclick = async () => {
+    const perms = $$('[data-perm]').filter(i => i.checked).map(i => i.dataset.perm);
+    const x = await act('role:update', { gid: g.id, rid: r.id, name: $('#rName').value, color, hoist: $('#rHoist').checked, perms }, 'Cargo salvo.');
+    if (x.ok) drawGroupSettings();
+  };
+  $('#rUp').onclick = async () => { await act('role:move', { gid: g.id, rid: r.id, dir: -1 }); drawGroupSettings(); };
+  $('#rDown').onclick = async () => { await act('role:move', { gid: g.id, rid: r.id, dir: 1 }); drawGroupSettings(); };
+  $('#rDel').onclick = async () => { if (await confirmBox('Apagar cargo', `Apagar o cargo "${r.name}"? Quem tem ele perde a cor e as permissões dele.`, 'Apagar')) { await act('role:delete', { gid: g.id, rid: r.id }); gsRole = null; drawGroupSettings(); } };
+}
+
+function gsMembros(g, b) {
+  const q = gsSearch.toLowerCase();
+  const list = g.members.filter(id => !q || nameOf(id).toLowerCase().includes(q) || user(id).username.includes(q))
+    .sort((a, c) => gRank(g, a) - gRank(g, c) || nameOf(a).localeCompare(nameOf(c)));
+  const canRoles = gCan(g, 'manageRoles'), canKick = gCan(g, 'kick'), canBan = gCan(g, 'ban');
+  b.innerHTML = `<h2>Membros <span class="muted" style="font-weight:400;font-size:.6em">${g.members.length}</span></h2>
+    <input class="input gs-search" id="mSearch" placeholder="Procurar membro" value="${esc(gsSearch)}">
+    <div class="gs-mems">${list.map(id => {
+      const u = user(id), roles = gRoles(g, id), me = id === S.me.id, over = me || gAbove(g, id);
+      return `<div class="gs-mem">${av(id, 40)}<div class="info"><b style="color:${esc(nameColor(id, g))}">${esc(u.displayName)}${g.ownerId === id ? ' <span class="crown" title="Dono">👑</span>' : ''}</b><span>@${esc(u.username)}</span>
+        <div class="chips">${roles.map(r => `<span class="role-chip"><i style="background:${esc(r.color || 'var(--muted)')}"></i>${esc(r.name)}${canRoles && over && gEditRole(g, r) ? `<button data-unrole="${r.id}" data-u="${id}" aria-label="Tirar cargo">✕</button>` : ''}</span>`).join('')}
+        ${canRoles && over && (g.roles || []).length ? `<button class="role-chip add" data-addrole="${id}">+ cargo</button>` : ''}</div></div>
+        <div class="acts">${!me && over && canKick ? `<button class="btn sm" data-gkick="${id}">Expulsar</button>` : ''}${!me && over && canBan ? `<button class="btn sm danger" data-gban="${id}">Banir</button>` : ''}</div></div>`;
+    }).join('') || '<p class="muted">Ninguém com esse nome.</p>'}</div>`;
+  const s = $('#mSearch'); s.oninput = () => { gsSearch = s.value; const pos = s.selectionStart; drawGroupSettings(); const n = $('#mSearch'); n.focus(); n.setSelectionRange(pos, pos); };
+  $$('[data-addrole]').forEach(x => x.onclick = e => { e.stopPropagation(); rolePicker(g, x.dataset.addrole, x); });
+  $$('[data-unrole]').forEach(x => x.onclick = async () => { const cur = (g.memberRoles?.[x.dataset.u] || []).filter(id => id !== x.dataset.unrole); await act('member:roles', { gid: g.id, userId: x.dataset.u, roles: cur }); drawGroupSettings(); });
+  $$('[data-gkick]').forEach(x => x.onclick = async () => { const id = x.dataset.gkick; if (await confirmBox('Expulsar do grupo', `Expulsar ${nameOf(id)}? A pessoa pode voltar com um convite.`, 'Expulsar')) act('group:kick', { gid: g.id, userId: id }, 'Membro expulso.'); });
+  $$('[data-gban]').forEach(x => x.onclick = () => banModal(g, x.dataset.gban));
+}
+
+function gsCanais(g, b) {
+  const sec = (type, title) => {
+    const list = g.channels.filter(c => c.type === type);
+    return `<div class="set-card"><div class="gs-ch-h"><h3>${title}</h3><button class="btn sm primary" data-newch="${type}">${ic('plus')}Criar</button></div>
+      ${list.map((c, i) => `<div class="gs-ch">${ic(type === 'voice' ? 'voice' : 'hash', 'ch')}<div class="info"><b>${esc(c.name)}</b>${c.topic || c.slowmode ? `<span>${esc(c.topic || '')}${c.slowmode ? ` ${c.topic ? '· ' : ''}🐢 ${esc(slowLabel(c.slowmode))}` : ''}</span>` : ''}${g.welcomeCid === c.id ? '<span>👋 canal das boas-vindas</span>' : ''}</div>
+        <button class="icon-btn" data-mv="${c.id}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Subir">${ic('up')}</button><button class="icon-btn" data-mv="${c.id}" data-dir="1" ${i === list.length - 1 ? 'disabled' : ''} aria-label="Descer">${ic('down')}</button>
+        <button class="btn sm" data-edch="${c.id}">Editar</button></div>`).join('')}</div>`;
+  };
+  b.innerHTML = `<h2>Canais</h2><p class="muted" style="margin-top:-6px">Organize a ordem, mude nomes, tópicos e o modo lento.</p>${sec('text', 'Canais de texto')}${sec('voice', 'Canais de voz')}`;
+  $$('[data-newch]').forEach(x => x.onclick = () => channelModal(g.id, x.dataset.newch));
+  $$('[data-edch]').forEach(x => x.onclick = () => channelModal(g.id, null, g.channels.find(c => c.id === x.dataset.edch)));
+  $$('[data-mv]').forEach(x => x.onclick = () => act('channel:move', { gid: g.id, cid: x.dataset.mv, dir: +x.dataset.dir }));
+}
+
+function gsConvites(g, b) {
+  b.innerHTML = `<h2>Convites</h2>
+    <div class="set-card"><h3>Código do grupo</h3><p class="muted small" style="margin:0">Quem tem conta no Discordia entra pela bússola na barra da esquerda.</p>
+      <div class="code-box gs-code"><code>${esc(g.invite)}</code><button class="btn primary sm" id="ivCopy">Copiar</button>${gCan(g, 'manageServer') ? '<button class="btn sm ghost" id="ivNew">Gerar outro</button>' : ''}</div>
+      ${gCan(g, 'manageServer') ? '<p class="muted small" style="margin:0">Gerar outro desativa o código antigo na hora.</p>' : ''}</div>
+    <div class="set-card"><h3>Adicionar amigos direto</h3><p class="muted small" style="margin:0">Seus amigos entram sem precisar do código.</p><div><button class="btn" id="ivFriends">${ic('users')}Escolher amigos</button></div></div>`;
+  $('#ivCopy').onclick = () => copy(g.invite, 'Código copiado.');
+  if ($('#ivNew')) $('#ivNew').onclick = async () => { if (await confirmBox('Gerar outro código', 'O código atual para de funcionar. Quem já está no grupo continua.', 'Gerar', false)) act('group:update', { gid: g.id, newInvite: true }, 'Código novo gerado.'); };
+  $('#ivFriends').onclick = () => inviteModal(g);
+}
+
+function gsBans(g, b) {
+  const bans = (g.bans || []).slice().sort((a, c) => c.ts - a.ts);
+  b.innerHTML = `<h2>Banimentos <span class="muted" style="font-weight:400;font-size:.6em">${bans.length}</span></h2>
+    ${bans.length ? `<div class="set-card">${bans.map(x => `<div class="gs-mem">${av(x.uid, 40, false)}<div class="info"><b>${esc(nameOf(x.uid))}</b><span>@${esc(user(x.uid).username)} · banido por ${esc(nameOf(x.by))} em ${new Date(x.ts).toLocaleDateString('pt-BR')}</span>${x.reason ? `<span>Motivo: ${esc(x.reason)}</span>` : ''}</div><div class="acts"><button class="btn sm" data-unban="${x.uid}">Revogar</button></div></div>`).join('')}</div>`
+      : `<div class="empty"><div class="ill">🕊️</div><p>Ninguém banido. Paz no grupo.</p></div>`}`;
+  $$('[data-unban]').forEach(x => x.onclick = async () => { if (await confirmBox('Revogar banimento', `${nameOf(x.dataset.unban)} vai poder voltar com um convite.`, 'Revogar', false)) act('group:unban', { gid: g.id, userId: x.dataset.unban }, 'Banimento revogado.'); });
 }
 
 /* =============== configurações =============== */
@@ -1049,18 +1315,29 @@ function drawSettings() {
   $$('.set-nav [data-st]').forEach(b => b.classList.toggle('active', b.dataset.st === setTab));
   const b = $('#setBody'); stopMicTest();
   if (setTab === 'perfil') {
-    const u = S.me; let draft = { displayName: u.displayName, bio: u.bio, color: u.color, avatar: u.avatar, banner: u.banner };
+    const u = S.me; let draft = { displayName: u.displayName, bio: u.bio, color: u.color, avatar: u.avatar, banner: u.banner, theme: u.theme || null };
+    const TH = [['#2b1055', '#7597de'], ['#ff6b8b', '#f5b83d'], ['#0f2027', '#2c5364'], ['#3ee0c5', '#6c7cff'], ['#1d1d1d', '#b07cff'], ['#ff8a4c', '#e0517f']];
     b.innerHTML = `<h2>Meu perfil</h2><div class="profile-grid"><div class="set-card">
       <label class="field">Nome de exibição<input id="pName" maxlength="32" value="${esc(u.displayName)}"></label>
-      <div class="field">Foto de perfil<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm primary" id="pAv">Enviar foto</button><button class="btn sm ghost" id="pAvX">Remover foto</button></div></div>
+      <label class="field">Pronomes<input id="pPro" maxlength="40" value="${esc(u.pronouns || '')}" placeholder="ex.: ele/dele, ela/dela"></label>
+      <div class="field">Foto de perfil<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm primary" id="pAv">Enviar foto ou GIF</button><button class="btn sm ghost" id="pAvX">Remover foto</button></div><span class="muted small">GIF animado continua animado. Até 8 MB.</span></div>
       <div class="field">Cor do perfil<div class="colors" id="pColors">${COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}"></button>`).join('')}<input type="color" id="pColor" value="${esc(u.color)}"></div></div>
-      <div class="field">Banner<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn sm" id="pBan">Enviar imagem</button><input type="color" id="pBanC" value="${u.banner && u.banner.startsWith('#') ? esc(u.banner) : '#6c7cff'}" title="Cor do banner"><button class="btn sm ghost" id="pBanX">Usar cor do perfil</button></div></div>
-      <label class="field">Sobre mim<textarea id="pBio" maxlength="190" placeholder="Conte um pouco sobre você">${esc(u.bio)}</textarea></label>
+      <div class="field">Banner<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn sm" id="pBan">Enviar imagem ou GIF</button><input type="color" id="pBanC" value="${u.banner && u.banner.startsWith('#') ? esc(u.banner) : '#6c7cff'}" title="Cor do banner"><button class="btn sm ghost" id="pBanX">Usar cor do perfil</button></div></div>
+      <div class="field">Tema do perfil<div class="themes-mini" id="pTh"><button type="button" data-th="" class="none" title="Sem tema">✕</button>${TH.map(t => `<button type="button" data-th="${t.join(',')}" style="background:linear-gradient(170deg, ${t[0]}, ${t[1]})"></button>`).join('')}
+        <span class="th-custom"><input type="color" id="pTh1" value="${esc(draft.theme?.[0] || '#2b1055')}" title="Cor de cima"><input type="color" id="pTh2" value="${esc(draft.theme?.[1] || '#7597de')}" title="Cor de baixo"></span></div><span class="muted small">Pinta o fundo do seu cartão de perfil com duas cores.</span></div>
+      <label class="field">Sobre mim<textarea id="pBio" maxlength="190" placeholder="Conte um pouco sobre você. Dá para usar **negrito**, *itálico* e links.">${esc(u.bio)}</textarea></label>
       <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn primary" id="pSave">Salvar perfil</button></div>
     </div><div><p class="muted small" style="margin:0 0 8px">PRÉVIA</p><div id="pPrev"></div></div></div>`;
-    const prev = () => { const old = S.users[u.id]; S.users[u.id] = { ...u, ...draft, displayName: $('#pName').value || u.username, bio: $('#pBio').value }; $('#pPrev').innerHTML = profileCard(u.id); S.users[u.id] = old; $$('#pColors button').forEach(x => x.classList.toggle('on', x.dataset.c === draft.color)); };
+    const prev = () => {
+      const old = S.users[u.id]; S.users[u.id] = { ...u, ...draft, displayName: $('#pName').value || u.username, bio: $('#pBio').value, pronouns: $('#pPro').value };
+      $('#pPrev').innerHTML = profileCard(u.id); S.users[u.id] = old;
+      $$('#pColors button').forEach(x => x.classList.toggle('on', x.dataset.c === draft.color));
+      $$('#pTh [data-th]').forEach(x => x.classList.toggle('on', x.dataset.th === (draft.theme ? draft.theme.join(',') : '')));
+    };
     prev();
-    ['pName', 'pBio'].forEach(id => $('#' + id).oninput = prev);
+    ['pName', 'pBio', 'pPro'].forEach(id => $('#' + id).oninput = prev);
+    $('#pTh').onclick = e => { const x = e.target.closest('[data-th]'); if (!x) return; draft.theme = x.dataset.th ? x.dataset.th.split(',') : null; if (draft.theme) { $('#pTh1').value = draft.theme[0]; $('#pTh2').value = draft.theme[1]; } prev(); };
+    ['pTh1', 'pTh2'].forEach(id => $('#' + id).oninput = () => { draft.theme = [$('#pTh1').value, $('#pTh2').value]; prev(); });
     $('#pColors').onclick = e => { const x = e.target.closest('[data-c]'); if (x) { draft.color = x.dataset.c; prev(); } };
     $('#pColor').oninput = e => { draft.color = e.target.value; prev(); };
     $('#pAv').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 384, square: true }); if (url) { draft.avatar = url; prev(); } };
@@ -1068,7 +1345,7 @@ function drawSettings() {
     $('#pBan').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 1200 }); if (url) { draft.banner = url; prev(); } };
     $('#pBanC').oninput = e => { draft.banner = e.target.value; prev(); };
     $('#pBanX').onclick = () => { draft.banner = null; prev(); };
-    $('#pSave').onclick = () => act('profile:update', { ...draft, displayName: $('#pName').value, bio: $('#pBio').value }, 'Perfil salvo.');
+    $('#pSave').onclick = () => act('profile:update', { ...draft, displayName: $('#pName').value, bio: $('#pBio').value, pronouns: $('#pPro').value }, 'Perfil salvo.');
   }
   else if (setTab === 'conta') {
     b.innerHTML = `<h2>Conta</h2><div class="set-card">${setRow('Nome de usuário', 'É assim que seus amigos te encontram.', `<span class="kbd">@${esc(S.me.username)}</span>`)}</div>
@@ -1186,8 +1463,9 @@ function drawSettings() {
         <div class="set-card"><h3>Servidor</h3>
           ${setRow(host ? 'Este computador é o servidor' : 'Conectado a um servidor', host ? 'As contas e mensagens ficam guardadas neste PC.' : esc(i.server), host ? '<button class="btn primary" id="dPanel">Painel do servidor</button>' : '')}
           ${host && i.tunnel.url ? setRow('Link público', esc(i.tunnel.url), '<button class="btn" id="dCopy">Copiar</button>') : ''}
-          ${setRow('Trocar de servidor', 'Volta para a tela inicial do Discordia.', '<button class="btn danger" id="dReset">Trocar</button>')}
+          ${i.fixed ? '' : setRow('Trocar de servidor', 'Volta para a tela inicial do Discordia.', '<button class="btn danger" id="dReset">Trocar</button>')}
         </div>
+        ${DESK.updateCheck ? `<div class="set-card"><h3>Atualizações</h3>${setRow('Discordia ' + esc(i.version), i.update && i.update.ready ? `A versão ${esc(i.update.version)} está pronta para instalar.` : 'O app procura versões novas sozinho a cada 30 minutos.', i.update && i.update.ready ? '<button class="btn primary" id="dUpdGo">Atualizar e reiniciar</button>' : '<button class="btn" id="dUpd">Procurar agora</button>')}<p class="muted small" id="dUpdMsg" style="margin:0"></p></div>` : ''}
         <div class="set-card"><h3>Janela</h3>
           ${i.platform !== 'linux' ? setRow('Iniciar com o Windows', 'Abre escondido perto do relógio quando o PC liga.', sw('dAuto', i.settings.autoStart)) : ''}
           ${setRow('Fechar para a bandeja', 'O X esconde a janela e o Discordia continua recebendo mensagens e chamadas.', sw('dTray', i.settings.minimizeToTray))}
@@ -1196,7 +1474,15 @@ function drawSettings() {
         <div class="set-card"><p class="muted small" style="margin:0">Discordia ${esc(i.version)} · F11 tela cheia · F5 recarregar</p></div>`;
       if ($('#dPanel')) $('#dPanel').onclick = () => DESK.panel();
       if ($('#dCopy')) $('#dCopy').onclick = () => { DESK.copy(i.tunnel.url); toast('Link copiado.'); };
-      $('#dReset').onclick = async () => { if (await confirmBox('Trocar de servidor', host ? 'O servidor deste PC vai desligar e seus amigos perdem a conexão até você hospedar de novo. Os dados continuam guardados.' : 'Você vai escolher outro servidor na tela inicial.', 'Trocar')) DESK.reset(); };
+      if ($('#dUpdGo')) $('#dUpdGo').onclick = () => DESK.updateInstall();
+      if ($('#dUpd')) $('#dUpd').onclick = async () => {
+        $('#dUpd').disabled = true; $('#dUpdMsg').textContent = 'Procurando...';
+        const s = await DESK.updateCheck();
+        $('#dUpd').disabled = false;
+        $('#dUpdMsg').textContent = s.ready ? `Versão ${s.version} baixada. Use o botão no topo para atualizar.` : s.state === 'em-dia' ? 'Você já está na versão mais nova.' : s.state === 'erro' ? 'Não deu para procurar: ' + s.error : s.state === 'baixando' ? 'Baixando a versão nova...' : 'Atualização automática só funciona no app instalado.';
+        if (s.ready) { UPD.desk = s.version; showUpd(); }
+      };
+      if ($('#dReset')) $('#dReset').onclick = async () => { if (await confirmBox('Trocar de servidor', host ? 'O servidor deste PC vai desligar e seus amigos perdem a conexão até você hospedar de novo. Os dados continuam guardados.' : 'Você vai escolher outro servidor na tela inicial.', 'Trocar')) DESK.reset(); };
       if ($('#dAuto')) $('#dAuto').onchange = e => DESK.setSettings({ autoStart: e.target.checked });
       $('#dTray').onchange = e => DESK.setSettings({ minimizeToTray: e.target.checked });
       $('#dMin').onchange = e => DESK.setSettings({ startMinimized: e.target.checked });
@@ -1519,12 +1805,13 @@ const A = {
   groupMenu: el => {
     const g = S.groups[S.view.gid]; const own = g.ownerId === S.me.id;
     const p = pop(`<button data-m="inv">Convidar pessoas ${ic('users').replace('<svg', '<svg style="width:16px;height:16px"')}</button><button data-m="code">Copiar código de convite</button>
-      ${own ? '<hr><button data-m="set">Configurações do grupo</button><button data-m="ch">Criar canal</button>' : ''}<hr>
-      ${own ? '<button data-m="del" class="danger">Apagar grupo</button>' : ''}<button data-m="leave" class="danger">Sair do grupo</button>`, el, 'menu');
+      <hr><button data-m="set">${gManager(g) ? 'Configurações do grupo' : 'Membros e convites'} ${ic('gear').replace('<svg', '<svg style="width:16px;height:16px"')}</button>
+      ${gCan(g, 'manageRoles') ? '<button data-m="roles">Cargos</button>' : ''}${gCan(g, 'manageChannels') ? '<button data-m="ch">Criar canal</button>' : ''}<hr>
+      ${own ? '<button data-m="del" class="danger">Apagar grupo</button>' : '<button data-m="leave" class="danger">Sair do grupo</button>'}`, el, 'menu');
     p.onclick = async e => {
       const m = e.target.closest('[data-m]')?.dataset.m; if (!m) return; closePops();
       if (m === 'inv') inviteModal(g); if (m === 'code') copy(g.invite, 'Código copiado.');
-      if (m === 'set') groupModal(g); if (m === 'ch') channelModal(g.id, 'text');
+      if (m === 'set') openGroupSettings(g.id); if (m === 'roles') openGroupSettings(g.id, 'cargos'); if (m === 'ch') channelModal(g.id, 'text');
       if (m === 'del' && await confirmBox('Apagar grupo', `"${g.name}" e todas as mensagens serão apagados para todo mundo.`, 'Apagar grupo')) act('group:delete', { gid: g.id });
       if (m === 'leave' && await confirmBox('Sair do grupo', `Sair de "${g.name}"? Você pode voltar com um código de convite.`, 'Sair')) act('group:leave', { gid: g.id });
     };
@@ -1537,7 +1824,11 @@ const A = {
   accept: el => { closePops(); act('friend:respond', { from: el.dataset.id, accept: true }, 'Agora vocês são amigos!'); },
   decline: el => act('friend:respond', { from: el.dataset.id, accept: false }),
   cancelReq: el => act('friend:cancel', { to: el.dataset.id }),
-  kick: async el => { closePops(); const g = S.groups[S.view.gid]; if (await confirmBox('Remover do grupo', `Remover ${nameOf(el.dataset.id)} de "${g.name}"?`, 'Remover')) act('group:kick', { gid: g.id, userId: el.dataset.id }); },
+  kick: async el => { closePops(); const g = curGroup(); if (g && await confirmBox('Expulsar do grupo', `Expulsar ${nameOf(el.dataset.id)} de "${g.name}"? A pessoa pode voltar com um convite.`, 'Expulsar')) act('group:kick', { gid: g.id, userId: el.dataset.id }, 'Membro expulso.'); },
+  ban: el => { closePops(); const g = curGroup(); if (g) banModal(g, el.dataset.id); },
+  memberRoles: el => { const g = curGroup(); if (g) rolePicker(g, el.dataset.id, el); },
+  groupSettings: () => { const g = curGroup(); if (g) openGroupSettings(g.id); },
+  updateNow: () => { if (UPD.desk && DESK?.updateInstall) DESK.updateInstall(); else location.reload(); },
   friendMenu: (el, e) => {
     e.stopPropagation(); const id = el.dataset.id;
     const p = pop(`<button data-m="msg">Mensagem</button><button data-m="call">Ligar</button><button data-m="vid">Chamada de vídeo</button><hr><button data-m="rm" class="danger">Desfazer amizade</button>`, el, 'menu');

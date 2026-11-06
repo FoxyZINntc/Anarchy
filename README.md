@@ -14,7 +14,10 @@ Chat com amigos, grupos com canais de texto e voz, calls, câmera e compartilham
 - Contas com usuário e senha, perfil com foto, banner, bio e status
 - Amigos: pedidos, aceitar, recusar, remover
 - Mensagens diretas e canais de grupo: imagens, reações, respostas, edição, @menções, formatação, "digitando..."
-- Grupos com ícone, cor, código de convite e canais de texto e de voz
+- Grupos com ícone (pode ser GIF), banner, descrição, código de convite e canais de texto e de voz
+- Configurações do grupo como no Discord: cargos com cor e permissões (administrador, gerenciar grupo, canais, cargos, expulsar, banir, gerenciar mensagens), cargos separados na lista de membros, banimentos, mensagem de boas-vindas, tópico e modo lento nos canais, ordem dos canais
+- Perfil com foto e banner em GIF animado, pronomes e tema de duas cores
+- Barra "Atualizar" no topo: aparece quando o servidor ganha uma interface nova ou sai uma versão nova do app (o app baixa sozinho pelo GitHub Releases)
 - Calls em salas de voz e ligação direta com toque
 - Câmera e compartilhamento de tela (com som no Windows)
 - 10 temas, cor de destaque, 8 fontes, tamanho do texto, balões ou lista, fundo personalizado, aperte-para-falar, supressão de ruído e mais

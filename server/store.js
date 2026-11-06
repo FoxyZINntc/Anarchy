@@ -6,38 +6,46 @@ const path = require('path');
 
 const EMPTY = () => ({ users: {}, sessions: {}, friends: {}, requests: [], groups: {}, dms: {}, messages: {} });
 
+// campos que vão na coluna "extra" (JSON) de cada tabela
+const USER_X = ['pronouns', 'theme'];
+const GROUP_X = ['description', 'banner', 'roles', 'memberRoles', 'bans', 'welcomeCid', 'systemJoin'];
+const CHAN_X = ['topic', 'slowmode'];
+const MSG_X = ['system'];
+const pack = (o, keys) => { const x = {}; for (const k of keys) if (o[k] !== undefined && o[k] !== null) x[k] = o[k]; return x; };
+const unpack = (x, keys) => { const o = {}; if (x && typeof x === 'object') for (const k of keys) if (x[k] !== undefined) o[k] = x[k]; return o; };
+
 /* ---------- tabelas: como o banco em memória vira linhas ---------- */
 const TABLES = [
   { name: 'usuarios', key: ['id'], rows: db => Object.values(db.users).map(u => ({
     id: u.id, username: u.username, display_name: u.displayName, salt: u.salt, pass_hash: u.passHash, color: u.color || null,
-    banner: u.banner || null, avatar: u.avatar || null, bio: u.bio || '', status: u.status || 'online', custom_status: u.customStatus || '', created_at: u.createdAt || null })) },
+    banner: u.banner || null, avatar: u.avatar || null, bio: u.bio || '', status: u.status || 'online', custom_status: u.customStatus || '', created_at: u.createdAt || null, extra: pack(u, USER_X) })) },
   { name: 'sessoes', key: ['token'], rows: db => Object.entries(db.sessions).map(([token, user_id]) => ({ token, user_id })) },
-  { name: 'grupos', key: ['id'], rows: db => Object.values(db.groups).map(g => ({ id: g.id, name: g.name, icon: g.icon || null, color: g.color || null, owner_id: g.ownerId, invite: g.invite, created_at: g.createdAt || null })) },
-  { name: 'canais', key: ['id'], rows: db => Object.values(db.groups).flatMap(g => g.channels.map((c, i) => ({ id: c.id, group_id: g.id, name: c.name, type: c.type, position: i }))) },
+  { name: 'grupos', key: ['id'], rows: db => Object.values(db.groups).map(g => ({ id: g.id, name: g.name, icon: g.icon || null, color: g.color || null, owner_id: g.ownerId, invite: g.invite, created_at: g.createdAt || null, extra: pack(g, GROUP_X) })) },
+  { name: 'canais', key: ['id'], rows: db => Object.values(db.groups).flatMap(g => g.channels.map((c, i) => ({ id: c.id, group_id: g.id, name: c.name, type: c.type, position: i, extra: pack(c, CHAN_X) }))) },
   { name: 'grupo_membros', key: ['group_id', 'user_id'], rows: db => Object.values(db.groups).flatMap(g => g.members.map(m => ({ group_id: g.id, user_id: m }))) },
   { name: 'amizades', key: ['user_id', 'friend_id'], rows: db => Object.entries(db.friends).flatMap(([u, list]) => list.map(f => ({ user_id: u, friend_id: f }))) },
   { name: 'pedidos_amizade', key: ['from_id', 'to_id'], rows: db => db.requests.map(r => ({ from_id: r.from, to_id: r.to, ts: r.ts || null })) },
   { name: 'conversas', key: ['id'], rows: db => Object.values(db.dms).map(d => ({ id: d.id, members: d.members, created_at: d.createdAt || null })) },
   { name: 'mensagens', key: ['id'], rows: db => Object.values(db.messages).flat().map(m => ({
     id: m.id, cid: m.cid, author_id: m.authorId, content: m.content || '', image: m.image || null, ts: m.ts, edited: m.edited || null,
-    reply_to: m.replyTo || null, reactions: m.reactions || {} })) }
+    reply_to: m.replyTo || null, reactions: m.reactions || {}, extra: pack(m, MSG_X) })) }
 ];
 const keyOf = (t, row) => t.key.map(k => row[k]).join('\u0001');
 
 /* ---------- linhas do Supabase → banco em memória ---------- */
 function build(data) {
   const db = EMPTY();
-  for (const u of data.usuarios) db.users[u.id] = { id: u.id, username: u.username, displayName: u.display_name, salt: u.salt, passHash: u.pass_hash, color: u.color, banner: u.banner, avatar: u.avatar, bio: u.bio || '', status: u.status || 'online', customStatus: u.custom_status || '', createdAt: num(u.created_at) };
+  for (const u of data.usuarios) db.users[u.id] = { id: u.id, username: u.username, displayName: u.display_name, salt: u.salt, passHash: u.pass_hash, color: u.color, banner: u.banner, avatar: u.avatar, bio: u.bio || '', status: u.status || 'online', customStatus: u.custom_status || '', createdAt: num(u.created_at), ...unpack(u.extra, USER_X) };
   for (const s of data.sessoes) db.sessions[s.token] = s.user_id;
   const chans = {};
-  for (const c of data.canais.sort((a, b) => a.position - b.position)) (chans[c.group_id] = chans[c.group_id] || []).push({ id: c.id, name: c.name, type: c.type });
+  for (const c of data.canais.sort((a, b) => a.position - b.position)) (chans[c.group_id] = chans[c.group_id] || []).push({ id: c.id, name: c.name, type: c.type, ...unpack(c.extra, CHAN_X) });
   const mems = {};
   for (const m of data.grupo_membros) (mems[m.group_id] = mems[m.group_id] || []).push(m.user_id);
-  for (const g of data.grupos) db.groups[g.id] = { id: g.id, name: g.name, icon: g.icon, color: g.color, ownerId: g.owner_id, invite: g.invite, createdAt: num(g.created_at), channels: chans[g.id] || [], members: mems[g.id] || [] };
+  for (const g of data.grupos) db.groups[g.id] = { id: g.id, name: g.name, icon: g.icon, color: g.color, ownerId: g.owner_id, invite: g.invite, createdAt: num(g.created_at), channels: chans[g.id] || [], members: mems[g.id] || [], ...unpack(g.extra, GROUP_X) };
   for (const f of data.amizades) (db.friends[f.user_id] = db.friends[f.user_id] || []).push(f.friend_id);
   for (const r of data.pedidos_amizade) db.requests.push({ from: r.from_id, to: r.to_id, ts: num(r.ts) });
   for (const d of data.conversas) db.dms[d.id] = { id: d.id, members: d.members, createdAt: num(d.created_at) };
-  for (const m of data.mensagens.sort((a, b) => num(a.ts) - num(b.ts))) (db.messages[m.cid] = db.messages[m.cid] || []).push({ id: m.id, cid: m.cid, authorId: m.author_id, content: m.content || '', image: m.image, ts: num(m.ts), edited: num(m.edited), reactions: m.reactions || {}, replyTo: m.reply_to });
+  for (const m of data.mensagens.sort((a, b) => num(a.ts) - num(b.ts))) (db.messages[m.cid] = db.messages[m.cid] || []).push({ id: m.id, cid: m.cid, authorId: m.author_id, content: m.content || '', image: m.image, ts: num(m.ts), edited: num(m.edited), reactions: m.reactions || {}, replyTo: m.reply_to, ...unpack(m.extra, MSG_X) });
   return db;
 }
 const num = v => (v === null || v === undefined ? null : Number(v));

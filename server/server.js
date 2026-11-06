@@ -86,6 +86,14 @@ const store = await createStore({ dataDir: DATA, supabaseUrl: cfg.supabaseUrl, s
 const db = store.db;
 const save = store.save, saveNow = store.saveNow;
 
+// "versão" da interface: muda quando app.js, style.css ou index.html mudam. Os apps abertos comparam
+// com a que receberam e mostram o botão "Atualizar".
+const BUILD = (() => {
+  const h = crypto.createHash('sha1');
+  for (const f of ['index.html', 'app.js', 'style.css']) { try { h.update(fs.readFileSync(path.join(PUBLIC, f))); } catch {} }
+  return h.digest('hex').slice(0, 12);
+})();
+
 const newId = () => crypto.randomBytes(9).toString('base64url');
 const code = () => crypto.randomBytes(4).toString('hex').toUpperCase();
 const hashPw = (pw, salt) => crypto.scryptSync(pw, salt, 64).toString('hex');
@@ -93,6 +101,7 @@ const now = () => Date.now();
 const str = (v, max) => (typeof v === 'string' ? v : '').slice(0, max);
 
 /* ---------- presença ---------- */
+const slowLast = new Map(); // "canal:usuário" -> hora da última mensagem (modo lento)
 const online = new Map(); // userId -> Set(socketId)
 const sockets = new Map(); // socketId -> socket
 function isOnline(uid) { return online.has(uid) && online.get(uid).size > 0; }
@@ -102,9 +111,38 @@ function publicUser(u) {
   return {
     id: u.id, username: u.username, displayName: u.displayName, avatar: u.avatar || null,
     color: u.color, banner: u.banner, bio: u.bio || '', customStatus: u.customStatus || '',
+    pronouns: u.pronouns || '', theme: u.theme || null,
     status: on ? (u.status || 'online') : 'offline', createdAt: u.createdAt
   };
 }
+
+/* ---------- grupos: cargos e permissões ---------- */
+const PERMS = ['admin', 'manageServer', 'manageChannels', 'manageRoles', 'kick', 'ban', 'manageMessages', 'mentionEveryone'];
+const HEX = /^#[0-9a-f]{6}$/i;
+function fixGroup(g) {
+  if (!Array.isArray(g.roles)) g.roles = [];
+  if (!g.memberRoles || typeof g.memberRoles !== 'object') g.memberRoles = {};
+  if (!Array.isArray(g.bans)) g.bans = [];
+  if (typeof g.description !== 'string') g.description = '';
+  if (g.banner === undefined) g.banner = null;
+  if (g.systemJoin === undefined) g.systemJoin = true;
+  if (g.welcomeCid === undefined) g.welcomeCid = null;
+  return g;
+}
+Object.values(db.groups).forEach(fixGroup);
+const rolesOf = (g, uid) => (g.memberRoles[uid] || []).map(id => g.roles.find(r => r.id === id)).filter(Boolean);
+function can(g, uid, perm) {
+  if (!g || !g.members.includes(uid)) return false;
+  if (g.ownerId === uid) return true;
+  return rolesOf(g, uid).some(r => r.perms.includes('admin') || r.perms.includes(perm));
+}
+// posição do cargo mais alto (0 = topo). Dono fica acima de tudo (-1); sem cargo fica abaixo de tudo.
+function rank(g, uid) {
+  if (g.ownerId === uid) return -1;
+  const idx = rolesOf(g, uid).map(r => g.roles.indexOf(r));
+  return idx.length ? Math.min(...idx) : g.roles.length;
+}
+const above = (g, uid, target) => rank(g, uid) < rank(g, target);
 function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online' }; }
 
 /* ---------- relações ---------- */
@@ -146,7 +184,7 @@ function pushUser(uid) {
 }
 function pushFriends(uid) { toUser(uid, 'friends:update', friendState(uid)); }
 function pushGroup(g) {
-  const users = g.members.map(m => publicUser(db.users[m])).filter(Boolean);
+  const users = [...new Set([...g.members, ...g.bans.map(b => b.uid)])].map(m => publicUser(db.users[m])).filter(Boolean);
   g.members.forEach(m => toUser(m, 'group:update', { group: g, users }));
 }
 
@@ -226,7 +264,7 @@ app.post('/api/upload', auth, (req, res) => {
   const name = newId() + '.' + (m[1] === 'jpeg' ? 'jpg' : m[1]);
   store.upload(buf, name, 'image/' + (m[1] === 'jpg' ? 'jpeg' : m[1])).then(url => res.json({ url })).catch(e => res.status(500).json({ erro: e.message }));
 });
-app.get('/api/config', (req, res) => res.json({ iceServers: cfg.iceServers }));
+app.get('/api/config', (req, res) => res.json({ iceServers: cfg.iceServers, build: BUILD }));
 
 /* ---------- Socket.IO ---------- */
 function onConnection(socket) {
@@ -253,8 +291,10 @@ function onConnection(socket) {
       me: selfUser(me()), users, friends: friendState(uid),
       groups: Object.fromEntries(groupsOf(uid).map(g => [g.id, g])),
       dms: Object.fromEntries(dmsOf(uid).map(d => [d.id, { ...d, last: (db.messages[d.id] || []).slice(-1)[0]?.ts || d.createdAt }])),
-      voice: rooms, iceServers: cfg.iceServers, socketId: socket.id
+      voice: rooms, iceServers: cfg.iceServers, socketId: socket.id, build: BUILD
     });
+    // banidos também aparecem com nome na lista de banimentos
+    groupsOf(uid).forEach(g => g.bans.forEach(b => { if (db.users[b.uid] && !users[b.uid]) socket.emit('user:update', publicUser(db.users[b.uid])); }));
   });
 
   /* perfil */
@@ -267,6 +307,8 @@ function onConnection(socket) {
     if ('banner' in d) u.banner = d.banner === null || /^#[0-9a-f]{6}$/i.test(d.banner) || store.isUpload(d.banner) ? d.banner : u.banner;
     if ('avatar' in d) u.avatar = d.avatar === null || store.isUpload(d.avatar) ? d.avatar : u.avatar;
     if ('status' in d && ['online', 'ausente', 'ocupado', 'invisivel'].includes(d.status)) u.status = d.status;
+    if ('pronouns' in d) u.pronouns = str(d.pronouns, 40).trim();
+    if ('theme' in d) u.theme = Array.isArray(d.theme) && d.theme.length === 2 && d.theme.every(c => HEX.test(c)) ? d.theme : null;
     save(); pushUser(uid); ok(cb);
   });
 
@@ -322,6 +364,16 @@ function onConnection(socket) {
 
   /* grupos */
   const myGroup = (gid, owner) => { const g = db.groups[gid]; if (!g || !g.members.includes(uid)) return null; if (owner && g.ownerId !== uid) return null; return g; };
+  const withPerm = (gid, perm) => { const g = db.groups[gid]; return g && can(g, uid, perm) ? g : null; };
+  // "fulano entrou" no canal de boas-vindas
+  const systemJoin = (g, who) => {
+    if (!g.systemJoin) return;
+    const ch = g.channels.find(c => c.id === g.welcomeCid && c.type === 'text') || g.channels.find(c => c.type === 'text');
+    if (!ch) return;
+    const msg = { id: newId(), cid: ch.id, authorId: who, content: '', image: null, ts: now(), edited: null, reactions: {}, replyTo: null, system: 'join' };
+    const list = db.messages[ch.id] || (db.messages[ch.id] = []);
+    list.push(msg); toUsers(g.members, 'message:new', msg);
+  };
   on('group:create', (d, cb) => {
     const name = str(d.name, 40).trim();
     if (!name) return fail(cb, 'Dê um nome ao grupo.');
@@ -336,22 +388,28 @@ function onConnection(socket) {
         { id: newId(), name: 'Jogando', type: 'voice' }
       ]
     };
+    fixGroup(g);
     db.groups[g.id] = g; save(); pushGroup(g);
     g.members.filter(m => m !== uid).forEach(m => toUser(m, 'notify', { type: 'group-added', from: uid, gid: g.id }));
     ok(cb, { group: g });
   });
   on('group:update', (d, cb) => {
-    const g = myGroup(d.gid, true); if (!g) return fail(cb, 'Só o dono do grupo pode mudar isso.');
+    const g = withPerm(d.gid, 'manageServer'); if (!g) return fail(cb, 'Você não tem permissão para mudar o grupo.');
     if ('name' in d && str(d.name, 40).trim()) g.name = str(d.name, 40).trim();
     if ('icon' in d) g.icon = str(d.icon, 400) || null;
-    if ('color' in d && /^#[0-9a-f]{6}$/i.test(d.color)) g.color = d.color;
+    if ('color' in d && HEX.test(d.color)) g.color = d.color;
+    if ('description' in d) g.description = str(d.description, 300).trim();
+    if ('banner' in d) g.banner = d.banner === null || HEX.test(d.banner) || store.isUpload(d.banner) ? d.banner : g.banner;
+    if ('systemJoin' in d) g.systemJoin = !!d.systemJoin;
+    if ('welcomeCid' in d) g.welcomeCid = g.channels.some(c => c.id === d.welcomeCid && c.type === 'text') ? d.welcomeCid : null;
     if (d.newInvite) g.invite = code();
     save(); pushGroup(g); ok(cb, { group: g });
   });
   on('group:invite', (d, cb) => {
     const g = myGroup(d.gid); if (!g) return fail(cb, 'Grupo não encontrado.');
-    const add = (Array.isArray(d.userIds) ? d.userIds : []).filter(m => friendsOf(uid).includes(m) && !g.members.includes(m));
-    g.members.push(...add); save(); pushGroup(g);
+    const banned = new Set(g.bans.map(b => b.uid));
+    const add = (Array.isArray(d.userIds) ? d.userIds : []).filter(m => friendsOf(uid).includes(m) && !g.members.includes(m) && !banned.has(m));
+    g.members.push(...add); add.forEach(m => systemJoin(g, m)); save(); pushGroup(g);
     add.forEach(m => toUser(m, 'notify', { type: 'group-added', from: uid, gid: g.id }));
     ok(cb, { added: add.length });
   });
@@ -359,11 +417,64 @@ function onConnection(socket) {
     const c = str(d.code, 20).trim().toUpperCase().replace(/^.*\//, '');
     const g = Object.values(db.groups).find(x => x.invite === c);
     if (!g) return fail(cb, 'Convite inválido ou expirado.');
-    if (!g.members.includes(uid)) { g.members.push(uid); save(); pushGroup(g); }
+    if (g.bans.some(b => b.uid === uid)) return fail(cb, 'Você foi banido deste grupo.');
+    if (!g.members.includes(uid)) { g.members.push(uid); systemJoin(g, uid); save(); pushGroup(g); }
     ok(cb, { group: g });
   });
+
+  /* cargos */
+  const cleanPerms = p => (Array.isArray(p) ? p : []).filter(x => PERMS.includes(x));
+  // só mexe em cargos abaixo do seu cargo mais alto (o dono mexe em todos)
+  const canTouchRole = (g, r) => g.ownerId === uid || (can(g, uid, 'manageRoles') && g.roles.indexOf(r) > rank(g, uid));
+  on('role:create', (d, cb) => {
+    const g = withPerm(d.gid, 'manageRoles'); if (!g) return fail(cb, 'Você não pode gerenciar cargos.');
+    if (g.roles.length >= 30) return fail(cb, 'Limite de 30 cargos.');
+    const r = { id: newId(), name: str(d.name, 32).trim() || 'novo cargo', color: HEX.test(d.color) ? d.color : null, perms: [], hoist: false };
+    g.roles.push(r); save(); pushGroup(g); ok(cb, { role: r });
+  });
+  on('role:update', (d, cb) => {
+    const g = withPerm(d.gid, 'manageRoles'); const r = g && g.roles.find(x => x.id === d.rid);
+    if (!r || !canTouchRole(g, r)) return fail(cb, 'Você não pode mudar esse cargo.');
+    if ('name' in d && str(d.name, 32).trim()) r.name = str(d.name, 32).trim();
+    if ('color' in d) r.color = HEX.test(d.color) ? d.color : null;
+    if ('hoist' in d) r.hoist = !!d.hoist;
+    if ('perms' in d) {
+      let p = cleanPerms(d.perms);
+      // ninguém dá uma permissão que não tem (exceto o dono)
+      if (g.ownerId !== uid) p = p.filter(x => can(g, uid, x) && (x !== 'admin' || rolesOf(g, uid).some(rr => rr.perms.includes('admin'))));
+      r.perms = p;
+    }
+    save(); pushGroup(g); ok(cb, { role: r });
+  });
+  on('role:delete', (d, cb) => {
+    const g = withPerm(d.gid, 'manageRoles'); const r = g && g.roles.find(x => x.id === d.rid);
+    if (!r || !canTouchRole(g, r)) return fail(cb, 'Você não pode apagar esse cargo.');
+    g.roles = g.roles.filter(x => x !== r);
+    for (const m of Object.keys(g.memberRoles)) { g.memberRoles[m] = g.memberRoles[m].filter(x => x !== r.id); if (!g.memberRoles[m].length) delete g.memberRoles[m]; }
+    save(); pushGroup(g); ok(cb);
+  });
+  on('role:move', (d, cb) => {
+    const g = withPerm(d.gid, 'manageRoles'); const r = g && g.roles.find(x => x.id === d.rid);
+    if (!r || !canTouchRole(g, r)) return fail(cb, 'Você não pode mover esse cargo.');
+    const i = g.roles.indexOf(r), j = i + (d.dir < 0 ? -1 : 1);
+    if (j < 0 || j >= g.roles.length) return ok(cb);
+    if (g.ownerId !== uid && j <= rank(g, uid)) return fail(cb, 'Não dá para colocar acima do seu cargo.');
+    g.roles.splice(i, 1); g.roles.splice(j, 0, r); save(); pushGroup(g); ok(cb);
+  });
+  on('member:roles', (d, cb) => {
+    const g = withPerm(d.gid, 'manageRoles'); if (!g || !g.members.includes(d.userId)) return fail(cb, 'Você não pode mudar os cargos dessa pessoa.');
+    if (d.userId !== uid && !above(g, uid, d.userId)) return fail(cb, 'Essa pessoa tem um cargo igual ou acima do seu.');
+    const want = new Set((Array.isArray(d.roles) ? d.roles : []).filter(id => g.roles.some(r => r.id === id)));
+    const cur = new Set(g.memberRoles[d.userId] || []);
+    // só pode pôr ou tirar cargos abaixo do seu
+    for (const r of g.roles) if (want.has(r.id) !== cur.has(r.id) && !canTouchRole(g, r)) return fail(cb, `Você não pode dar ou tirar o cargo "${r.name}".`);
+    if (want.size) g.memberRoles[d.userId] = g.roles.filter(r => want.has(r.id)).map(r => r.id); else delete g.memberRoles[d.userId];
+    save(); pushGroup(g); ok(cb);
+  });
+
   const removeMember = (g, m) => {
     g.members = g.members.filter(x => x !== m);
+    delete g.memberRoles[m];
     toUser(m, 'group:removed', { gid: g.id });
     for (const s of online.get(m) || []) { const sk = sockets.get(s); if (sk && g.channels.some(c => c.id === sk.data.voice)) leaveVoice(sk); }
     if (!g.members.length) { g.channels.forEach(c => delete db.messages[c.id]); delete db.groups[g.id]; }
@@ -371,30 +482,62 @@ function onConnection(socket) {
     save();
   };
   on('group:leave', (d, cb) => { const g = myGroup(d.gid); if (!g) return fail(cb, 'Grupo não encontrado.'); removeMember(g, uid); ok(cb); });
-  on('group:kick', (d, cb) => { const g = myGroup(d.gid, true); if (!g || d.userId === uid) return fail(cb, 'Sem permissão.'); removeMember(g, d.userId); ok(cb); });
+  on('group:kick', (d, cb) => {
+    const g = withPerm(d.gid, 'kick');
+    if (!g || d.userId === uid || !g.members.includes(d.userId) || !above(g, uid, d.userId)) return fail(cb, 'Você não pode remover essa pessoa.');
+    removeMember(g, d.userId); ok(cb);
+  });
+  on('group:ban', (d, cb) => {
+    const g = withPerm(d.gid, 'ban');
+    if (!g || d.userId === uid || !db.users[d.userId] || (g.members.includes(d.userId) && !above(g, uid, d.userId))) return fail(cb, 'Você não pode banir essa pessoa.');
+    if (!g.bans.some(b => b.uid === d.userId)) g.bans.push({ uid: d.userId, by: uid, ts: now(), reason: str(d.reason, 200).trim() });
+    if (g.members.includes(d.userId)) removeMember(g, d.userId); else { save(); pushGroup(g); }
+    ok(cb);
+  });
+  on('group:unban', (d, cb) => {
+    const g = withPerm(d.gid, 'ban'); if (!g) return fail(cb, 'Sem permissão.');
+    g.bans = g.bans.filter(b => b.uid !== d.userId); save(); pushGroup(g); ok(cb);
+  });
   on('group:delete', (d, cb) => {
     const g = myGroup(d.gid, true); if (!g) return fail(cb, 'Só o dono pode apagar o grupo.');
     g.members.forEach(m => toUser(m, 'group:removed', { gid: g.id }));
     g.channels.forEach(c => { delete db.messages[c.id]; const r = voice.get(c.id); if (r) for (const sid of r.keys()) { const sk = sockets.get(sid); sk && leaveVoice(sk); } });
     delete db.groups[g.id]; save(); ok(cb);
   });
+  const SLOW = [0, 5, 10, 15, 30, 60, 120, 300, 600, 3600];
+  const chanExtras = (ch, d) => {
+    if ('topic' in d && ch.type === 'text') ch.topic = str(d.topic, 200).trim() || undefined;
+    if ('slowmode' in d && ch.type === 'text') ch.slowmode = SLOW.includes(+d.slowmode) && +d.slowmode ? +d.slowmode : undefined;
+  };
   on('channel:create', (d, cb) => {
-    const g = myGroup(d.gid, true); if (!g) return fail(cb, 'Só o dono do grupo pode criar canais.');
+    const g = withPerm(d.gid, 'manageChannels'); if (!g) return fail(cb, 'Você não pode criar canais.');
     const type = d.type === 'voice' ? 'voice' : 'text';
     let name = str(d.name, 32).trim(); if (type === 'text') name = name.toLowerCase().replace(/\s+/g, '-');
     if (!name) return fail(cb, 'Dê um nome ao canal.');
-    const ch = { id: newId(), name, type }; g.channels.push(ch); save(); pushGroup(g); ok(cb, { channel: ch });
+    const ch = { id: newId(), name, type }; chanExtras(ch, d); g.channels.push(ch); save(); pushGroup(g); ok(cb, { channel: ch });
   });
   on('channel:update', (d, cb) => {
-    const g = myGroup(d.gid, true); if (!g) return fail(cb, 'Sem permissão.');
+    const g = withPerm(d.gid, 'manageChannels'); if (!g) return fail(cb, 'Sem permissão.');
     const ch = g.channels.find(c => c.id === d.cid); if (!ch) return fail(cb, 'Canal não encontrado.');
     let name = str(d.name, 32).trim(); if (ch.type === 'text') name = name.toLowerCase().replace(/\s+/g, '-');
-    if (name) ch.name = name; save(); pushGroup(g); ok(cb);
+    if (name) ch.name = name; chanExtras(ch, d); save(); pushGroup(g); ok(cb);
+  });
+  on('channel:move', (d, cb) => {
+    const g = withPerm(d.gid, 'manageChannels'); if (!g) return fail(cb, 'Sem permissão.');
+    const ch = g.channels.find(c => c.id === d.cid); if (!ch) return fail(cb, 'Canal não encontrado.');
+    // move entre os canais do mesmo tipo
+    const same = g.channels.filter(c => c.type === ch.type); const i = same.indexOf(ch), j = i + (d.dir < 0 ? -1 : 1);
+    if (j < 0 || j >= same.length) return ok(cb);
+    const a = g.channels.indexOf(ch), b = g.channels.indexOf(same[j]);
+    [g.channels[a], g.channels[b]] = [g.channels[b], g.channels[a]];
+    save(); pushGroup(g); ok(cb);
   });
   on('channel:delete', (d, cb) => {
-    const g = myGroup(d.gid, true); if (!g) return fail(cb, 'Sem permissão.');
+    const g = withPerm(d.gid, 'manageChannels'); if (!g) return fail(cb, 'Sem permissão.');
     if (g.channels.length <= 1) return fail(cb, 'O grupo precisa de pelo menos um canal.');
-    g.channels = g.channels.filter(c => c.id !== d.cid); delete db.messages[d.cid]; save(); pushGroup(g); ok(cb);
+    g.channels = g.channels.filter(c => c.id !== d.cid); delete db.messages[d.cid];
+    if (g.welcomeCid === d.cid) g.welcomeCid = null;
+    save(); pushGroup(g); ok(cb);
   });
 
   /* mensagens */
@@ -410,6 +553,12 @@ function onConnection(socket) {
     const content = str(d.content, 4000).trim();
     const image = store.isUpload(d.image) ? d.image : null;
     if (!content && !image) return fail(cb, 'Mensagem vazia.');
+    // modo lento: quem gerencia canais ou mensagens não espera
+    if (info.kind === 'group' && info.channel.slowmode && !can(info.group, uid, 'manageChannels') && !can(info.group, uid, 'manageMessages')) {
+      const k = d.cid + ':' + uid, last = slowLast.get(k) || 0, wait = info.channel.slowmode * 1000 - (now() - last);
+      if (wait > 0) return fail(cb, `Modo lento: espere ${Math.ceil(wait / 1000)}s para mandar outra mensagem.`);
+      slowLast.set(k, now());
+    }
     const msg = { id: newId(), cid: d.cid, authorId: uid, content, image, ts: now(), edited: null, reactions: {}, replyTo: str(d.replyTo, 20) || null };
     const list = db.messages[d.cid] || (db.messages[d.cid] = []);
     list.push(msg); if (list.length > 3000) list.splice(0, list.length - 3000);
@@ -426,7 +575,7 @@ function onConnection(socket) {
   });
   on('message:delete', (d, cb) => {
     const info = canAccess(uid, d.cid); const m = info && findMsg(d.cid, d.id);
-    if (!m || (m.authorId !== uid && !(info.kind === 'group' && info.group.ownerId === uid))) return fail(cb, 'Sem permissão.');
+    if (!m || (m.authorId !== uid && !(info.kind === 'group' && can(info.group, uid, 'manageMessages')))) return fail(cb, 'Sem permissão.');
     db.messages[d.cid] = db.messages[d.cid].filter(x => x !== m); save();
     toUsers(info.members, 'message:delete', { cid: d.cid, id: d.id }); ok(cb);
   });

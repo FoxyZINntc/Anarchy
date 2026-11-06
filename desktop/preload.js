@@ -16,5 +16,9 @@ contextBridge.exposeInMainWorld('discordiaDesktop', {
   choose: d => ipcRenderer.invoke('choose', d),
   pickerSources: () => ipcRenderer.invoke('picker:sources'),
   pickerChoose: id => ipcRenderer.invoke('picker:choose', id),
-  onStatus: fn => ipcRenderer.on('status', (_, s) => fn(s))
+  onStatus: fn => ipcRenderer.on('status', (_, s) => fn(s)),
+  updateGet: () => ipcRenderer.invoke('update:get'),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateInstall: () => ipcRenderer.invoke('update:install'),
+  onUpdate: fn => ipcRenderer.on('update', (_, s) => fn(s))
 });

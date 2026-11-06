@@ -79,6 +79,11 @@ create table if not exists public.mensagens (
   reply_to  text,
   reactions jsonb not null default '{}'::jsonb
 );
+-- dados extras em JSON (perfil: pronomes e tema; grupo: cargos, banimentos, banner...; canal: tópico e modo lento; mensagem: avisos do sistema)
+alter table public.usuarios  add column if not exists extra jsonb not null default '{}'::jsonb;
+alter table public.grupos    add column if not exists extra jsonb not null default '{}'::jsonb;
+alter table public.canais    add column if not exists extra jsonb not null default '{}'::jsonb;
+alter table public.mensagens add column if not exists extra jsonb not null default '{}'::jsonb;
 create index if not exists mensagens_cid_ts on public.mensagens (cid, ts);
 create index if not exists canais_group on public.canais (group_id);
 create index if not exists sessoes_user on public.sessoes (user_id);

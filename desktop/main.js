@@ -22,9 +22,14 @@ try {
 function saveCfg() { try { fs.mkdirSync(path.dirname(CFG_PATH), { recursive: true }); fs.writeFileSync(CFG_PATH, JSON.stringify(cfg, null, 2)); } catch {} }
 const originOf = u => { try { return new URL(u).origin; } catch { return ''; } };
 const hostOf = u => { try { return new URL(u).host; } catch { return ''; } };
-// app "cliente": o endereço do servidor oficial vem embutido (desktop/servidor.json) e nunca é perguntado
-let FIXED = '';
-try { FIXED = originOf(String(JSON.parse(fs.readFileSync(path.join(__dirname, 'servidor.json'), 'utf8')).url || '').trim()); } catch {}
+// app "cliente": o endereço do servidor oficial vem embutido (desktop/servidor.json) e nunca é perguntado.
+// "updates" é o repositório do GitHub onde saem as versões novas do app.
+let FIXED = '', UPD_REPO = '';
+try {
+  const sj = JSON.parse(fs.readFileSync(path.join(__dirname, 'servidor.json'), 'utf8'));
+  FIXED = originOf(String(sj.url || '').trim());
+  if (/^[\w.-]+\/[\w.-]+$/.test(String(sj.updates || ''))) UPD_REPO = sj.updates;
+} catch {}
 if (FIXED) { cfg.mode = 'client'; cfg.server = FIXED; }
 
 // um servidor em http:// na rede local precisa ser tratado como seguro para liberar microfone e tela
@@ -89,6 +94,48 @@ async function startTunnel() {
   } catch (e) { tunnel = { proc: null, url: null, state: 'erro', error: 'Não consegui baixar o cloudflared: ' + e.message }; pushStatus(); }
 }
 function stopTunnel() { if (tunnel.proc) { tunnel.state = 'parando'; try { tunnel.proc.kill(); } catch {} } else tunnel = { proc: null, url: null, state: 'off', error: '' }; pushStatus(); buildTray(); }
+
+/* ---------- atualização automática (GitHub Releases) ---------- */
+// Procura a versão mais nova, baixa o instalador em segundo plano e avisa a tela.
+// Quando a pessoa clica em "Atualizar e reiniciar", roda o instalador em silêncio e ele abre o app de novo.
+let upd = { state: 'parado', version: null, file: null, ready: false, error: '' };
+const newer = (a, b) => {
+  const p = s => String(s).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const x = p(a), y = p(b);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+};
+function sendUpd() { if (win && !win.isDestroyed()) win.webContents.send('update', upd); }
+async function checkUpdate() {
+  if (!UPD_REPO) { upd.state = 'desligado'; return upd; }
+  if (!app.isPackaged) { upd.state = 'dev'; return upd; }
+  if (upd.ready || upd.state === 'baixando' || upd.state === 'procurando') return upd;
+  try {
+    upd.state = 'procurando';
+    const r = await net.fetch(`https://api.github.com/repos/${UPD_REPO}/releases/latest`, { headers: { 'User-Agent': 'Discordia', Accept: 'application/vnd.github+json' } });
+    if (!r.ok) throw new Error('o GitHub respondeu ' + r.status);
+    const rel = await r.json();
+    if (!newer(rel.tag_name, app.getVersion())) { upd.state = 'em-dia'; return upd; }
+    const asset = (rel.assets || []).find(a => /\.exe$/i.test(a.name));
+    if (!asset) throw new Error('a versão nova não tem instalador');
+    const ver = String(rel.tag_name).replace(/^v/, '');
+    const file = path.join(app.getPath('temp'), `Discordia-Setup-${ver}.exe`);
+    upd.state = 'baixando';
+    if (!fs.existsSync(file) || fs.statSync(file).size !== asset.size) await download(asset.browser_download_url, file);
+    upd = { state: 'pronto', version: ver, file, ready: true, error: '' };
+    sendUpd();
+    notify('Atualização pronta', `A versão ${ver} do Discordia já foi baixada. Clique em "Atualizar e reiniciar" no topo do app.`);
+  } catch (e) { upd.state = 'erro'; upd.error = e.message; }
+  return upd;
+}
+function installUpdate() {
+  if (!upd.ready || !fs.existsSync(upd.file)) return false;
+  quitting = true;
+  // instalador do electron-builder: /S = sem perguntas, --force-run = abre o Discordia quando terminar
+  spawn(upd.file, ['--updated', '/S', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  setTimeout(() => app.exit(0), 400);
+  return true;
+}
 
 /* ---------- janelas ---------- */
 function showLocal(w, page, msg = '') { return w.loadFile(path.join(__dirname, 'ui', 'inicio.html'), { query: { page, msg, fixed: FIXED ? '1' : '' } }); }
@@ -189,7 +236,7 @@ async function resetMode() {
 }
 function status() {
   return {
-    version: app.getVersion(), platform: process.platform, mode: cfg.mode, server: cfg.server,
+    version: app.getVersion(), platform: process.platform, mode: cfg.mode, server: cfg.server, fixed: !!FIXED, update: upd,
     settings: { minimizeToTray: cfg.minimizeToTray, startMinimized: cfg.startMinimized, autoStart: cfg.autoStart, publicOnStart: cfg.publicOnStart },
     host: server ? { running: true, storage: server.storage, storageKind: server.storageKind, port: server.port, httpsPort: server.httpsPort, ips: server.ips, stats: server.stats(), dataDir: server.dataDir } : { running: false },
     tunnel: { state: tunnel.state, url: tunnel.url, error: tunnel.error }
@@ -221,6 +268,9 @@ ipcMain.handle('db:set', async (e, d) => {
   }
 });
 ipcMain.handle('copy', (e, t) => { clipboard.writeText(String(t || '')); return true; });
+ipcMain.handle('update:get', () => upd);
+ipcMain.handle('update:check', () => checkUpdate());
+ipcMain.handle('update:install', () => installUpdate());
 ipcMain.handle('openData', () => { if (server) shell.openPath(server.dataDir); });
 ipcMain.handle('test', async (e, url) => {
   if (!isLocal(e)) return { ok: false };
@@ -277,6 +327,9 @@ app.whenReady().then(() => {
   });
   buildTray();
   createWindow();
+  // procura atualização 10 s depois de abrir e depois a cada 30 minutos
+  setTimeout(checkUpdate, 10000);
+  setInterval(checkUpdate, 30 * 60e3);
 });
 app.on('window-all-closed', () => { if (quitting || !cfg.minimizeToTray) app.quit(); });
 app.on('before-quit', async e => {
