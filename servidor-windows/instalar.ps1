@@ -1,6 +1,8 @@
 # Instala o servidor do Discordia no Windows Server para rodar 24/7.
 # Rode no PowerShell COMO ADMINISTRADOR, dentro da pasta do projeto:
 #   powershell -ExecutionPolicy Bypass -File .\servidor-windows\instalar.ps1
+#   Para trocar o token salvo: ... instalar.ps1 -TrocarToken
+param([switch]$TrocarToken)
 $ErrorActionPreference = 'Stop'
 $Tarefa = 'Discordia Servidor'
 $Raiz = Split-Path -Parent $PSScriptRoot
@@ -36,7 +38,8 @@ Passo "Configuracao (.env)"
 $envFile = Join-Path $Raiz '.env'
 if (-not (Test-Path $envFile)) { Copy-Item (Join-Path $Raiz '.env.example') $envFile; Aviso ".env criado a partir do .env.example" }
 $envTxt = Get-Content $envFile -Raw
-if ($envTxt -match 'SUPABASE_DISCORDIA_TOKEN=cole-aqui' -or $envTxt -notmatch 'SUPABASE_DISCORDIA_TOKEN=\S{20,}') {
+if ($TrocarToken) { $envTxt = [regex]::Replace($envTxt, '(?m)^SUPABASE_SERVICE_ROLE_KEY=.*\r?\n?', '') }
+if ($TrocarToken -or $envTxt -match 'SUPABASE_DISCORDIA_TOKEN=cole-aqui' -or $envTxt -notmatch 'SUPABASE_DISCORDIA_TOKEN=\S{20,}') {
   $tok = Read-Host "    Cole o token do servidor (SUPABASE_DISCORDIA_TOKEN) ou aperte Enter para usar banco local"
   if ($tok.Trim()) {
     $envTxt = [regex]::Replace($envTxt, '(?m)^SUPABASE_DISCORDIA_TOKEN=.*$', 'SUPABASE_DISCORDIA_TOKEN=' + $tok.Trim())
