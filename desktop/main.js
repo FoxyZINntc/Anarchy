@@ -1,0 +1,274 @@
+// Discordia — aplicativo de computador
+const { app, BrowserWindow, Tray, Menu, ipcMain, session, desktopCapturer, shell, nativeImage, net, clipboard, Notification } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const https = require('https');
+const { spawn } = require('child_process');
+
+if (process.env.NEXO_USERDATA) app.setPath('userData', process.env.NEXO_USERDATA);
+if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
+
+/* ---------- configuração ---------- */
+const CFG_PATH = path.join(app.getPath('userData'), 'config.json');
+const DEFAULTS = { mode: null, server: '', minimizeToTray: true, startMinimized: false, autoStart: false, hostPort: 3000, hostHttpsPort: 3443, supabaseUrl: '', supabaseKey: '', publicOnStart: false, bounds: null, maximized: false, trayTipShown: false };
+let cfg = { ...DEFAULTS };
+try { cfg = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CFG_PATH, 'utf8')) }; } catch {}
+function saveCfg() { try { fs.mkdirSync(path.dirname(CFG_PATH), { recursive: true }); fs.writeFileSync(CFG_PATH, JSON.stringify(cfg, null, 2)); } catch {} }
+const originOf = u => { try { return new URL(u).origin; } catch { return ''; } };
+const hostOf = u => { try { return new URL(u).host; } catch { return ''; } };
+
+// um servidor em http:// na rede local precisa ser tratado como seguro para liberar microfone e tela
+if (cfg.mode === 'client' && /^http:\/\//i.test(cfg.server)) app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', originOf(cfg.server));
+app.setAppUserModelId('com.discordia.app');
+if (process.platform === 'linux' && process.getuid && process.getuid() === 0) app.commandLine.appendSwitch('no-sandbox');
+
+const asset = n => path.join(__dirname, 'assets', n);
+let win = null, panel = null, picker = null, tray = null, server = null, quitting = false;
+let tunnel = { proc: null, url: null, state: 'off', error: '' };
+let unread = 0;
+const startHidden = process.argv.includes('--hidden') || cfg.startMinimized;
+
+/* ---------- servidor embutido ---------- */
+async function startHost() {
+  if (server) return server;
+  const nexo = require('../server/server.js');
+  let lastErr;
+  for (let i = 0; i < 6; i++) {
+    try {
+      server = await nexo.start({ supabaseUrl: cfg.supabaseUrl || undefined, supabaseKey: cfg.supabaseKey || undefined, log: m => console.log(m), dataDir: path.join(app.getPath('userData'), 'servidor'), publicDir: path.join(__dirname, '..', 'server', 'public'), port: cfg.hostPort + i, httpsPort: cfg.hostHttpsPort + i });
+      if (cfg.publicOnStart) startTunnel();
+      return server;
+    } catch (e) { lastErr = e; if (e.code !== 'EADDRINUSE') break; }
+  }
+  throw new Error(lastErr && lastErr.code === 'EADDRINUSE' ? 'As portas do Discordia já estão ocupadas. Feche o Discordia.exe antigo, se estiver aberto, e tente de novo.' : (lastErr ? lastErr.message : 'Erro ao iniciar o servidor.'));
+}
+async function stopHost() { stopTunnel(); if (server) { await server.stop(); server = null; } }
+
+/* ---------- link público (Cloudflare) ---------- */
+const CF_NAME = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared';
+const CF_URL = process.platform === 'win32'
+  ? 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe'
+  : 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64';
+const cfPath = () => path.join(app.getPath('userData'), CF_NAME);
+function download(url, dest, hops = 0) {
+  return new Promise((resolve, reject) => {
+    if (hops > 6) return reject(new Error('Redirecionamentos demais.'));
+    https.get(url, { headers: { 'User-Agent': 'Discordia' } }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) { res.resume(); return resolve(download(new URL(res.headers.location, url).toString(), dest, hops + 1)); }
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error('Download falhou (' + res.statusCode + ').')); }
+      const tmp = dest + '.part'; const f = fs.createWriteStream(tmp);
+      res.pipe(f); f.on('finish', () => f.close(() => { fs.renameSync(tmp, dest); try { fs.chmodSync(dest, 0o755); } catch {} resolve(); }));
+      f.on('error', reject);
+    }).on('error', reject);
+  });
+}
+async function startTunnel() {
+  if (!server || tunnel.proc || tunnel.state === 'baixando') return;
+  try {
+    if (!fs.existsSync(cfPath())) { tunnel.state = 'baixando'; pushStatus(); await download(CF_URL, cfPath()); }
+    tunnel.state = 'conectando'; tunnel.url = null; tunnel.error = ''; pushStatus();
+    const p = spawn(cfPath(), ['tunnel', '--no-autoupdate', '--url', 'http://localhost:' + server.port], { windowsHide: true });
+    tunnel.proc = p;
+    const onData = d => {
+      const m = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i.exec(d.toString());
+      if (m && !tunnel.url) { tunnel.url = m[0]; tunnel.state = 'ativo'; pushStatus(); buildTray(); notify('Link público pronto', 'Mande o link para seus amigos. Ele está no painel do servidor.'); }
+    };
+    p.stdout.on('data', onData); p.stderr.on('data', onData);
+    p.on('exit', () => { if (tunnel.proc === p) { tunnel = { proc: null, url: null, state: tunnel.state === 'parando' ? 'off' : 'erro', error: tunnel.state === 'parando' ? '' : 'O link público caiu. Gere outro.' }; pushStatus(); buildTray(); } });
+    p.on('error', e => { tunnel.state = 'erro'; tunnel.error = e.message; pushStatus(); });
+  } catch (e) { tunnel = { proc: null, url: null, state: 'erro', error: 'Não consegui baixar o cloudflared: ' + e.message }; pushStatus(); }
+}
+function stopTunnel() { if (tunnel.proc) { tunnel.state = 'parando'; try { tunnel.proc.kill(); } catch {} } else tunnel = { proc: null, url: null, state: 'off', error: '' }; pushStatus(); buildTray(); }
+
+/* ---------- janelas ---------- */
+function showLocal(w, page, msg = '') { return w.loadFile(path.join(__dirname, 'ui', 'inicio.html'), { query: { page, msg } }); }
+function createWindow() {
+  const b = cfg.bounds || { width: 1280, height: 800 };
+  win = new BrowserWindow({
+    ...b, minWidth: 940, minHeight: 560, title: 'Discordia', icon: asset('icon.png'), backgroundColor: '#14171c', autoHideMenuBar: true, show: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false, backgroundThrottling: false, spellcheck: true }
+  });
+  win.setMenu(null);
+  if (cfg.maximized) win.maximize();
+  win.once('ready-to-show', () => { if (!startHidden) win.show(); });
+  let bt;
+  const keep = () => { clearTimeout(bt); bt = setTimeout(() => { if (!win || win.isDestroyed()) return; cfg.maximized = win.isMaximized(); if (!cfg.maximized && !win.isMinimized()) cfg.bounds = win.getBounds(); saveCfg(); }, 500); };
+  ['resize', 'move', 'maximize', 'unmaximize'].forEach(ev => win.on(ev, keep));
+  win.on('close', e => {
+    if (quitting || !cfg.minimizeToTray) return;
+    e.preventDefault(); win.hide();
+    if (!cfg.trayTipShown) { cfg.trayTipShown = true; saveCfg(); notify('O Discordia continua aberto', 'Ele fica perto do relógio para você receber mensagens e chamadas. Para fechar de vez, use "Sair" no ícone.'); }
+  });
+  win.on('focus', () => { win.flashFrame(false); });
+  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  win.webContents.on('will-navigate', (e, url) => {
+    if (url.startsWith('file:')) return;
+    const allowed = cfg.mode === 'host' ? (server && originOf(url) === 'http://localhost:' + server.port) : originOf(url) === originOf(cfg.server);
+    if (!allowed) { e.preventDefault(); if (/^https?:/i.test(url)) shell.openExternal(url); }
+  });
+  win.webContents.on('before-input-event', (e, i) => {
+    if (i.type !== 'keyDown') return;
+    if (i.key === 'F5' || (i.control && i.key.toLowerCase() === 'r')) { e.preventDefault(); win.webContents.reload(); }
+    if (i.key === 'F12' || (i.control && i.shift && i.key.toLowerCase() === 'i')) { e.preventDefault(); win.webContents.toggleDevTools(); }
+    if (i.key === 'F11') { e.preventDefault(); win.setFullScreen(!win.isFullScreen()); }
+  });
+  win.webContents.on('did-fail-load', (e, code, desc, url, isMain) => {
+    if (!isMain || code === -3 || url.startsWith('file:')) return;
+    showLocal(win, 'offline', cfg.mode === 'host' ? 'O servidor deste computador não respondeu.' : 'Não consegui falar com ' + hostOf(cfg.server) + '. O servidor do seu amigo pode estar desligado, ou o link mudou.');
+  });
+  win.on('page-title-updated', (e, title) => {
+    const m = /^\((\d+)\)/.exec(title); const n = m ? +m[1] : 0;
+    if (n > unread && !win.isFocused()) win.flashFrame(true);
+    unread = n;
+    if (process.platform === 'win32') win.setOverlayIcon(n ? nativeImage.createFromPath(asset('badge.png')) : null, n ? n + ' mensagens novas' : '');
+    if (process.platform !== 'win32') app.setBadgeCount(n);
+    if (tray) tray.setToolTip(n ? `Discordia (${n} novas)` : 'Discordia');
+  });
+  route();
+}
+async function route() {
+  if (!cfg.mode) return showLocal(win, 'inicio');
+  if (cfg.mode === 'host') {
+    try { await startHost(); buildTray(); win.loadURL('http://localhost:' + server.port); }
+    catch (e) { showLocal(win, 'erro', e.message); }
+    return;
+  }
+  win.loadURL(cfg.server);
+}
+function openPanel() {
+  if (panel && !panel.isDestroyed()) { panel.show(); panel.focus(); return; }
+  panel = new BrowserWindow({ width: 520, height: 720, minWidth: 420, minHeight: 500, title: 'Discordia — Servidor', icon: asset('icon.png'), backgroundColor: '#14171c', autoHideMenuBar: true, parent: undefined, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false } });
+  panel.setMenu(null);
+  showLocal(panel, 'painel');
+}
+function showMain() { if (!win || win.isDestroyed()) return createWindow(); if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+function notify(title, body) { try { if (Notification.isSupported()) new Notification({ title, body, icon: asset('icon.png'), silent: true }).show(); } catch {} }
+
+/* ---------- bandeja ---------- */
+function buildTray() {
+  if (!tray) {
+    tray = new Tray(nativeImage.createFromPath(asset(process.platform === 'win32' ? 'tray.png' : 'tray@2x.png')).resize({ width: 16, height: 16 }));
+    tray.setToolTip('Discordia');
+    tray.on('click', showMain); tray.on('double-click', showMain);
+  }
+  const host = cfg.mode === 'host';
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Abrir o Discordia', click: showMain },
+    { type: 'separator' },
+    ...(host ? [
+      { label: 'Painel do servidor', click: openPanel },
+      tunnel.url ? { label: 'Copiar link público', click: () => clipboard.writeText(tunnel.url) } : { label: tunnel.state === 'off' || tunnel.state === 'erro' ? 'Gerar link público' : 'Gerando link...', enabled: tunnel.state === 'off' || tunnel.state === 'erro', click: startTunnel },
+      { type: 'separator' }
+    ] : []),
+    { label: 'Iniciar com o Windows', type: 'checkbox', checked: cfg.autoStart, visible: process.platform !== 'linux', click: m => setSettings({ autoStart: m.checked }) },
+    { label: 'Trocar de servidor...', click: resetMode },
+    { type: 'separator' },
+    { label: 'Sair do Discordia', click: () => { quitting = true; app.quit(); } }
+  ]));
+}
+function setSettings(s) {
+  ['minimizeToTray', 'startMinimized', 'autoStart', 'publicOnStart'].forEach(k => { if (k in s) cfg[k] = !!s[k]; });
+  if ('autoStart' in s && process.platform !== 'linux') app.setLoginItemSettings({ openAtLogin: cfg.autoStart, args: ['--hidden'] });
+  saveCfg(); buildTray();
+}
+async function resetMode() {
+  await stopHost();
+  cfg.mode = null; cfg.server = ''; saveCfg();
+  quitting = true; app.relaunch(); app.exit(0);
+}
+function status() {
+  return {
+    version: app.getVersion(), platform: process.platform, mode: cfg.mode, server: cfg.server,
+    settings: { minimizeToTray: cfg.minimizeToTray, startMinimized: cfg.startMinimized, autoStart: cfg.autoStart, publicOnStart: cfg.publicOnStart },
+    host: server ? { running: true, storage: server.storage, storageKind: server.storageKind, port: server.port, httpsPort: server.httpsPort, ips: server.ips, stats: server.stats(), dataDir: server.dataDir } : { running: false },
+    tunnel: { state: tunnel.state, url: tunnel.url, error: tunnel.error }
+  };
+}
+function pushStatus() { [win, panel].forEach(w => { if (w && !w.isDestroyed()) w.webContents.send('status', status()); }); }
+
+/* ---------- comunicação com as telas ---------- */
+const isLocal = e => (e.senderFrame && e.senderFrame.url || '').startsWith('file:');
+ipcMain.handle('info', () => status());
+ipcMain.handle('settings', (e, s) => { setSettings(s || {}); return status(); });
+ipcMain.handle('reset', () => resetMode());
+ipcMain.handle('retry', () => route());
+ipcMain.handle('panel', () => { if (cfg.mode === 'host') openPanel(); });
+ipcMain.handle('tunnel', (e, on) => { on ? startTunnel() : stopTunnel(); return status(); });
+ipcMain.handle('db:get', () => ({ url: cfg.supabaseUrl, hasKey: !!cfg.supabaseKey }));
+ipcMain.handle('db:set', async (e, d) => {
+  const prev = { url: cfg.supabaseUrl, key: cfg.supabaseKey };
+  cfg.supabaseUrl = String(d.url || '').trim(); if (d.key !== undefined) cfg.supabaseKey = String(d.key || '').trim();
+  if (d.clear) { cfg.supabaseUrl = ''; cfg.supabaseKey = ''; }
+  try {
+    if (server) { await server.stop(); server = null; } await startHost(); saveCfg();
+    if (win && !win.isDestroyed()) win.loadURL('http://localhost:' + server.port);
+    pushStatus(); return { ok: true, storage: server.storage };
+  } catch (err) {
+    cfg.supabaseUrl = prev.url; cfg.supabaseKey = prev.key;
+    try { if (server) { await server.stop(); server = null; } await startHost(); if (win && !win.isDestroyed()) win.loadURL('http://localhost:' + server.port); } catch {}
+    pushStatus(); return { ok: false, erro: err.message };
+  }
+});
+ipcMain.handle('copy', (e, t) => { clipboard.writeText(String(t || '')); return true; });
+ipcMain.handle('openData', () => { if (server) shell.openPath(server.dataDir); });
+ipcMain.handle('test', async (e, url) => {
+  if (!isLocal(e)) return { ok: false };
+  try {
+    const u = new URL(/^https?:\/\//i.test(url) ? url : 'http://' + url);
+    const r = await Promise.race([net.fetch(u.origin + '/api/config', { bypassCustomProtocolHandlers: true }), new Promise((_, rej) => setTimeout(() => rej(new Error('tempo esgotado')), 8000))]);
+    if (!r.ok) return { ok: false, erro: 'Esse endereço respondeu, mas não parece ser um servidor Discordia.' };
+    const j = await r.json(); if (!j.iceServers) return { ok: false, erro: 'Esse endereço não é um servidor Discordia.' };
+    return { ok: true, url: u.origin };
+  } catch (err) { return { ok: false, erro: 'Não consegui conectar (' + err.message + '). Confira o endereço e se o servidor está ligado.' }; }
+});
+ipcMain.handle('choose', async (e, d) => {
+  if (!isLocal(e)) return { ok: false };
+  if (d.mode === 'host') { cfg.mode = 'host'; saveCfg(); await route(); buildTray(); return { ok: true }; }
+  cfg.mode = 'client'; cfg.server = originOf(d.server); saveCfg();
+  if (/^http:\/\//i.test(cfg.server) && !/^http:\/\/localhost/i.test(cfg.server)) { quitting = true; app.relaunch(); app.exit(0); return { ok: true }; }
+  await route(); return { ok: true };
+});
+
+/* seletor de tela */
+let pickResolve = null, pickSources = [];
+ipcMain.handle('picker:sources', () => pickSources.map(s => ({ id: s.id, name: s.name, thumb: s.thumbnail.toDataURL(), icon: s.appIcon ? s.appIcon.toDataURL() : null, screen: s.id.startsWith('screen') })));
+ipcMain.handle('picker:choose', (e, id) => { if (pickResolve) pickResolve(id); pickResolve = null; if (picker && !picker.isDestroyed()) picker.close(); });
+function askSource() {
+  return new Promise(async resolve => {
+    try { pickSources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 400, height: 225 }, fetchWindowIcons: true }); }
+    catch { return resolve(null); }
+    pickResolve = resolve;
+    picker = new BrowserWindow({ width: 860, height: 620, minWidth: 520, minHeight: 420, parent: win, modal: true, title: 'Compartilhar tela', icon: asset('icon.png'), backgroundColor: '#14171c', autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false } });
+    picker.setMenu(null);
+    showLocal(picker, 'picker');
+    picker.on('closed', () => { if (pickResolve) { pickResolve(null); pickResolve = null; } picker = null; });
+  });
+}
+
+/* ---------- início ---------- */
+app.on('second-instance', showMain);
+app.on('certificate-error', (e, wc, url, err, cert, cb) => {
+  const ok = (cfg.mode === 'client' && hostOf(url) === hostOf(cfg.server)) || /^https:\/\/localhost[:/]/.test(url);
+  if (ok) { e.preventDefault(); cb(true); } else cb(false);
+});
+app.whenReady().then(() => {
+  const ses = session.defaultSession;
+  const allowed = ['media', 'notifications', 'clipboard-sanitized-write', 'clipboard-read', 'fullscreen', 'display-capture', 'speaker-selection'];
+  ses.setPermissionRequestHandler((wc, perm, cb) => cb(allowed.includes(perm)));
+  ses.setPermissionCheckHandler((wc, perm) => allowed.includes(perm));
+  ses.setDisplayMediaRequestHandler(async (req, cb) => {
+    const id = await askSource();
+    const src = id && pickSources.find(s => s.id === id);
+    if (!src) return cb({});
+    const grant = { video: src };
+    if (process.platform === 'win32' && src.id.startsWith('screen')) grant.audio = 'loopback';
+    cb(grant);
+  });
+  buildTray();
+  createWindow();
+});
+app.on('window-all-closed', () => { if (quitting || !cfg.minimizeToTray) app.quit(); });
+app.on('before-quit', async e => {
+  quitting = true;
+  if (server || tunnel.proc) { e.preventDefault(); await stopHost(); app.exit(0); }
+});
