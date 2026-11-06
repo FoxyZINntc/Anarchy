@@ -101,3 +101,13 @@ alter table public.mensagens       enable row level security;
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('uploads', 'uploads', true, 8388608, array['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 on conflict (id) do nothing;
+
+-- tokens que autorizam um servidor Discordia a usar a função discordia-db (só o hash SHA-256 fica guardado)
+create table if not exists public.servidor_tokens (
+  token_hash text primary key,
+  nome       text not null,
+  criado_em  timestamptz not null default now()
+);
+alter table public.servidor_tokens enable row level security;
+revoke all on public.servidor_tokens from anon, authenticated;
+-- para liberar um servidor: insert into public.servidor_tokens (token_hash, nome) values (encode(sha256('SEU_TOKEN'::bytea), 'hex'), 'meu servidor');

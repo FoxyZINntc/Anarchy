@@ -21,11 +21,13 @@ Chat com amigos, grupos com canais de texto e voz, calls, câmera e compartilham
 
 ## Supabase
 
-1. Rode `supabase/schema.sql` no SQL Editor do projeto (já aplicado no projeto `discordia`).
-2. Pegue a **URL** e a chave **service_role** em *Project Settings > API*.
-3. No app de computador: ícone perto do relógio > **Painel do servidor** > **Banco de dados**. Ou crie um arquivo `.env` a partir do `.env.example`.
+O servidor fala com o Supabase pela função `supabase/functions/discordia-db`, usando um **token de servidor**. A chave secreta do Supabase nunca sai do Supabase.
 
-A chave service_role fica só no servidor. Nunca coloque ela no GitHub.
+1. Rode `supabase/schema.sql` no SQL Editor e publique a função `discordia-db` (sem verificação de JWT). Já está feito no projeto `discordia`.
+2. Gere um token, guarde o hash dele em `servidor_tokens` (veja o fim do `schema.sql`).
+3. Configure `SUPABASE_URL` e `SUPABASE_DISCORDIA_TOKEN` no `.env`, ou no app em `desktop/servidor-padrao.json` (fora do git).
+
+Também funciona com a chave service_role direto (`SUPABASE_SERVICE_ROLE_KEY`). Nenhum token ou chave vai para o GitHub.
 As tabelas têm RLS ligado e sem políticas, então a chave pública (anon) não lê nada.
 
 ## Rodar
