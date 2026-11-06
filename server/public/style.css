@@ -55,15 +55,120 @@ a { color: var(--accent); }
 .logo-mark::after { content: "D"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--accent-text); font-weight: 800; font-size: 18px; font-family: var(--font-head); }
 
 /* login */
-#auth { position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; overflow: auto; background: radial-gradient(1200px 600px at 20% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%), radial-gradient(900px 500px at 100% 100%, color-mix(in srgb, var(--accent2) 18%, transparent), transparent 60%), var(--rail); }
-.auth-card { width: min(420px, 100%); background: var(--panel); border-radius: calc(var(--radius) * 1.5); padding: 32px; box-shadow: var(--shadow); display: grid; gap: 14px; }
-.auth-brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-head); font-weight: 800; font-size: 22px; }
-.auth-card h1 { margin: 6px 0 0; font-family: var(--font-head); font-size: 26px; }
-.auth-card p { margin: 0; }
-#authForm { display: grid; gap: 12px; margin-top: 6px; }
-#authForm label { display: grid; gap: 6px; font-size: .78em; font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }
-#authForm input { background: var(--elev); border: 1px solid transparent; border-radius: calc(var(--radius) * .7); padding: 11px 12px; font-size: 1.25em; text-transform: none; font-weight: 400; letter-spacing: 0; outline: none; }
-#authForm input:focus { border-color: var(--accent); }
+/* ---- login: conversa com o Porteiro ---- */
+#auth { position: fixed; inset: 0; overflow: auto; background: var(--rail); font-size: 15px; }
+.au-bg { position: fixed; inset: 0; overflow: hidden; pointer-events: none;
+  background-image: radial-gradient(rgba(255,255,255,.07) 1.5px, transparent 1.6px); background-size: 48px 48px; }
+.au-glow { position: absolute; border-radius: 50%; filter: blur(10px); animation: auGlow 14s ease-in-out infinite alternate; }
+.au-glow.g1 { width: 900px; height: 760px; left: -260px; top: -320px; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 33%, transparent), transparent); }
+.au-glow.g2 { width: 900px; height: 760px; right: -360px; bottom: -340px; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent2) 25%, transparent), transparent); animation-delay: -5s; }
+.au-glow.g3 { width: 520px; height: 420px; left: 36%; bottom: -160px; background: radial-gradient(closest-side, rgba(62,224,197,.14), transparent); animation-delay: -9s; }
+@keyframes auGlow { to { transform: translate(60px, 40px) scale(1.1); } }
+.au-float { position: absolute; left: var(--x); top: var(--y); padding: 9px 17px; border-radius: 16px 16px 16px 4px; font-weight: 600; font-size: 14px; line-height: 20px; white-space: nowrap;
+  color: var(--c); background: color-mix(in srgb, var(--c) 18%, transparent); border: 1px solid color-mix(in srgb, var(--c) 33%, transparent);
+  transform: rotate(var(--r)); animation: auFloat 7s ease-in-out infinite; animation-delay: var(--d); }
+@keyframes auFloat { 50% { transform: rotate(calc(var(--r) * -1)) translateY(-14px); } }
+.au-wrap { position: relative; min-height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 460px); gap: 60px; align-items: center; max-width: 1180px; margin: 0 auto; padding: 150px 40px 40px; }
+.au-hero { align-self: center; padding-bottom: 60px; }
+.au-brand { display: flex; align-items: center; gap: 14px; font-family: "Poppins", var(--font-head); font-weight: 700; font-size: 26px; }
+.au-brand .logo-mark { width: 56px; height: 56px; border-radius: 16px; }
+.au-brand .logo-mark::after { font-size: 30px; }
+.au-hero h1 { font-family: "Poppins", var(--font-head); font-weight: 800; font-size: clamp(40px, 5.2vw, 64px); line-height: 1.12; margin: 36px 0 22px; letter-spacing: -.01em; }
+.au-hero p { color: var(--muted); font-size: 18px; line-height: 1.55; max-width: 430px; margin: 0 0 28px; }
+.au-pill { display: inline-flex; align-items: center; gap: 10px; padding: 9px 18px 9px 16px; border-radius: 99px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08); font-size: 14px; }
+.au-pill i { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: auPing 2s infinite; }
+@keyframes auPing { 70% { box-shadow: 0 0 0 8px transparent; } }
+.au-stage { position: relative; }
+.au-card { position: relative; z-index: 2; height: min(620px, calc(100vh - 190px)); min-height: 440px; display: flex; flex-direction: column; background: var(--panel); border: 1px solid rgba(255,255,255,.07); border-radius: 28px; overflow: hidden; box-shadow: 0 30px 70px -10px rgba(0,0,0,.7); }
+.au-head { display: flex; align-items: center; gap: 12px; padding: 12px 18px; background: color-mix(in srgb, var(--panel) 80%, #000 20%); }
+.au-who { display: grid; flex: 1; min-width: 0; }
+.au-who b { font-family: "Poppins", var(--font-head); font-size: 17px; }
+.au-who > span { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.au-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.au-switch { border: 0; background: rgba(255,255,255,.06); color: var(--accent); font-weight: 600; font-size: 13px; padding: 7px 16px; border-radius: 99px; cursor: pointer; transition: background .15s, transform .15s; }
+.au-switch:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); transform: translateY(-1px); }
+.au-log { flex: 1; overflow-y: auto; padding: 18px 20px 8px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; }
+.au-day { align-self: center; font-size: 11px; font-weight: 700; letter-spacing: .14em; color: var(--muted); margin-bottom: 6px; }
+.au-msg { max-width: 78%; padding: 11px 16px; font-size: 15px; line-height: 22px; border-radius: 4px 18px 18px 18px; background: var(--elev); align-self: flex-start; animation: auPop .35s cubic-bezier(.2,1.4,.4,1) both; overflow-wrap: anywhere; }
+.au-msg.me { align-self: flex-end; background: var(--accent); color: var(--accent-text); border-radius: 18px 4px 18px 18px; }
+.au-msg.err { background: color-mix(in srgb, var(--danger) 22%, var(--elev)); }
+.au-msg.secret { letter-spacing: 3px; }
+@keyframes auPop { from { opacity: 0; transform: translateY(10px) scale(.92); } }
+.au-typing { display: flex; gap: 6px; padding: 15px 16px; }
+.au-typing i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); animation: auDot 1s infinite; }
+.au-typing i:nth-child(2) { animation-delay: .15s; } .au-typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes auDot { 30% { transform: translateY(-5px); opacity: .5; } }
+.au-chips { display: flex; flex-wrap: wrap; gap: 8px; animation: auPop .35s both; }
+.au-chips button { border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); background: transparent; color: var(--accent); border-radius: 99px; padding: 6px 14px; font-weight: 600; font-size: 13px; cursor: pointer; }
+.au-chips button:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.au-input { display: flex; align-items: center; gap: 12px; padding: 16px 18px 18px; border-top: 1px solid rgba(255,255,255,.06); position: relative; }
+.au-input input { flex: 1; min-width: 0; height: 50px; border-radius: 25px; border: 2px solid var(--accent); background: rgba(0,0,0,.3); color: var(--text); padding: 0 52px 0 22px; font: inherit; font-size: 15px; outline: none; transition: border-color .2s, box-shadow .2s; }
+.au-input input:focus { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+.au-input input[type=password]:not(:placeholder-shown) { letter-spacing: 3px; }
+.au-input.bad input { border-color: var(--danger); animation: auShake .4s; }
+.au-input.good input { border-color: var(--ok); }
+.au-peek { position: absolute; right: 88px; top: 50%; transform: translateY(-55%); width: 34px; height: 34px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.au-peek svg { width: 19px; height: 19px; }
+.au-peek[aria-pressed=true] { color: var(--accent); }
+.au-send { flex: none; width: 50px; height: 50px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-text); display: grid; place-items: center; cursor: pointer; box-shadow: 0 8px 18px -4px color-mix(in srgb, var(--accent) 60%, transparent); transition: transform .15s, background .2s; }
+.au-send svg { width: 22px; height: 22px; }
+.au-send:hover { transform: scale(1.07) rotate(-8deg); }
+.au-send:active { transform: scale(.92); }
+.au-send:disabled { opacity: .5; cursor: default; transform: none; }
+.au-input.good .au-send { background: var(--ok); }
+.au-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@keyframes auShake { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+
+/* o Porteiro: tudo em em, então muda de tamanho pelo font-size */
+.porteiro { position: relative; width: 12em; height: 12em; font-size: 10px; flex: none; padding: 0; border: 0; background: none; color: inherit; }
+.porteiro.big { position: absolute; z-index: 1; left: 50%; top: -11.4em; margin-left: -6em; font-size: 13px; cursor: pointer; transition: transform .3s cubic-bezier(.2,1.6,.4,1); }
+.porteiro.big:hover { transform: translateY(-6px); }
+.porteiro.big:focus-visible { outline: none; } .porteiro.big:focus-visible .pt-body { outline: 3px solid var(--accent); outline-offset: 3px; }
+.porteiro.mini { font-size: 4.4px; margin: -4px 0 -6px; }
+.porteiro i { position: absolute; display: block; }
+.pt-ant { left: 5.8em; top: .6em; width: .4em; height: 2.2em; border-radius: .2em; background: #9aa6ff; transform-origin: bottom; animation: ptAnt 3s ease-in-out infinite; }
+.pt-bulb { left: 5.2em; top: 0; width: 1.6em; height: 1.6em; border-radius: 50%; background: var(--accent2); box-shadow: 0 0 1.2em var(--accent2); animation: ptBulb 2.4s ease-in-out infinite; }
+.pt-body { left: 1em; top: 2em; width: 10em; height: 9.6em; border-radius: 50%; overflow: hidden; background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 70%, #fff 30%), color-mix(in srgb, var(--accent) 85%, #000 15%)); box-shadow: 0 1em 2.4em -0.4em color-mix(in srgb, var(--accent) 50%, transparent), inset 0 -0.8em 1.6em rgba(0,0,0,.18); animation: ptBreathe 3.2s ease-in-out infinite; }
+.pt-eye { top: 2.4em; width: 2.6em; height: 3em; border-radius: 50%; background: #fff; overflow: hidden; transition: transform .12s; }
+.pt-eye.l { left: 1.8em; } .pt-eye.r { left: 5.6em; }
+.pt-pupil { left: .65em; top: .75em; width: 1.3em; height: 1.5em; border-radius: 50%; background: #14112a; transform: translate(var(--px, 0), var(--py, 0)); transition: transform .08s linear; }
+.pt-pupil::after { content: ""; position: absolute; left: .7em; top: .25em; width: .4em; height: .4em; border-radius: 50%; background: #fff; }
+.porteiro.blink .pt-eye { transform: scaleY(.1); }
+.pt-happy { top: 3.2em; width: 2.2em; height: 2.2em; border-radius: 50%; border: .5em solid #fff; border-bottom-color: transparent; border-left-color: transparent; transform: rotate(-45deg); opacity: 0; }
+.pt-happy.l { left: 2em; } .pt-happy.r { left: 5.8em; }
+.pt-cheek { top: 5.4em; width: 1.6em; height: .9em; border-radius: 50%; background: #ff8fa8; opacity: .7; }
+.pt-cheek.l { left: 1.2em; } .pt-cheek.r { left: 7.2em; }
+.pt-mouth { left: 4em; top: 6.1em; width: 2em; height: 1em; border: .4em solid #2a1b4a; border-top: 0; border-radius: 0 0 1.2em 1.2em; transition: all .25s; }
+.pt-hand { top: 1.8em; width: 4.2em; height: 3.6em; border-radius: 50%; background: color-mix(in srgb, var(--accent) 75%, #fff 25%); border: .2em solid color-mix(in srgb, var(--accent) 80%, #000 20%); transform: translateY(8em); transition: transform .45s cubic-bezier(.3,1.5,.5,1); }
+.pt-hand.l { left: .8em; } .pt-hand.r { left: 5em; transition-delay: .06s; }
+.porteiro.shy .pt-hand { transform: none; }
+.porteiro.shy.peek .pt-hand.r { transform: translateY(2.2em) rotate(-12deg); }
+.porteiro.shy .pt-mouth { width: 1.2em; height: 1.2em; left: 4.4em; border: .4em solid #2a1b4a; border-radius: 50%; }
+.porteiro.happy .pt-eye { opacity: 0; } .porteiro.happy .pt-happy { opacity: 1; }
+.porteiro.happy .pt-mouth { width: 3.2em; height: 1.6em; left: 3.4em; background: #2a1b4a; border-radius: 0 0 1.6em 1.6em; }
+.porteiro.sad .pt-mouth { border: .4em solid #2a1b4a; border-bottom: 0; border-radius: 1.2em 1.2em 0 0; top: 6.6em; }
+.porteiro.sus .pt-eye { height: 1.8em; top: 3em; }
+.porteiro.sus .pt-mouth { height: 0; border-radius: 0; width: 1.8em; left: 4.1em; }
+.porteiro.shake { animation: ptShake .5s; }
+.porteiro.jump { animation: ptJump .7s cubic-bezier(.3,1.6,.5,1); }
+.porteiro.boop .pt-body { animation: ptBoop .45s; }
+@keyframes ptBreathe { 50% { transform: scale(1.025, .975) translateY(.12em); } }
+@keyframes ptAnt { 50% { transform: rotate(8deg); } }
+@keyframes ptBulb { 50% { box-shadow: 0 0 2.2em var(--accent2); filter: brightness(1.3); } }
+@keyframes ptShake { 20%, 60% { transform: translateX(-.8em) rotate(-6deg); } 40%, 80% { transform: translateX(.8em) rotate(6deg); } }
+@keyframes ptJump { 40% { transform: translateY(-3em) scale(1.08, .94); } 70% { transform: translateY(0) scale(1.1, .9); } }
+@keyframes ptBoop { 30% { transform: scale(1.12, .86); } 60% { transform: scale(.94, 1.06); } }
+.pt-speech { position: absolute; z-index: 3; left: calc(50% + 5em); top: -9.5em; background: #fff; color: #14112a; font-weight: 700; font-size: 13px; padding: 8px 14px; border-radius: 14px 14px 14px 4px; white-space: nowrap; box-shadow: 0 10px 24px -8px rgba(0,0,0,.5); opacity: 0; transform: translateY(6px) scale(.9); transform-origin: bottom left; transition: opacity .2s, transform .25s cubic-bezier(.2,1.6,.4,1); pointer-events: none; }
+.pt-speech.on { opacity: 1; transform: none; }
+.au-confetti { position: fixed; z-index: 50; width: 10px; height: 16px; border-radius: 2px; pointer-events: none; }
+@media (max-width: 900px) {
+  .au-wrap { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 130px 16px 16px; justify-items: center; }
+  .au-hero { display: none; }
+  .au-stage { width: 100%; max-width: 460px; min-width: 0; }
+  .porteiro.big { font-size: 10.5px; }
+  .au-card { height: calc(100vh - 150px); height: calc(100dvh - 150px); }
+  .pt-speech { left: auto; right: 0; }
+}
 
 /* layout */
 #app { position: fixed; inset: 0; display: grid; grid-template-columns: 76px 268px minmax(0, 1fr) auto; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }

@@ -219,30 +219,182 @@ function notifyDesktop(title, body, icon) {
 }
 
 /* =============== login =============== */
-let authMode = 'login';
+/* O login é uma conversa com o Porteiro: ele pergunta, você responde no campo de baixo. */
+const PT_HTML = '<i class="pt-ant"></i><i class="pt-bulb"></i><i class="pt-body">' +
+  '<i class="pt-eye l"><i class="pt-pupil"></i></i><i class="pt-eye r"><i class="pt-pupil"></i></i>' +
+  '<i class="pt-happy l"></i><i class="pt-happy r"></i><i class="pt-cheek l"></i><i class="pt-cheek r"></i>' +
+  '<i class="pt-mouth"></i><i class="pt-hand l"></i><i class="pt-hand r"></i></i>';
+$$('.porteiro').forEach(p => { p.innerHTML = PT_HTML; });
+const PT_LINES = ['Ei! Isso faz cócegas 😆', 'Eu só trabalho aqui.', 'Psiu, senha é segredo.', 'Tô de olho 👀', 'Já tomou água hoje?', 'Boop!', 'Sem crachá, sem festa.', 'Não aperta, sou frágil 🥺'];
+const AU = { mode: 'login', step: 'user', data: {}, busy: false, gen: 0, mood: 'look' };
+const authWait = ms => new Promise(r => setTimeout(r, ms));
+const reduceMotion = () => document.body.classList.contains('no-anim') || matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function ptMood(m, status) {
+  AU.mood = m;
+  $$('.porteiro').forEach(p => { p.classList.remove('shy', 'happy', 'sad', 'sus', 'peek'); if (m !== 'look') p.classList.add(m); });
+  if (status) $('#ptStatus').textContent = status;
+}
+function ptAnim(cls) {
+  const p = $('#ptBig'); p.classList.remove(cls); void p.offsetWidth; p.classList.add(cls);
+  setTimeout(() => p.classList.remove(cls), 800);
+}
+function authAdd(html, cls = '') {
+  const log = $('#authLog'); const el = document.createElement('div');
+  el.className = cls; el.innerHTML = html; log.appendChild(el); log.scrollTop = log.scrollHeight; return el;
+}
+// o Porteiro "digita" antes de cada mensagem
+async function bot(lines, { err = false, chips = null } = {}) {
+  const g = AU.gen; AU.busy = true; $('#authBtn').disabled = true;
+  for (const line of [].concat(lines)) {
+    const prev = $('#ptStatus').textContent; $('#ptStatus').textContent = 'digitando...';
+    const t = authAdd('<i></i><i></i><i></i>', 'au-msg au-typing');
+    await authWait(reduceMotion() ? 80 : clamp(320 + line.length * 14, 420, 1100));
+    t.remove(); if (g !== AU.gen) return;
+    $('#ptStatus').textContent = prev === 'digitando...' ? 'online' : prev;
+    authAdd(esc(line), 'au-msg' + (err ? ' err' : ''));
+    tone([[err ? 330 : 740, .07], [err ? 260 : 990, .09]], 'sine', .05);
+  }
+  if (chips) {
+    const c = authAdd(chips.map((ch, i) => `<button type="button" data-i="${i}">${esc(ch[0])}</button>`).join(''), 'au-chips');
+    c.onclick = e => { const b = e.target.closest('button'); if (b && !AU.busy) { c.remove(); chips[b.dataset.i][1](); } };
+  }
+  AU.busy = false; $('#authBtn').disabled = false; $('#authInput').focus();
+}
+function ask(step) {
+  AU.step = step;
+  const inp = $('#authInput'), reg = AU.mode === 'register';
+  const cfg = {
+    user: ['Nome de usuário', 'seu nome de usuário', 'text', 'username'],
+    name: ['Nome de exibição', 'como a galera vai te ver', 'text', 'nickname'],
+    pass: ['Senha', reg ? 'mínimo 6 caracteres' : 'sua senha', 'password', reg ? 'new-password' : 'current-password']
+  }[step];
+  $('#authLabel').textContent = cfg[0]; inp.placeholder = cfg[1]; inp.type = cfg[2]; inp.autocomplete = cfg[3];
+  inp.value = step === 'user' ? (AU.data.username || '') : step === 'name' ? (AU.data.displayName || '') : '';
+  inp.maxLength = step === 'user' ? 20 : step === 'name' ? 32 : 200;
+  const peek = $('#authPeek'); peek.hidden = step !== 'pass'; peek.setAttribute('aria-pressed', 'false');
+  if (step === 'pass') ptMood('shy', 'de olhos fechados 🙈'); else ptMood('look', 'online');
+  $('#authForm').classList.remove('bad', 'good');
+}
+async function authStart(mode = AU.mode) {
+  AU.gen++; AU.mode = mode; AU.data = {}; AU.busy = false;
+  const reg = mode === 'register';
+  $('#authSwitch').textContent = reg ? 'Já tenho conta' : 'Criar conta';
+  $('#authLog').innerHTML = '<div class="au-day">HOJE</div>';
+  ask('user');
+  if (reg) await bot(['Gente nova! Adoro 🎉', 'Escolhe um nome de usuário. É com ele que os amigos vão te achar (3 a 20 caracteres: letras minúsculas, números, ponto ou _).']);
+  else await bot(['Opa! Eu sou o Porteiro do Discordia 👋', 'Ninguém entra sem se identificar. Qual é o seu nome de usuário?']);
+}
 function showAuth() {
   $('#app').hidden = true; $('#auth').hidden = false;
-  setTimeout(() => $('#aUser').focus(), 50);
+  authStart('login');
 }
-$('#authSwitch').onclick = () => {
-  authMode = authMode === 'login' ? 'register' : 'login';
-  const reg = authMode === 'register';
-  $('#authTitle').textContent = reg ? 'Criar uma conta' : 'Bem-vindo de volta';
-  $('#authSub').textContent = reg ? 'Escolha um nome de usuário. Seus amigos vão usar ele para te adicionar.' : 'Entre para falar com seus amigos.';
-  $('#authBtn').textContent = reg ? 'Criar conta' : 'Entrar';
-  $('#authSwitchTxt').textContent = reg ? 'Já tem conta?' : 'Ainda não tem conta?';
-  $('#authSwitch').textContent = reg ? 'Entrar' : 'Criar conta';
-  $('#aNameWrap').hidden = !reg; $('#authErr').textContent = '';
-  $('#aPass').autocomplete = reg ? 'new-password' : 'current-password';
+function authBad(msg) {
+  $('#authForm').classList.remove('bad'); void $('#authForm').offsetWidth; $('#authForm').classList.add('bad');
+  ptAnim('shake'); return bot(msg, { err: true });
+}
+$('#authSwitch').onclick = () => authStart(AU.mode === 'login' ? 'register' : 'login');
+$('#authPeek').onclick = () => {
+  const inp = $('#authInput'), on = inp.type === 'password';
+  inp.type = on ? 'text' : 'password'; $('#authPeek').setAttribute('aria-pressed', String(on));
+  $('#authPeek').setAttribute('aria-label', on ? 'Esconder senha' : 'Mostrar senha');
+  $$('.porteiro').forEach(p => p.classList.toggle('peek', on));
+  $('#ptStatus').textContent = on ? 'espiando um pouquinho...' : 'de olhos fechados 🙈';
+  inp.focus();
 };
 $('#authForm').onsubmit = async e => {
   e.preventDefault(); audioCtx();
-  const btn = $('#authBtn'); btn.disabled = true; $('#authErr').textContent = '';
+  if (AU.busy) return;
+  const inp = $('#authInput'), raw = inp.value, reg = AU.mode === 'register';
+  const val = AU.step === 'pass' ? raw : raw.trim();
+  if (!val && AU.step !== 'name') { ptAnim('boop'); inp.focus(); return; }
+  $('#authForm').classList.remove('bad'); $$('#authLog .au-chips').forEach(c => c.remove());
+  authAdd(AU.step === 'pass' ? '•'.repeat(Math.min(val.length, 12)) : esc(val || '(pulei)'), 'au-msg me' + (AU.step === 'pass' ? ' secret' : ''));
+  inp.value = '';
+  if (AU.step === 'user') {
+    const u = val.toLowerCase().replace(/^@/, '');
+    if (!/^[a-z0-9_.]{3,20}$/.test(u)) { ptMood('sus', 'desconfiado 🤨'); await authBad('Esse nome não passa na porta 😬 Use de 3 a 20 caracteres: letras minúsculas, números, ponto ou _.'); ask('user'); return; }
+    AU.data.username = u;
+    if (reg) { ask('name'); await bot(`@${u}, gostei! E como você quer aparecer pra galera? Pode ser nome, apelido...`, { chips: [['Pular', () => { AU.data.displayName = ''; authAdd('(pulei)', 'au-msg me'); goPass(); }]] }); return; }
+    ask('pass'); await bot(`Hmm, @${u}... Agora a senha. Prometo que não tô olhando 🙈`, { chips: [['Não sou eu', () => authStart('login')]] });
+    return;
+  }
+  if (AU.step === 'name') { AU.data.displayName = val; goPass(); return; }
+  // senha
+  if (reg && val.length < 6) { await authBad('Curtinha demais! A senha precisa de pelo menos 6 caracteres.'); ask('pass'); return; }
+  AU.busy = true; $('#authBtn').disabled = true; $('#ptStatus').textContent = 'conferindo a lista...';
+  const g = AU.gen;
   try {
-    const r = await api(authMode === 'login' ? '/api/login' : '/api/register', { username: $('#aUser').value, password: $('#aPass').value, displayName: $('#aName').value });
-    S.token = r.token; localStorage.setItem('discordia:token', r.token); connect();
-  } catch (err) { $('#authErr').textContent = err.message; }
-  btn.disabled = false;
+    const r = await api(reg ? '/api/register' : '/api/login', { username: AU.data.username, password: val, displayName: AU.data.displayName || '' });
+    if (g !== AU.gen) return;
+    AU.busy = false; await authWin(r.token);
+  } catch (err) {
+    if (g !== AU.gen) return;
+    AU.busy = false; ptMood('sad', 'meio triste');
+    if (reg && /usu[aá]rio/i.test(err.message)) { await authBad(`Eita! ${err.message} Escolhe outro?`); ask('user'); return; }
+    await authBad(`Eita! ${err.message}`);
+    ask('pass');
+    await bot('Bora de novo? Manda a senha.', { chips: [['Trocar usuário', () => authStart(AU.mode)], ...(reg ? [] : [['Criar conta', () => authStart('register')]])] });
+  }
+};
+async function goPass() {
+  ask('pass');
+  await bot('Agora inventa uma senha (mínimo 6 caracteres). Juro que fecho os olhos 🙈');
+}
+async function authWin(token) {
+  const name = AU.data.displayName || AU.data.username;
+  ptMood('happy', 'comemorando 🎉'); ptAnim('jump'); $('#authForm').classList.add('good');
+  $('#authInput').blur(); $('#authBtn').disabled = true;
+  authAdd(esc(AU.mode === 'register' ? `Prontinho, ${name}! Conta criada. Seja bem-vindo 🎉` : `Achei você, ${name}! Pode entrar, a galera tá te esperando 🎉`), 'au-msg');
+  tone([[523, .1], [659, .1], [784, .1], [1047, .25]], 'triangle', .08);
+  confetti();
+  await authWait(reduceMotion() ? 200 : 1300);
+  S.token = token; localStorage.setItem('discordia:token', token); connect();
+}
+function confetti() {
+  if (reduceMotion()) return;
+  const box = $('.au-card').getBoundingClientRect(), cx = box.left + box.width / 2, cy = box.top + box.height * .55;
+  const cols = ['#6c7cff', '#ff6b8b', '#3ee0c5', '#f5b83d', '#b07cff', '#7bd88f'];
+  for (let i = 0; i < 90; i++) {
+    const c = document.createElement('i'); c.className = 'au-confetti';
+    c.style.background = cols[i % cols.length]; c.style.left = cx + 'px'; c.style.top = cy + 'px';
+    document.body.appendChild(c);
+    const a = Math.random() * Math.PI * 2, v = 160 + Math.random() * 320;
+    const dx = Math.cos(a) * v, dy = Math.sin(a) * v - 220, rot = (Math.random() - .5) * 1440;
+    c.animate([
+      { transform: 'translate(-50%,-50%) rotate(0deg) scale(1)', opacity: 1 },
+      { transform: `translate(${dx}px, ${dy}px) rotate(${rot / 2}deg) scale(1)`, opacity: 1, offset: .45 },
+      { transform: `translate(${dx * 1.3}px, ${dy + 520}px) rotate(${rot}deg) scale(.6)`, opacity: 0 }
+    ], { duration: 1400 + Math.random() * 900, easing: 'cubic-bezier(.2,.7,.4,1)' }).onfinish = () => c.remove();
+  }
+}
+// olhos seguem o mouse (ou o texto que você digita)
+let ptLook = null;
+function ptEyes(x, y) {
+  if (AU.mood === 'happy' || $('#auth').hidden) return;
+  $$('.pt-eye').forEach(eye => {
+    const r = eye.getBoundingClientRect(), dx = x - (r.left + r.width / 2), dy = y - (r.top + r.height / 2);
+    const d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 160);
+    const p = eye.firstElementChild;
+    p.style.setProperty('--px', (dx / d * k * .55).toFixed(3) + 'em'); p.style.setProperty('--py', (dy / d * k * .6).toFixed(3) + 'em');
+  });
+}
+addEventListener('pointermove', e => { ptLook = [e.clientX, e.clientY]; ptEyes(e.clientX, e.clientY); }, { passive: true });
+$('#authInput').addEventListener('input', () => {
+  const inp = $('#authInput'), r = inp.getBoundingClientRect();
+  ptEyes(r.left + 22 + Math.min(inp.value.length * 8.5, r.width - 40), r.top + r.height / 2);
+});
+(function blink() {
+  setTimeout(() => {
+    if (!$('#auth').hidden && !reduceMotion()) { $$('.porteiro').forEach(p => p.classList.add('blink')); setTimeout(() => $$('.porteiro').forEach(p => p.classList.remove('blink')), 140); }
+    blink();
+  }, 2200 + Math.random() * 3200);
+})();
+let ptSpeechT = null;
+$('#ptBig').onclick = () => {
+  ptAnim('boop'); tone([[880, .05], [660, .08]], 'square', .03);
+  const s = $('#ptSpeech'); s.textContent = PT_LINES[Math.floor(Math.random() * PT_LINES.length)]; s.classList.add('on');
+  clearTimeout(ptSpeechT); ptSpeechT = setTimeout(() => s.classList.remove('on'), 1800);
 };
 async function logout() {
   try { await api('/api/logout'); } catch {}
