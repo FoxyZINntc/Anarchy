@@ -158,6 +158,40 @@ a { color: var(--accent); }
 @keyframes ptShake { 20%, 60% { transform: translateX(-.8em) rotate(-6deg); } 40%, 80% { transform: translateX(.8em) rotate(6deg); } }
 @keyframes ptJump { 40% { transform: translateY(-3em) scale(1.08, .94); } 70% { transform: translateY(0) scale(1.1, .9); } }
 @keyframes ptBoop { 30% { transform: scale(1.12, .86); } 60% { transform: scale(.94, 1.06); } }
+/* braço (aceno), suor, zzz e as animações vivas do Porteiro */
+.pt-arm { left: 9.6em; top: 5.8em; width: 4.6em; height: 1.5em; border-radius: 1em; background: color-mix(in srgb, var(--accent) 80%, #fff 20%); transform-origin: .6em 50%; transform: rotate(40deg) scale(.4); opacity: 0; z-index: -1; }
+.pt-arm::after { content: ""; position: absolute; right: -.5em; top: -.45em; width: 2.2em; height: 2.2em; border-radius: 50%; background: inherit; }
+.porteiro.wave .pt-arm { animation: ptWave 1.5s ease-in-out; }
+@keyframes ptWave { 0% { transform: rotate(40deg) scale(.4); opacity: 0; } 12% { opacity: 1; } 15% { transform: rotate(-55deg) scale(1); } 30% { transform: rotate(-25deg); } 45% { transform: rotate(-60deg); } 60% { transform: rotate(-25deg); } 75% { transform: rotate(-55deg); opacity: 1; } 100% { transform: rotate(40deg) scale(.4); opacity: 0; } }
+.pt-sweat { left: 9.4em; top: 3.4em; width: 1em; height: 1.4em; border-radius: 50% 0 50% 50%; transform: rotate(-45deg); background: #8fd8ff; opacity: 0; }
+.porteiro.sad .pt-sweat { opacity: .9; animation: ptSweat 1.4s ease-in infinite; }
+@keyframes ptSweat { 0% { transform: rotate(-45deg) translate(0, 0); opacity: 0; } 20% { opacity: .9; } 100% { transform: rotate(-45deg) translate(-1.6em, 1.6em); opacity: 0; } }
+.pt-zzz { left: 9em; top: -.6em; width: 4em; height: 4em; opacity: 0; transition: opacity .3s; }
+.pt-zzz b { position: absolute; left: 0; bottom: 0; color: #c9d0ff; font: 800 1.5em/1 "Poppins", sans-serif; opacity: 0; animation: ptZ 2.4s ease-out infinite; }
+.pt-zzz b:nth-child(2) { animation-delay: .8s; font-size: 1.9em; } .pt-zzz b:nth-child(3) { animation-delay: 1.6s; font-size: 2.3em; }
+@keyframes ptZ { 0% { transform: translate(0, 0) rotate(-10deg); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(2.2em, -3em) rotate(12deg); opacity: 0; } }
+.porteiro.sleep .pt-zzz { opacity: 1; }
+.porteiro.sleep .pt-eye { transform: scaleY(.14); background: #2a1b4a; }
+.porteiro.sleep .pt-pupil { opacity: 0; }
+.porteiro.sleep .pt-mouth { width: 1em; height: 1em; left: 4.5em; border-radius: 50%; border: .35em solid #2a1b4a; animation: ptSnore 3s ease-in-out infinite; }
+.porteiro.sleep .pt-body { animation-duration: 3s; }
+.porteiro.sleep .pt-ant { transform: rotate(35deg); animation: none; }
+.porteiro.sleep .pt-bulb { left: 6.6em; top: .5em; filter: brightness(.6); animation: none; box-shadow: none; }
+@keyframes ptSnore { 50% { transform: scale(1.5); } }
+.porteiro.around .pt-pupil { animation: ptAround 3.2s ease-in-out; }
+@keyframes ptAround { 0%, 100% { transform: translate(0, 0); } 20%, 38% { transform: translate(-.6em, -.1em); } 55%, 75% { transform: translate(.6em, -.15em); } 88% { transform: translate(0, -.5em); } }
+.porteiro.talk .pt-mouth { animation: ptTalk .18s ease-in-out infinite alternate; }
+@keyframes ptTalk { from { height: 1em; } to { height: .25em; transform: scaleX(1.15); } }
+.porteiro.happy .pt-body { animation: ptDance .55s ease-in-out infinite alternate; }
+@keyframes ptDance { from { transform: rotate(-7deg) translateY(0); } to { transform: rotate(7deg) translateY(-.4em); } }
+.porteiro.nod .pt-body { animation: ptNod .25s ease-out; }
+@keyframes ptNod { 40% { transform: translateY(.35em) scale(1.03, .96); } }
+.porteiro.big.enter { animation: ptEnter .9s cubic-bezier(.25,1.5,.45,1) both; }
+@keyframes ptEnter { 0% { transform: translateY(9em) scale(.8, 1.1); } 55% { transform: translateY(-1.4em) scale(.95, 1.06); } 75% { transform: translateY(.3em) scale(1.08, .93); } 100% { transform: none; } }
+.porteiro.big.startle { animation: ptStartle .55s cubic-bezier(.3,1.6,.5,1); }
+@keyframes ptStartle { 30% { transform: translateY(-2.2em) scale(.9, 1.12); } 60% { transform: translateY(0) scale(1.1, .9); } }
+.porteiro.startle .pt-eye { transform: scale(1.25); }
+.porteiro.mini .pt-arm, .porteiro.mini .pt-zzz, .porteiro.mini .pt-sweat { display: none; }
 .pt-speech { position: absolute; z-index: 3; left: calc(50% + 5em); top: -9.5em; background: #fff; color: #14112a; font-weight: 700; font-size: 13px; padding: 8px 14px; border-radius: 14px 14px 14px 4px; white-space: nowrap; box-shadow: 0 10px 24px -8px rgba(0,0,0,.5); opacity: 0; transform: translateY(6px) scale(.9); transform-origin: bottom left; transition: opacity .2s, transform .25s cubic-bezier(.2,1.6,.4,1); pointer-events: none; }
 .pt-speech.on { opacity: 1; transform: none; }
 .au-confetti { position: fixed; z-index: 50; width: 10px; height: 16px; border-radius: 2px; pointer-events: none; }

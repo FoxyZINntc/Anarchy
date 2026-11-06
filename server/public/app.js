@@ -223,7 +223,8 @@ function notifyDesktop(title, body, icon) {
 const PT_HTML = '<i class="pt-ant"></i><i class="pt-bulb"></i><i class="pt-body">' +
   '<i class="pt-eye l"><i class="pt-pupil"></i></i><i class="pt-eye r"><i class="pt-pupil"></i></i>' +
   '<i class="pt-happy l"></i><i class="pt-happy r"></i><i class="pt-cheek l"></i><i class="pt-cheek r"></i>' +
-  '<i class="pt-mouth"></i><i class="pt-hand l"></i><i class="pt-hand r"></i></i>';
+  '<i class="pt-mouth"></i><i class="pt-hand l"></i><i class="pt-hand r"></i></i>' +
+  '<i class="pt-arm"></i><i class="pt-sweat"></i><i class="pt-zzz"><b>z</b><b>z</b><b>Z</b></i>';
 $$('.porteiro').forEach(p => { p.innerHTML = PT_HTML; });
 const PT_LINES = ['Ei! Isso faz cócegas 😆', 'Eu só trabalho aqui.', 'Psiu, senha é segredo.', 'Tô de olho 👀', 'Já tomou água hoje?', 'Boop!', 'Sem crachá, sem festa.', 'Não aperta, sou frágil 🥺'];
 const AU = { mode: 'login', step: 'user', data: {}, busy: false, gen: 0, mood: 'look' };
@@ -235,9 +236,29 @@ function ptMood(m, status) {
   $$('.porteiro').forEach(p => { p.classList.remove('shy', 'happy', 'sad', 'sus', 'peek'); if (m !== 'look') p.classList.add(m); });
   if (status) $('#ptStatus').textContent = status;
 }
-function ptAnim(cls) {
-  const p = $('#ptBig'); p.classList.remove(cls); void p.offsetWidth; p.classList.add(cls);
-  setTimeout(() => p.classList.remove(cls), 800);
+function ptAnim(cls, ms = 800, all = false) {
+  (all ? $$('.porteiro') : [$('#ptBig')]).forEach(p => {
+    p.classList.remove(cls); void p.offsetWidth; p.classList.add(cls);
+    clearTimeout(p['_t' + cls]); p['_t' + cls] = setTimeout(() => p.classList.remove(cls), ms);
+  });
+}
+const ptWave = () => ptAnim('wave', 1550);
+function ptEnter() { ptAnim('enter', 950); setTimeout(ptWave, 650); }
+// parado muito tempo: olha em volta, depois cochila. Qualquer movimento acorda.
+let ptIdle1 = null, ptIdle2 = null, ptAsleep = false;
+function ptActivity() {
+  clearTimeout(ptIdle1); clearTimeout(ptIdle2);
+  if (ptAsleep) {
+    ptAsleep = false; $$('.porteiro').forEach(p => p.classList.remove('sleep'));
+    $('#ptStatus').textContent = AU.mood === 'shy' ? 'de olhos fechados 🙈' : 'online';
+    ptAnim('startle', 600); ptSay('Hã?! Tô acordado, tô acordado!');
+  }
+  if ($('#auth').hidden) return;
+  ptIdle1 = setTimeout(() => { if (AU.mood === 'look' && !AU.busy) ptAnim('around', 3300, true); }, 7000);
+  ptIdle2 = setTimeout(() => {
+    if (AU.mood !== 'look' || AU.busy || $('#auth').hidden) return;
+    ptAsleep = true; $$('.porteiro').forEach(p => p.classList.add('sleep')); $('#ptStatus').textContent = 'cochilando 💤';
+  }, 25000);
 }
 function authAdd(html, cls = '') {
   const log = $('#authLog'); const el = document.createElement('div');
@@ -249,7 +270,9 @@ async function bot(lines, { err = false, chips = null } = {}) {
   for (const line of [].concat(lines)) {
     const prev = $('#ptStatus').textContent; $('#ptStatus').textContent = 'digitando...';
     const t = authAdd('<i></i><i></i><i></i>', 'au-msg au-typing');
+    $$('.porteiro').forEach(p => p.classList.add('talk'));
     await authWait(reduceMotion() ? 80 : clamp(320 + line.length * 14, 420, 1100));
+    $$('.porteiro').forEach(p => p.classList.remove('talk'));
     t.remove(); if (g !== AU.gen) return;
     $('#ptStatus').textContent = prev === 'digitando...' ? 'online' : prev;
     authAdd(esc(line), 'au-msg' + (err ? ' err' : ''));
@@ -287,7 +310,7 @@ async function authStart(mode = AU.mode) {
 }
 function showAuth() {
   $('#app').hidden = true; $('#auth').hidden = false;
-  authStart('login');
+  authStart('login'); ptEnter(); ptActivity();
 }
 function authBad(msg) {
   $('#authForm').classList.remove('bad'); void $('#authForm').offsetWidth; $('#authForm').classList.add('bad');
@@ -343,7 +366,8 @@ async function goPass() {
 }
 async function authWin(token) {
   const name = AU.data.displayName || AU.data.username;
-  ptMood('happy', 'comemorando 🎉'); ptAnim('jump'); $('#authForm').classList.add('good');
+  clearTimeout(ptIdle1); clearTimeout(ptIdle2);
+  ptMood('happy', 'comemorando 🎉'); ptAnim('jump'); setTimeout(ptWave, 500); $('#authForm').classList.add('good');
   $('#authInput').blur(); $('#authBtn').disabled = true;
   authAdd(esc(AU.mode === 'register' ? `Prontinho, ${name}! Conta criada. Seja bem-vindo 🎉` : `Achei você, ${name}! Pode entrar, a galera tá te esperando 🎉`), 'au-msg');
   tone([[523, .1], [659, .1], [784, .1], [1047, .25]], 'triangle', .08);
@@ -379,8 +403,14 @@ function ptEyes(x, y) {
     p.style.setProperty('--px', (dx / d * k * .55).toFixed(3) + 'em'); p.style.setProperty('--py', (dy / d * k * .6).toFixed(3) + 'em');
   });
 }
-addEventListener('pointermove', e => { ptLook = [e.clientX, e.clientY]; ptEyes(e.clientX, e.clientY); }, { passive: true });
+let ptMoveT = 0;
+addEventListener('pointermove', e => {
+  ptLook = [e.clientX, e.clientY]; ptEyes(e.clientX, e.clientY);
+  if (!$('#auth').hidden && (ptAsleep || e.timeStamp - ptMoveT > 1000)) { ptMoveT = e.timeStamp; ptActivity(); }
+}, { passive: true });
+addEventListener('keydown', () => { if (!$('#auth').hidden) ptActivity(); });
 $('#authInput').addEventListener('input', () => {
+  if (AU.mood === 'look') ptAnim('nod', 260, true);
   const inp = $('#authInput'), r = inp.getBoundingClientRect();
   ptEyes(r.left + 22 + Math.min(inp.value.length * 8.5, r.width - 40), r.top + r.height / 2);
 });
@@ -391,10 +421,15 @@ $('#authInput').addEventListener('input', () => {
   }, 2200 + Math.random() * 3200);
 })();
 let ptSpeechT = null;
-$('#ptBig').onclick = () => {
-  ptAnim('boop'); tone([[880, .05], [660, .08]], 'square', .03);
-  const s = $('#ptSpeech'); s.textContent = PT_LINES[Math.floor(Math.random() * PT_LINES.length)]; s.classList.add('on');
+function ptSay(txt) {
+  const s = $('#ptSpeech'); s.textContent = txt; s.classList.add('on');
   clearTimeout(ptSpeechT); ptSpeechT = setTimeout(() => s.classList.remove('on'), 1800);
+}
+let ptClicks = 0;
+$('#ptBig').onclick = () => {
+  ptActivity(); ptAnim('boop'); tone([[880, .05], [660, .08]], 'square', .03);
+  if (++ptClicks % 3 === 0) ptWave();
+  ptSay(PT_LINES[Math.floor(Math.random() * PT_LINES.length)]);
 };
 async function logout() {
   try { await api('/api/logout'); } catch {}
