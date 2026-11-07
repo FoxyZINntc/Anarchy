@@ -190,7 +190,8 @@ async function supabaseStore({ url, key, token, dataDir, log }) {
     flush: async () => { clearTimeout(timer); await sync(); while (running) await new Promise(r => setTimeout(r, 50)); },
     uploadsDir: null,
     isUpload: u => typeof u === 'string' && (u.startsWith(prefix) || /^\/uploads\/[\w-]+\.\w+$/.test(u)),
-    upload: (name, buf, type) => client.upload(name, buf, type)
+    // mesma ordem do arquivo local e do server.js: (imagem, nome, tipo)
+    upload: (buf, name, type) => client.upload(name, buf, type)
   };
 }
 
