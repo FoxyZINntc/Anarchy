@@ -73,5 +73,6 @@ O servidor gera credenciais novas sozinho a cada 12 horas.
 ## Bom saber
 
 - **Limite das calls:** cada pessoa liga com cada pessoa (mesh). Fica bom até umas 6 pessoas por sala. Para salas grandes, o próximo passo seria um servidor de mídia (LiveKit), que também roda no seu servidor.
-- **Atualizar o servidor:** `git pull` em `C:\Discordia`, depois `.\servidor-windows\reiniciar.ps1`.
+- **Atualização automática:** o `instalar.ps1` liga a tarefa "Discordia Auto Atualizar", que confere o GitHub a cada 5 minutos e, se tiver versão nova, baixa e reinicia o servidor sozinha. Quem está com o app aberto vê a barra "Atualizar". Para ligar num servidor já instalado: `.\servidor-windows\auto-atualizar.ps1 -Instalar` (como Administrador). O histórico fica em `logs\atualizacao.log`.
+- **Atualizar na mão:** `git pull` em `C:\Discordia`, depois `.\servidor-windows\reiniciar.ps1`.
 - **Quando comprar um domínio:** dá para trocar o Tailscale pelo Cloudflare Tunnel com `chat.seudominio.com`. Só muda o endereço em `desktop/servidor.json` e gera o app de novo.

@@ -1,0 +1,64 @@
+# Atualiza o servidor do Discordia sozinho a partir do GitHub.
+# A tarefa "Discordia Auto Atualizar" roda este arquivo a cada 5 minutos: se tiver commit novo,
+# baixa (git pull), instala dependencias se mudaram e reinicia o servidor.
+#
+# Para ligar (uma vez, no PowerShell como Administrador, dentro de C:\Discordia):
+#   powershell -ExecutionPolicy Bypass -File .\servidor-windows\auto-atualizar.ps1 -Instalar
+# Para desligar:
+#   powershell -ExecutionPolicy Bypass -File .\servidor-windows\auto-atualizar.ps1 -Desligar
+param([switch]$Instalar, [switch]$Desligar)
+$Tarefa = 'Discordia Auto Atualizar'
+$Raiz = Split-Path -Parent $PSScriptRoot
+Set-Location $Raiz
+
+if ($Desligar) {
+  Unregister-ScheduledTask -TaskName $Tarefa -Confirm:$false -ErrorAction SilentlyContinue
+  Write-Host "Atualizacao automatica desligada." -ForegroundColor Yellow
+  exit 0
+}
+
+if ($Instalar) {
+  $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if (-not $admin) { Write-Host "Abra o PowerShell como Administrador e rode de novo." -ForegroundColor Red; exit 1 }
+  $acao = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`"" -WorkingDirectory $Raiz
+  $gatilho = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
+  $quem = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+  $ajustes = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 15) -MultipleInstances IgnoreNew
+  Register-ScheduledTask -TaskName $Tarefa -Action $acao -Trigger $gatilho -Principal $quem -Settings $ajustes -Force | Out-Null
+  Write-Host "Atualizacao automatica ligada: o servidor confere o GitHub a cada 5 minutos." -ForegroundColor Green
+  Write-Host "O que ela faz fica anotado em $Raiz\logs\atualizacao.log" -ForegroundColor Green
+  exit 0
+}
+
+# ---- conferir e atualizar ----
+New-Item -ItemType Directory -Force (Join-Path $Raiz 'logs') | Out-Null
+$logFile = Join-Path $Raiz 'logs\atualizacao.log'
+function Log($t) { Add-Content -Path $logFile -Value ("[{0}] {1}" -f (Get-Date -Format 'dd/MM/yyyy HH:mm:ss'), $t) -Encoding UTF8 }
+# a tarefa roda como SYSTEM, que nao e dono da pasta: libera so esta pasta para o git
+$safe = $Raiz.Replace('\', '/')
+function G { & git -c "safe.directory=$safe" @args }
+
+G fetch origin main --quiet 2>$null
+if ($LASTEXITCODE -ne 0) { Log "Nao consegui falar com o GitHub (git fetch falhou). Tento de novo em 5 minutos."; exit 0 }
+$local = (G rev-parse HEAD).Trim()
+$remoto = (G rev-parse origin/main).Trim()
+if ($local -eq $remoto) { exit 0 }
+
+$mudou = @(G diff --name-only $local $remoto)
+Log ("Versao nova no GitHub: {0} -> {1} ({2} arquivos)" -f $local.Substring(0, 7), $remoto.Substring(0, 7), $mudou.Count)
+G merge --ff-only origin/main --quiet 2>$null
+if ($LASTEXITCODE -ne 0) { Log "Nao deu para atualizar: tem mudancas feitas a mao nesta pasta. Rode 'git status' em $Raiz para ver."; exit 1 }
+
+if ($mudou -match '^package(-lock)?\.json$') {
+  Log "Dependencias mudaram: rodando npm install"
+  & npm install --omit=dev --no-fund --no-audit 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) { Log "npm install falhou (codigo $LASTEXITCODE)" }
+}
+
+# so reinicia se mudou algo que o servidor usa (servidor, telas, scripts do servidor ou dependencias)
+if ($mudou -match '^(server/|servidor-windows/|package(-lock)?\.json)') {
+  & (Join-Path $PSScriptRoot 'reiniciar.ps1') | Out-Null
+  Log "Servidor reiniciado com a versao nova."
+} else {
+  Log "Nada do servidor mudou (so o app ou documentacao). Sem reiniciar."
+}

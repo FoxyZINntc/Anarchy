@@ -9,5 +9,9 @@ try { Invoke-RestMethod "http://localhost:$porta/api/config" -TimeoutSec 3 | Out
 catch { Write-Host "Servidor: NAO respondeu em http://localhost:$porta" -ForegroundColor Red }
 $ts = 'C:\Program Files\Tailscale\tailscale.exe'
 if (Test-Path $ts) { Write-Host ""; Write-Host "Tailscale Funnel:"; & $ts funnel status }
+$a = Get-ScheduledTask -TaskName 'Discordia Auto Atualizar' -ErrorAction SilentlyContinue
+if ($a) { Write-Host "Atualizacao automatica: ligada (confere o GitHub a cada 5 minutos)" -ForegroundColor Green } else { Write-Host "Atualizacao automatica: desligada (ligue com auto-atualizar.ps1 -Instalar)" -ForegroundColor Yellow }
+$ul = Join-Path $Raiz 'logs\atualizacao.log'
+if (Test-Path $ul) { Write-Host ""; Write-Host "Ultimas atualizacoes:"; Get-Content $ul -Tail 5 }
 $log = Join-Path $Raiz 'logs\servidor.log'
 if (Test-Path $log) { Write-Host ""; Write-Host "Ultimas linhas do log:"; Get-Content $log -Tail 15 }

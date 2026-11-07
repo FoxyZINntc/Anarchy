@@ -97,5 +97,9 @@ if (-not $ts) {
     Write-Host "    Coloque esse endereco em desktop\servidor.json antes de gerar o app (veja o SERVIDOR.md)." -ForegroundColor Green
   }
 }
+# 7. atualizacao automatica pelo GitHub
+Passo "Atualizacao automatica"
+& (Join-Path $PSScriptRoot 'auto-atualizar.ps1') -Instalar
+
 Write-Host ""
 Write-Host "Tudo certo. Para ver como o servidor esta: .\servidor-windows\status.ps1" -ForegroundColor Cyan
