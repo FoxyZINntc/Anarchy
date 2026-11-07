@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-cliente/
+dist-teste*/
 server/dados/
 dados/
 .env
