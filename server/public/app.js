@@ -641,20 +641,47 @@ function renderUserBar() {
     <button class="icon-btn ${V.deaf ? 'on' : ''}" data-act="deafen" data-tip="${V.deaf ? 'Ativar áudio' : 'Desativar áudio'}">${ic(V.deaf ? 'headOff' : 'head')}</button>
     <button class="icon-btn" data-act="settings" data-tip="Configurações">${ic('gear')}</button>`;
 }
+function viewingRoom() { const v = S.view; return V.room && ((v.kind === 'dm' && v.id === V.room) || (v.kind === 'group' && v.cid === V.room)); }
 function renderVoiceBar() {
   const bar = $('#voiceBar');
   if (!V.room) { bar.hidden = true; return; }
   bar.hidden = false;
+  const here = viewingRoom();
   bar.innerHTML = `
-    <div class="vb-top"><div class="vb-status"><b>${ic('voice').replace('<svg', '<svg style="width:16px;height:16px"')}${V.calling ? 'Chamando...' : 'Voz conectada'}</b><span>${esc(roomName(V.room))}</span></div>
-    <button class="icon-btn" data-act="leaveVoice" data-tip="Desconectar" style="color:var(--danger)">${ic('hang')}</button></div>
+    <div class="vb-top"><div class="vb-status"><b>${netDot()}${V.calling ? 'Chamando...' : 'Voz conectada'}</b><button class="vb-room" data-act="openStage" ${here ? 'disabled' : 'data-tip="Ir para a sala"'}>${esc(roomName(V.room))}</button></div>
+    <button class="icon-btn vb-hang" data-act="leaveVoice" data-tip="Sair da call">${ic('hang')}</button></div>
     <div class="vb-btns">
-      <button class="btn sm ${V.cam ? 'on' : ''}" data-act="toggleCam" data-tip="Câmera">${ic(V.cam ? 'cam' : 'camOff')}</button>
+      <button class="btn sm ${V.cam ? 'on' : ''}" data-act="toggleCam" data-tip="${V.cam ? 'Desligar câmera' : 'Ligar câmera'}">${ic(V.cam ? 'cam' : 'camOff')}</button>
       <button class="btn sm ${V.screen ? 'on' : ''}" data-act="toggleScreen" data-tip="${V.screen ? 'Parar de compartilhar' : 'Compartilhar tela'}">${ic('screen')}</button>
-      <button class="btn sm" data-act="openStage" data-tip="Abrir a sala">${ic('stage')}</button>
-      <button class="btn sm" data-act="voiceSettings" data-tip="Voz e vídeo">${ic('gear')}</button>
+      <button class="btn sm" data-act="voiceSettings" data-tip="Configurar voz e vídeo">${ic('gear')}</button>
     </div>`;
 }
+/* qualidade da conexão na call: ping e perda de pacotes de áudio, medidos a cada 3 s */
+const NET = { rtt: null, loss: 0, prev: { lost: 0, recv: 0 } };
+function netDot() {
+  if (NET.rtt === null) return `<i class="net-dot" data-tip="Medindo a conexão..."></i>`;
+  const bad = NET.rtt > 250 || NET.loss > 8, meh = NET.rtt > 120 || NET.loss > 3;
+  const lvl = bad ? 'bad' : meh ? 'meh' : 'ok';
+  const txt = bad ? 'Conexão ruim' : meh ? 'Conexão razoável' : 'Conexão boa';
+  return `<i class="net-dot ${lvl}" data-tip="${txt} · ping ${Math.round(NET.rtt)} ms · perda ${NET.loss.toFixed(1)}%"></i>`;
+}
+setInterval(async () => {
+  if (!V.room || !V.peers.size) { if (NET.rtt !== null) { NET.rtt = null; renderVoiceBar(); } return; }
+  const rtts = []; let lost = 0, recv = 0;
+  for (const p of V.peers.values()) {
+    try {
+      (await p.pc.getStats()).forEach(r => {
+        if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && typeof r.currentRoundTripTime === 'number') rtts.push(r.currentRoundTripTime * 1000);
+        if (r.type === 'inbound-rtp' && r.kind === 'audio') { lost += r.packetsLost || 0; recv += r.packetsReceived || 0; }
+      });
+    } catch {}
+  }
+  const dl = Math.max(0, lost - NET.prev.lost), dr = Math.max(0, recv - NET.prev.recv);
+  NET.prev = { lost, recv };
+  NET.loss = dl + dr ? 100 * dl / (dl + dr) : 0;
+  NET.rtt = rtts.length ? Math.max(...rtts) : null;
+  const dot = $('#voiceBar .net-dot'); if (dot) dot.outerHTML = netDot();
+}, 3000);
 
 /* ---------- principal ---------- */
 let mainKey = null;
@@ -695,7 +722,7 @@ function renderHead() {
     h.innerHTML = `${tog}<span class="ttl">${ic(c.type === 'voice' ? 'voice' : 'hash')}${esc(c.name)}</span><span class="sub" ${c.topic ? `title="${esc(c.topic)}"` : ''}>${esc(c.topic || g.name)}</span>${c.slowmode ? `<span class="slow-pill" data-tip="Modo lento: uma mensagem a cada ${esc(slowLabel(c.slowmode))}">🐢 ${esc(slowLabel(c.slowmode))}</span>` : ''}<span class="spacer"></span>
       ${gManager(g) ? `<button class="icon-btn" data-act="groupSettings" data-tip="Configurações do grupo">${ic('gear')}</button>` : ''}
       <button class="icon-btn" data-act="invite" data-tip="Convidar">${ic('link')}</button>
-      <button class="icon-btn ${prefs.showMembers ? 'active' : ''}" data-act="toggleMembers" data-tip="Membros">${ic('users')}</button>`;
+      ${c.type === 'text' ? `<button class="icon-btn ${prefs.showMembers ? 'active' : ''}" data-act="toggleMembers" data-tip="${prefs.showMembers ? 'Esconder membros' : 'Mostrar membros'}">${ic('users')}</button>` : ''}`;
   }
 }
 
@@ -894,7 +921,7 @@ function renderReplyBar() {
 async function sendMessage(image) {
   const ta = $('#composer'); const cid = viewingCid(); if (!ta || !cid) return;
   const content = image ? '' : ta.value.trim();
-  if (!content && !image) return;
+  if (!content && !image) { const c = ta.closest('.composer'); c.classList.remove('nudge'); void c.offsetWidth; c.classList.add('nudge'); ta.focus(); return; }
   if (content === '/limpar') { ta.value = ''; return; }
   const r = await emit('message:send', { cid, content, image, replyTo: S.reply });
   if (!r.ok) return toast(r.erro, true);
@@ -1520,7 +1547,38 @@ function stopMicTest() { if (!micTest) return; clearInterval(micTest.iv); micTes
 
 /* =============== voz, vídeo e tela (WebRTC) =============== */
 const V = { room: null, mic: null, screen: null, cam: null, peers: new Map(), muted: false, deaf: false, ice: [], pttDown: false, calling: false, levels: new Map(), videoCache: new Map() };
-const audioConstraints = () => ({ deviceId: prefs.micId ? { exact: prefs.micId } : undefined, noiseSuppression: prefs.ns, echoCancellation: prefs.ec, autoGainControl: prefs.agc });
+const audioConstraints = () => ({ deviceId: prefs.micId ? { exact: prefs.micId } : undefined, noiseSuppression: prefs.ns, echoCancellation: prefs.ec, autoGainControl: prefs.agc, channelCount: { ideal: 1 }, sampleRate: { ideal: 48000 } });
+
+/* ---- qualidade de áudio e vídeo ----
+   Por padrão o WebRTC manda a voz a ~32 kbps e o vídeo começa baixinho e demora a subir.
+   Aqui a voz vai até 128 kbps com correção de perda de pacote, e o vídeo começa já em boa qualidade. */
+function tuneSdp(sdp) {
+  const lines = sdp.split('\r\n');
+  const pts = name => lines.map(l => new RegExp('^a=rtpmap:(\\d+) ' + name + '/', 'i').exec(l)).filter(Boolean).map(m => m[1]);
+  const fmtp = (pt, add) => {
+    const i = lines.findIndex(l => l.startsWith('a=fmtp:' + pt + ' '));
+    const cur = i >= 0 ? Object.fromEntries(lines[i].slice(('a=fmtp:' + pt + ' ').length).split(';').filter(Boolean).map(kv => { const j = kv.indexOf('='); return j < 0 ? [kv, null] : [kv.slice(0, j), kv.slice(j + 1)]; })) : {};
+    Object.assign(cur, add);
+    const line = 'a=fmtp:' + pt + ' ' + Object.entries(cur).map(([k, v]) => (v === null ? k : k + '=' + v)).join(';');
+    if (i >= 0) lines[i] = line; else { const r = lines.findIndex(l => l.startsWith('a=rtpmap:' + pt + ' ')); if (r >= 0) lines.splice(r + 1, 0, line); }
+  };
+  pts('opus').forEach(pt => fmtp(pt, { useinbandfec: 1, usedtx: 0, maxaveragebitrate: 128000, maxplaybackrate: 48000, stereo: 1, 'sprop-stereo': 1 }));
+  ['VP8', 'VP9', 'H264', 'AV1'].forEach(c => pts(c).forEach(pt => fmtp(pt, { 'x-google-start-bitrate': 1500, 'x-google-max-bitrate': 8000 })));
+  return lines.join('\r\n');
+}
+// limites de cada envio: voz com prioridade, tela nítida (ou fluida em 60 fps), câmera equilibrada
+function tuneSenders(pc) {
+  const q = { '720p30': [2500, 30], '1080p30': [5000, 30], '1080p60': [8000, 60] }[prefs.quality] || [5000, 30];
+  pc.getSenders().forEach(snd => {
+    const t = snd.track; if (!t) return;
+    const prm = snd.getParameters(); if (!prm.encodings || !prm.encodings.length) return;
+    const e = prm.encodings[0];
+    if (t.kind === 'audio') { e.maxBitrate = 128000; e.priority = 'high'; e.networkPriority = 'high'; }
+    else if (V.screen && V.screen.getTracks().includes(t)) { e.maxBitrate = q[0] * 1000; e.maxFramerate = q[1]; e.priority = 'medium'; prm.degradationPreference = q[1] >= 60 ? 'maintain-framerate' : 'maintain-resolution'; }
+    else { e.maxBitrate = 2500000; e.maxFramerate = 30; prm.degradationPreference = 'balanced'; }
+    snd.setParameters(prm).catch(() => {});
+  });
+}
 function secureOk() { return window.isSecureContext && navigator.mediaDevices; }
 function applyMicGate() {
   const on = !V.muted && !V.deaf && (!prefs.ptt || V.pttDown);
@@ -1577,11 +1635,18 @@ function getPeer(sid) {
   V.peers.set(sid, p);
   [V.mic, V.screen, V.cam].forEach(s => s && s.getTracks().forEach(t => pc.addTrack(t, s)));
   pc.onnegotiationneeded = async () => {
-    try { p.makingOffer = true; await pc.setLocalDescription(); socket.emit('rtc:signal', { to: sid, data: { description: pc.localDescription } }); }
+    try {
+      p.makingOffer = true;
+      const offer = await pc.createOffer();
+      if (pc.signalingState !== 'stable') return;
+      await pc.setLocalDescription({ type: 'offer', sdp: tuneSdp(offer.sdp) });
+      socket.emit('rtc:signal', { to: sid, data: { description: pc.localDescription } });
+      tuneSenders(pc);
+    }
     catch (e) { console.warn(e); } finally { p.makingOffer = false; }
   };
   pc.onicecandidate = ({ candidate }) => { if (candidate) socket.emit('rtc:signal', { to: sid, data: { candidate } }); };
-  pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') pc.restartIce(); };
+  pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') pc.restartIce(); if (pc.iceConnectionState === 'connected') tuneSenders(pc); };
   pc.ontrack = ({ track, streams }) => {
     const st = streams[0] || new MediaStream([track]);
     p.streams.set(st.id, st);
@@ -1601,7 +1666,12 @@ async function onSignal({ from, data }) {
       p.ignoreOffer = !p.polite && offerCollision;
       if (p.ignoreOffer) return;
       await pc.setRemoteDescription(data.description);
-      if (data.description.type === 'offer') { await pc.setLocalDescription(); socket.emit('rtc:signal', { to: from, data: { description: pc.localDescription } }); }
+      if (data.description.type === 'offer') {
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription({ type: 'answer', sdp: tuneSdp(answer.sdp) });
+        socket.emit('rtc:signal', { to: from, data: { description: pc.localDescription } });
+        tuneSenders(pc);
+      }
     } else if (data.candidate) {
       try { await pc.addIceCandidate(data.candidate); } catch (e) { if (!p.ignoreOffer) console.warn(e); }
     }
@@ -1613,28 +1683,33 @@ async function onSignal({ from, data }) {
 const AUD = new Map(); // id do fluxo -> { sid, el, gain }
 const peerInfo = sid => (S.voice[V.room] || []).find(p => p.sid === sid);
 const volOf = (uid, kind) => { const v = ((kind === 'screen' ? prefs.svol : prefs.vol) || {})[uid]; return typeof v === 'number' ? clamp(v, 0, 200) : 100; };
+// Até 100% o som toca direto pelo <audio> (assim o cancelamento de eco do Chrome funciona e seu microfone
+// não devolve a voz dos outros). Só acima de 100% ele passa por um amplificador (Web Audio).
+function boost(a, on) {
+  if (on && !a.gain) {
+    const c = audioCtx(); if (!c || !c.createGain) return false;
+    try { a.src = c.createMediaStreamSource(a.el.srcObject); a.gain = c.createGain(); a.src.connect(a.gain); a.gain.connect(c.destination); applySink(); }
+    catch { a.gain = null; return false; }
+  }
+  if (!on && a.gain) { try { a.src.disconnect(); a.gain.disconnect(); } catch {} a.gain = a.src = null; }
+  return true;
+}
 function applyVolumes() {
   AUD.forEach((a, id) => {
     const p = peerInfo(a.sid), uid = p && p.uid;
     const kind = p && p.screen === id ? 'screen' : 'voice';
     const off = V.deaf || (uid && kind === 'voice' && prefs.umute && prefs.umute[uid]);
     const v = off ? 0 : (uid ? volOf(uid, kind) : 100) / 100;
-    if (a.gain) a.gain.gain.value = v; else { a.el.muted = v === 0; a.el.volume = Math.min(1, v); }
+    if (v > 1 && boost(a, true)) { a.el.muted = true; a.gain.gain.value = v; }
+    else { boost(a, false); a.el.muted = v === 0; a.el.volume = Math.min(1, v); }
   });
 }
 function attachAudio(sid, stream) {
   if (AUD.has(stream.id)) return;
   const a = document.createElement('audio'); a.autoplay = true; a.dataset.s = stream.id; a.dataset.sid = sid; a.srcObject = stream;
+  if (prefs.spkId && a.setSinkId) a.setSinkId(prefs.spkId).catch(() => {});
   $('#audioSink').appendChild(a);
-  const entry = { sid, el: a, gain: null };
-  // o elemento <audio> fica tocando mudo (o Chrome precisa disso para soltar o som da call) e o som sai pelo ganho
-  const c = audioCtx();
-  if (c && c.createGain) {
-    try { const src = c.createMediaStreamSource(stream), g = c.createGain(); src.connect(g); g.connect(c.destination); entry.gain = g; entry.src = src; a.muted = true; applySink(); }
-    catch { entry.gain = null; }
-  }
-  if (!entry.gain && prefs.spkId && a.setSinkId) a.setSinkId(prefs.spkId).catch(() => {});
-  AUD.set(stream.id, entry);
+  AUD.set(stream.id, { sid, el: a, gain: null, src: null });
   applyVolumes();
   a.play().catch(() => toast('Clique em qualquer lugar para liberar o áudio da call.'));
   watchLevel(sid, stream);
@@ -1723,8 +1798,10 @@ async function toggleScreen() {
 async function toggleCam() {
   if (!V.room) return;
   if (V.cam) return stopStream('cam');
-  try { V.cam = await navigator.mediaDevices.getUserMedia({ video: { deviceId: prefs.camId ? { exact: prefs.camId } : undefined, width: { ideal: 1280 }, height: { ideal: 720 } } }); }
+  try { V.cam = await navigator.mediaDevices.getUserMedia({ video: { deviceId: prefs.camId ? { exact: prefs.camId } : undefined, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } }); }
   catch { return toast('Não consegui abrir a câmera.', true); }
+  const ct = V.cam.getVideoTracks()[0];
+  if (ct) { ct.contentHint = 'motion'; ct.onended = () => { if (V.cam) { stopStream('cam'); toast('A câmera foi desligada (outro programa pode estar usando ela).', true); } }; }
   V.peers.forEach(p => V.cam.getTracks().forEach(t => p.pc.addTrack(t, V.cam)));
   sendState(); render();
 }
@@ -1796,14 +1873,19 @@ function renderStageSlot() {
     if (p.screen || (me && V.screen)) tiles.push({ key: 'screen:' + p.sid, html: `<div class="tile" data-act="focus" data-key="screen:${p.sid}" ${me ? '' : `data-vuid="${p.uid}"`}>${scrStream ? `<div class="vslot" data-v="screen:${p.sid}" style="position:absolute;inset:0"></div>` : '<span class="muted">Conectando à tela...</span>'}<span class="live">AO VIVO</span><span class="nm">${ic('screen')}Tela de ${esc(nameOf(p.uid))}${!me && prefs.svol && prefs.svol[p.uid] !== undefined ? `<span class="vol-tag">${prefs.svol[p.uid]}%</span>` : ''}</span>${me ? '' : `<button class="tvol" data-act="voiceUser" data-vuid="${p.uid}" title="Volume da tela">${ic('voice')}</button>`}<button class="fs" data-act="fullscreen" data-key="screen:${p.sid}" title="Tela cheia">${ic('max')}</button></div>`, stream: scrStream, vkey: 'screen:' + p.sid });
   }
   const focus = S.focusTile && tiles.find(t => t.key === S.focusTile);
-  const ctrls = `<div class="stage-ctrls">
-    <button class="ctrl ${V.muted ? 'off' : ''}" data-act="mute" title="${V.muted ? 'Ativar microfone' : 'Silenciar'}">${ic(V.muted ? 'micOff' : 'mic')}</button>
-    <button class="ctrl ${V.cam ? 'on' : ''}" data-act="toggleCam" title="Câmera">${ic(V.cam ? 'cam' : 'camOff')}</button>
-    <button class="ctrl ${V.screen ? 'on' : ''}" data-act="toggleScreen" title="${V.screen ? 'Parar de compartilhar' : 'Compartilhar tela'}">${ic('screen')}</button>
-    <button class="ctrl ${V.deaf ? 'off' : ''}" data-act="deafen" title="Áudio">${ic(V.deaf ? 'headOff' : 'head')}</button>
-    <button class="ctrl hang" data-act="leaveVoice" title="Sair da call">${ic('hang')}</button></div>`;
+  const ctrls = `<div class="stage-ctrls"><div class="stage-pill">
+    <button class="ctrl ${V.muted ? 'off' : ''}" data-act="mute" data-tip="${V.muted ? 'Ativar microfone' : 'Silenciar microfone'}">${ic(V.muted ? 'micOff' : 'mic')}</button>
+    <button class="ctrl ${V.deaf ? 'off' : ''}" data-act="deafen" data-tip="${V.deaf ? 'Voltar a ouvir' : 'Parar de ouvir'}">${ic(V.deaf ? 'headOff' : 'head')}</button>
+    <span class="ctrl-sep"></span>
+    <button class="ctrl ${V.cam ? 'on' : ''}" data-act="toggleCam" data-tip="${V.cam ? 'Desligar câmera' : 'Ligar câmera'}">${ic(V.cam ? 'cam' : 'camOff')}</button>
+    <button class="ctrl ${V.screen ? 'on' : ''}" data-act="toggleScreen" data-tip="${V.screen ? 'Parar de compartilhar' : 'Compartilhar tela'}">${ic('screen')}</button>
+    <button class="ctrl" data-act="voiceSettings" data-tip="Configurar voz e vídeo">${ic('gear')}</button>
+    <span class="ctrl-sep"></span>
+    <button class="ctrl hang" data-act="leaveVoice" data-tip="Sair da call">${ic('hang')}</button></div></div>`;
   const calling = V.calling && peers.length <= 1 ? `<p style="text-align:center;margin:0;padding-top:12px" class="muted">Chamando ${esc(roomName(roomId))}...</p>` : '';
-  slot.innerHTML = `<div class="stage ${isDm ? 'mini' : ''}" style="${isDm ? '' : 'flex:1'}">${calling}<div class="stage-grid ${focus ? 'has-focus' : ''}">
+  // grade que ocupa o espaço: 1 → tudo, 2 → lado a lado, 3-4 → 2x2, 5-6 → 3x2, 7-9 → 3x3...
+  const n = tiles.length, cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4, rows = Math.ceil(n / cols);
+  slot.innerHTML = `<div class="stage ${isDm ? 'mini' : ''}" style="${isDm ? '' : 'flex:1'}">${calling}<div class="stage-grid ${focus ? 'has-focus' : 'fill'}" style="--cols:${cols};--rows:${rows}">
     ${focus ? focus.html.replace('class="tile', 'class="tile focus') + `<div class="thumbs">${tiles.filter(t => t !== focus).map(t => t.html).join('')}</div>` : tiles.map(t => t.html).join('')}
   </div>${ctrls}</div>`;
   tiles.forEach(t => { if (t.stream) $$(`.vslot[data-v="${t.vkey}"]`, slot).forEach(s => s.appendChild(videoEl(t.vkey, t.stream, t.mirror && t.vkey.startsWith('cam')))); });
