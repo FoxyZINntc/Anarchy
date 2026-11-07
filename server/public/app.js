@@ -219,8 +219,8 @@ function av(id, size = 32, dot = true, extra = '', uo = null) {
   const st = u.status || 'offline';
   const img = u.avatar ? `background-image:url('${esc(u.avatar)}')` : '';
   const ini = u.avatar ? '' : esc((u.displayName || u.username || '?').trim()[0]?.toUpperCase() || '?');
-  const fr = u.frame ? ` fr fr-${esc(u.frame)}` : '';
-  return `<div class="av s${size}${dot ? ' has-dot' : ''}${fr} ${extra}" style="--s:${size}px;--uc:${safeC(u.color)};--fc:${safeC(u.accent, safeC(u.color))}" data-user="${esc(id)}"><span class="av-i" style="${img}">${ini}</span>${dot ? `<i class="dot ${st}"></i>` : ''}</div>`;
+  const frame = u.frame && FRAMES[u.frame] ? u.frame : null;
+  return `<div class="av s${size}${dot ? ' has-dot' : ''}${frame ? ` fr fr-${frame}` : ''} ${extra}" style="--s:${size}px;--uc:${safeC(u.color)};--fc:${safeC(u.accent, safeC(u.color))}" data-user="${esc(id)}"><span class="av-i" style="${img}">${ini}</span>${frame ? '<i class="av-fr" aria-hidden="true"></i>' : ''}${dot ? `<i class="dot ${st}" title="${esc(STATUS[st] || '')}"></i>` : ''}</div>`;
 }
 function groupIcon(g) {
   if (isImg(g.icon)) return `<div class="inner" style="background-image:url('${esc(g.icon)}')"></div>`;
@@ -634,7 +634,7 @@ function renderGroupSide(body) {
       ${S.mentions[c.id] ? `<span class="badge" style="border:0">${S.mentions[c.id]}</span>` : ''}
       ${own ? `<span class="row-act"><span class="icon-btn" data-act="editChannel" data-id="${c.id}" data-tip="Editar canal">${ic('gear')}</span></span>` : ''}
     </button>
-    ${peers.length ? `<div class="voice-people">${peers.map(p => `<div class="voice-person" data-act="voiceUser" data-vuid="${p.uid}" ${p.uid !== S.me.id ? 'data-tip="Clique para mudar o volume"' : ''}>${av(p.uid, 24, false, '').replace('class="av', `data-speak="${p.sid}" class="av`)}<span class="lbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nameOf(p.uid))}</span>${volTag(p.uid)}${p.screen ? '<span class="live">AO VIVO</span>' : ''}${p.cam ? ic('cam') : ''}${p.deafened ? ic('headOff') : p.muted ? ic('micOff') : ''}</div>`).join('')}</div>` : ''}`;
+    ${peers.length ? `<div class="voice-people">${peers.map(p => `<div class="voice-person" data-act="voiceUser" data-vuid="${p.uid}" ${p.uid !== S.me.id ? 'data-tip="Clique para mudar o volume"' : ''}>${av(p.uid, 24, false, 'calm').replace('class="av', `data-speak="${p.sid}" class="av`)}<span class="lbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nameOf(p.uid))}</span>${volTag(p.uid)}${p.screen ? '<span class="live">AO VIVO</span>' : ''}${p.cam ? ic('cam') : ''}${p.deafened ? ic('headOff') : p.muted ? ic('micOff') : ''}</div>`).join('')}</div>` : ''}`;
   };
   const text = g.channels.filter(c => c.type === 'text'), vc = g.channels.filter(c => c.type === 'voice');
   const ban = g.banner ? (isImg(g.banner) ? `background-image:url('${esc(g.banner)}')` : `background:${esc(g.banner)}`) : '';

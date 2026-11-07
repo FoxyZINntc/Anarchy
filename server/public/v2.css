@@ -4,37 +4,60 @@
 
 :root { --r-lg: 18px; --r-md: 12px; --r-sm: 8px; --ring: color-mix(in srgb, var(--accent) 45%, transparent); --soft: color-mix(in srgb, var(--accent) 14%, transparent); --blur: blur(14px); }
 
-/* ================= avatar ================= */
-.av { --s: 32px; --dr: clamp(4px, calc(var(--s) * .13), 11px); --dg: max(2px, calc(var(--s) * .055));
-  width: var(--s); height: var(--s); position: relative; flex: none; display: block; border-radius: 50%;
-  background: none !important; color: #fff; font-weight: 700; font-size: calc(var(--s) * .4); line-height: 1; user-select: none; border: 0; }
-.av-i { position: absolute; inset: 0; border-radius: 50%; background-color: var(--uc, #777); background-size: cover; background-position: center; display: grid; place-items: center; overflow: hidden; }
+/* ================= avatar =================
+   Um componente só, usado em todo lugar (lista de membros, mensagens, call, mixer, perfil).
+   Camadas, de baixo para cima, dentro do próprio avatar (isolation: nada vaza para fora nem para outros):
+     0  .av::before  anel de "falando" (fora da moldura, aparece e some suave)
+     1  .av-i        foto ou inicial, recortada em círculo e com um furo para a bolinha de status
+     2  .av-fr       moldura: anel em volta da foto, com o mesmo furo (nunca cobre a bolinha)
+     3  .dot         bolinha de status, sempre por cima
+   A moldura não gira: o que anda é só o ângulo do degradê (--fa), então foto, furo e bolinha ficam parados. */
+@property --fa { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.av { --s: 32px; --dr: clamp(4px, calc(var(--s) * .13), 11px); --dg: max(2px, calc(var(--s) * .055)); --fo: calc(var(--s) * .11);
+  width: var(--s); height: var(--s); position: relative; flex: none; display: block; isolation: isolate; border-radius: 50%;
+  background: none !important; color: #fff; font-weight: 700; font-size: calc(var(--s) * .4); line-height: 1; user-select: none; border: 0; box-shadow: none; }
+.av.s24 { --s: 24px; } .av.s32 { --s: 32px; } .av.s40 { --s: 40px; } .av.s80 { --s: 80px; } .av.s120 { --s: 120px; }
+.av-i { position: absolute; inset: 0; z-index: 1; border-radius: 50%; overflow: hidden; background-color: var(--uc, #777); background-size: cover; background-position: center; display: grid; place-items: center; }
+/* furo da bolinha (na foto e na moldura): centro no canto de baixo à direita */
 .av.has-dot .av-i {
   -webkit-mask: radial-gradient(circle at calc(100% - var(--dr)) calc(100% - var(--dr)), transparent calc(var(--dr) + var(--dg)), #000 calc(var(--dr) + var(--dg) + .5px));
           mask: radial-gradient(circle at calc(100% - var(--dr)) calc(100% - var(--dr)), transparent calc(var(--dr) + var(--dg)), #000 calc(var(--dr) + var(--dg) + .5px)); }
-.av .dot { position: absolute; right: 0; bottom: 0; width: calc(var(--dr) * 2); height: calc(var(--dr) * 2); border: 0; border-radius: 50%; box-sizing: border-box; z-index: 2; }
-.av .dot.ocupado::after { content: ""; position: absolute; left: 22%; right: 22%; top: 50%; height: 22%; transform: translateY(-50%); background: var(--side); border-radius: 2px; opacity: .9; }
-.av .dot.offline, .av .dot.invisivel { background: transparent; box-shadow: inset 0 0 0 max(2px, calc(var(--dr) * .5)) var(--muted); }
-.pop .dot, .pf-st .dot, .set-row .dot { width: 10px; height: 10px; border: 0; position: static; display: inline-block; border-radius: 50%; flex: none; }
-.av.s24 { --s: 24px; } .av.s32 { --s: 32px; } .av.s40 { --s: 40px; } .av.s80 { --s: 80px; } .av.s120 { --s: 120px; }
-.tile .av { --s: 72px !important; width: 72px; height: 72px; }
-.av.speaking { box-shadow: 0 0 0 2px var(--main), 0 0 0 4px var(--ok); }
-
-/* molduras: um anel (máscara) em volta do avatar, proporcional ao tamanho, sempre centralizado */
-.av.fr::after { --ft: max(2px, calc(var(--s) * .085)); content: ""; position: absolute; inset: calc(var(--s) * -.11); border-radius: 50%; pointer-events: none; z-index: 1;
+.av-fr { --ft: max(2px, calc(var(--s) * .085)); position: absolute; inset: calc(var(--fo) * -1); z-index: 2; border-radius: 50%; pointer-events: none;
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--ft)), #000 calc(100% - var(--ft) + .5px));
           mask: radial-gradient(farthest-side, transparent calc(100% - var(--ft)), #000 calc(100% - var(--ft) + .5px)); }
-@keyframes frSpin { to { transform: rotate(1turn); } }
-.fr-neon::after { background: conic-gradient(var(--fc), #fff 12%, var(--fc) 25%, color-mix(in srgb, var(--fc) 35%, transparent) 50%, var(--fc) 75%, #fff 88%, var(--fc)); animation: frSpin 4s linear infinite; }
-.fr-arco::after { background: conic-gradient(#ff5f6d, #ffc371, #f9f871, #7bd88f, #4fc3f7, #6c7cff, #b07cff, #ff5f6d); animation: frSpin 6s linear infinite; }
-.fr-ouro::after { background: conic-gradient(#b8860b, #ffe8a3 15%, #d4a017 30%, #8a6510 45%, #ffd86b 60%, #b8860b 80%, #fff2c4 90%, #b8860b); }
-.fr-fogo::after { background: conic-gradient(#ff3d00, #ffb300 20%, #ff6d00 35%, #d50000 50%, #ffea00 65%, #ff3d00 80%, #ff9100); animation: frSpin 2.4s linear infinite; }
-.fr-gelo::after { background: conic-gradient(#b3f0ff, #ffffff 15%, #4fc3f7 35%, #e0f7ff 55%, #81d4fa 75%, #ffffff 90%, #b3f0ff); }
-.fr-folhas::after { background: repeating-conic-gradient(#2e7d32 0 14deg, #7bd88f 14deg 26deg, #a5d6a7 26deg 32deg); }
-.fr-pixel::after { --ft: max(2px, calc(var(--s) * .07)); background: repeating-conic-gradient(var(--fc) 0 9deg, transparent 9deg 18deg); }
-.fr-orbita::after { --ft: max(2px, calc(var(--s) * .05)); background: conic-gradient(var(--fc) 0 40deg, color-mix(in srgb, var(--fc) 25%, transparent) 40deg); animation: frSpin 3s linear infinite; }
+.av.has-dot .av-fr {
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--ft)), #000 calc(100% - var(--ft) + .5px)),
+                radial-gradient(circle at calc(100% - var(--fo) - var(--dr)) calc(100% - var(--fo) - var(--dr)), transparent calc(var(--dr) + var(--dg)), #000 calc(var(--dr) + var(--dg) + .5px));
+  -webkit-mask-composite: source-in;
+          mask: radial-gradient(farthest-side, transparent calc(100% - var(--ft)), #000 calc(100% - var(--ft) + .5px)),
+                radial-gradient(circle at calc(100% - var(--fo) - var(--dr)) calc(100% - var(--fo) - var(--dr)), transparent calc(var(--dr) + var(--dg)), #000 calc(var(--dr) + var(--dg) + .5px));
+          mask-composite: intersect; }
+.av .dot { position: absolute; right: 0; bottom: 0; z-index: 3; width: calc(var(--dr) * 2); height: calc(var(--dr) * 2); border: 0; border-radius: 50%; box-sizing: border-box; }
+.av .dot.ocupado::after { content: ""; position: absolute; left: 22%; right: 22%; top: 50%; height: 22%; transform: translateY(-50%); background: rgba(0,0,0,.45); border-radius: 2px; }
+.av .dot.offline, .av .dot.invisivel { background: transparent; box-shadow: inset 0 0 0 max(2px, calc(var(--dr) * .5)) var(--muted); }
+.pop .dot, .pf-st .dot, .set-row .dot { width: 10px; height: 10px; border: 0; position: static; display: inline-block; border-radius: 50%; flex: none; }
+.tile .av { --s: 72px !important; width: 72px; height: 72px; }
+/* falando: anel verde do lado de fora (da moldura, se tiver), sem mexer na foto */
+.av::before { content: ""; position: absolute; inset: -4px; z-index: 0; border-radius: 50%; box-shadow: 0 0 0 2px var(--ok), 0 0 10px 1px color-mix(in srgb, var(--ok) 55%, transparent); opacity: 0; transition: opacity .25s ease; pointer-events: none; }
+.av.fr::before { inset: calc(var(--fo) * -1 - 3px); }
+.av.speaking::before { opacity: 1; }
+.av.speaking { box-shadow: none; }
+
+/* molduras */
+@keyframes frTurn { to { --fa: 360deg; } }
+.fr-neon .av-fr { background: conic-gradient(from var(--fa), var(--fc), #fff 12%, var(--fc) 25%, color-mix(in srgb, var(--fc) 35%, transparent) 50%, var(--fc) 75%, #fff 88%, var(--fc)); animation: frTurn 4s linear infinite; }
+.fr-arco .av-fr { background: conic-gradient(from var(--fa), #ff5f6d, #ffc371, #f9f871, #7bd88f, #4fc3f7, #6c7cff, #b07cff, #ff5f6d); animation: frTurn 6s linear infinite; }
+.fr-ouro .av-fr { background: conic-gradient(#b8860b, #ffe8a3 15%, #d4a017 30%, #8a6510 45%, #ffd86b 60%, #b8860b 80%, #fff2c4 90%, #b8860b); }
+.fr-fogo .av-fr { background: conic-gradient(from var(--fa), #ff3d00, #ffb300 20%, #ff6d00 35%, #d50000 50%, #ffea00 65%, #ff3d00 80%, #ff9100); animation: frTurn 2.4s linear infinite; }
+.fr-gelo .av-fr { background: conic-gradient(#b3f0ff, #ffffff 15%, #4fc3f7 35%, #e0f7ff 55%, #81d4fa 75%, #ffffff 90%, #b3f0ff); }
+.fr-folhas .av-fr { background: repeating-conic-gradient(#2e7d32 0 14deg, #7bd88f 14deg 26deg, #a5d6a7 26deg 32deg); }
+.fr-pixel .av-fr { --ft: max(2px, calc(var(--s) * .07)); background: repeating-conic-gradient(var(--fc) 0 9deg, transparent 9deg 18deg); }
+.fr-orbita .av-fr { --ft: max(2px, calc(var(--s) * .05)); background: conic-gradient(from var(--fa), var(--fc) 0 40deg, color-mix(in srgb, var(--fc) 25%, transparent) 40deg); animation: frTurn 3s linear infinite; }
+/* em listas que mudam muito (mixer, quem está na call) a moldura fica parada: menos distração e menos trabalho */
+.av.calm .av-fr { animation: none; }
 
 /* ================= cartão de perfil ================= */
+
 .profile-prev { --card-bg: var(--rail); position: relative; background: var(--card-bg); border-radius: var(--r-lg); overflow: hidden; width: min(340px, 100%);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pc, var(--line)) 35%, transparent); isolation: isolate; }
 .profile-prev .banner { height: 110px; background-size: cover; background-position: center; position: relative; z-index: 0; }
