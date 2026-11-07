@@ -44,7 +44,10 @@ const P = {
   refresh: '<path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/>',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
   up: '<path d="M18 15l-6-6-6 6"/>',
-  ban: '<circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/>'
+  ban: '<circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/>',
+  sticker: '<path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9.5L21 14.5V5a2 2 0 0 0-2-2z"/><path d="M14 21v-5a2 2 0 0 1 2-2h5M8.5 10h.01M14.5 10h.01M8.5 14.5s1.2 1.5 3.5 1.5"/>',
+  board: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M15.5 15.5v4l3.5-2z"/>',
+  sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>'
 };
 const ic = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
 const EMOJIS = '😀 😂 🥹 😍 😎 🤔 😭 😡 👍 👎 👏 🙏 🔥 💯 ❤️ 💜 🎉 🎮 🏍️ ⚡ 🍕 ☕ 🐱 🐶 👀 💀 ✅ ❌ ⭐ 🌙 🚀 🎵'.split(' ');
@@ -187,7 +190,8 @@ const PERM_INFO = [
   ['manageRoles', 'Gerenciar cargos', 'Criar e editar cargos abaixo do seu, e dar ou tirar cargos dos membros.'],
   ['kick', 'Expulsar membros', 'Remover pessoas do grupo. Elas podem voltar com um convite.'],
   ['ban', 'Banir membros', 'Remover pessoas e impedir que elas voltem.'],
-  ['manageMessages', 'Gerenciar mensagens', 'Apagar mensagens de outras pessoas. Também ignora o modo lento.']
+  ['manageMessages', 'Gerenciar mensagens', 'Apagar mensagens de outras pessoas. Também ignora o modo lento.'],
+  ['manageMedia', 'Gerenciar Central de Áudio e figurinhas', 'Adicionar e apagar os sons da Central de Áudio e as figurinhas do grupo.']
 ];
 const gRoles = (g, uid) => { const mine = g?.memberRoles?.[uid] || []; return (g?.roles || []).filter(r => mine.includes(r.id)); };
 function gCan(g, perm, uid = S.me?.id) {
@@ -502,7 +506,7 @@ function connect() {
     if (S.view.kind === 'group' && S.view.gid === group.id && !group.channels.some(c => c.id === S.view.cid)) S.view.cid = firstText(group);
     render();
     // as abas de lista das configurações do grupo acompanham as mudanças
-    if ($('.gset') && gsGid === group.id && ['membros', 'canais', 'convites', 'banimentos'].includes(gsTab)) drawGroupSettings();
+    if ($('.gset') && gsGid === group.id && ['membros', 'canais', 'convites', 'banimentos', 'sons', 'figurinhas'].includes(gsTab)) drawGroupSettings();
   });
   socket.on('group:removed', ({ gid }) => {
     const g = S.groups[gid]; delete S.groups[gid];
@@ -518,6 +522,8 @@ function connect() {
   socket.on('typing', ({ cid, uid }) => { (S.typing[cid] = S.typing[cid] || {})[uid] = Date.now(); if (viewingCid() === cid) renderTyping(); });
   socket.on('voice:room', onVoiceRoom);
   socket.on('rtc:signal', onSignal);
+  socket.on('sound:played', onSoundPlayed);
+  socket.on('sound:stopped', ({ roomId, uid }) => { if (roomId === V.room) stopSoundsOf(uid); });
   socket.on('call:incoming', onIncomingCall);
   socket.on('call:ended', ({ dmId }) => { if (incoming && incoming.dmId === dmId) closeRing(); });
   socket.on('call:declined', ({ dmId, by }) => {
@@ -662,7 +668,8 @@ function renderVoiceBar() {
     <div class="vb-btns">
       <button class="btn sm ${V.cam ? 'on' : ''}" data-act="toggleCam" data-tip="${V.cam ? 'Desligar câmera' : 'Ligar câmera'}">${ic(V.cam ? 'cam' : 'camOff')}</button>
       <button class="btn sm ${V.screen ? 'on' : ''}" data-act="toggleScreen" data-tip="${V.screen ? 'Parar de compartilhar' : 'Compartilhar tela'}">${ic('screen')}</button>
-      <button class="btn sm" data-act="voiceSettings" data-tip="Configurar voz e vídeo">${ic('gear')}</button>
+      <button class="btn sm" data-act="soundboard" data-tip="Central de Áudio">${ic('board')}</button>
+      <button class="btn sm" data-act="mixer" data-tip="Mixer">${ic('sliders')}</button>
     </div>`;
 }
 /* qualidade da conexão na call: ping e perda de pacotes de áudio, medidos a cada 3 s */
@@ -859,11 +866,13 @@ function renderMessages(forceBottom) {
     html += `<div class="msg ${head ? 'head' : ''} ${mine ? 'mine' : ''} ${!mine && mentionRe.test(m.content) ? 'mentioned' : ''}" data-mid="${m.id}" id="m-${m.id}">
       ${head ? av(m.authorId, 40, false) : `<div class="gutter">${fmtTime(m.ts)}</div>`}
       <div class="mc" style="min-width:0">
-        ${m.replyTo ? `<div class="reply-ref" data-act="jump" data-id="${m.replyTo}">${ic('reply').replace('<svg', '<svg style="width:14px;height:14px;transform:scaleX(-1)"')}${ref ? `<b>${esc(nameOf(ref.authorId))}</b> ${esc((ref.content || '🖼️ imagem').slice(0, 90))}` : '<i>mensagem apagada</i>'}</div>` : ''}
+        ${m.replyTo ? `<div class="reply-ref" data-act="jump" data-id="${m.replyTo}">${ic('reply').replace('<svg', '<svg style="width:14px;height:14px;transform:scaleX(-1)"')}${ref ? `<b>${esc(nameOf(ref.authorId))}</b> ${esc((ref.content || (ref.sticker ? '🗂️ figurinha' : ref.gif ? '🎞️ GIF' : '🖼️ imagem')).slice(0, 90))}` : '<i>mensagem apagada</i>'}</div>` : ''}
         ${head ? `<div class="who"><b data-act="profile" data-id="${m.authorId}" style="color:${esc(nameColor(m.authorId, g))}">${esc(u.displayName)}</b>${g && g.ownerId === m.authorId ? '<span class="crown">👑</span>' : ''}<time>${fmtDay(m.ts) === 'Hoje' ? '' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></div>` : ''}
         ${editing ? `<div class="edit-box"><textarea id="editArea" rows="2">${esc(m.content)}</textarea><span class="small muted">Enter salva · Esc cancela</span></div>`
           : m.content ? `<div class="body" style="${big ? 'font-size:2.4em;line-height:1.2' : ''}">${md(m.content)}${m.edited ? ' <span class="ed">(editado)</span>' : ''}</div>` : ''}
         ${m.image ? `<img class="img" src="${esc(m.image)}" alt="Imagem enviada por ${esc(u.displayName)}" data-act="zoom" loading="lazy">` : ''}
+        ${m.sticker ? `<img class="sticker" src="${esc(m.sticker.url)}" alt="Figurinha: ${esc(m.sticker.name)}" title="${esc(m.sticker.name)}" data-act="stickerInfo" data-id="${esc(m.sticker.id)}" loading="lazy">` : ''}
+        ${m.gif ? `<img class="gifmsg" src="${esc(m.gif.url)}" alt="${esc(m.gif.title || 'GIF')}" loading="lazy" ${m.gif.w && m.gif.h ? `style="aspect-ratio:${m.gif.w}/${m.gif.h}"` : ''} data-act="zoom">` : ''}
         ${reacts.length ? `<div class="reacts">${reacts.map(([e, us]) => `<button class="react ${us.includes(S.me.id) ? 'mine' : ''}" data-act="react" data-id="${m.id}" data-emoji="${esc(e)}" title="${esc(us.map(nameOf).join(', '))}">${esc(e)} ${us.length}</button>`).join('')}</div>` : ''}
       </div>
       <div class="msg-tools">
@@ -902,6 +911,8 @@ function buildComposer() {
     <div class="composer">
       <button class="icon-btn" data-act="attach" data-tip="Enviar imagem">${ic('clip')}</button>
       <textarea id="composer" rows="1" placeholder="${esc(place)}" maxlength="4000" aria-label="${esc(place)}"></textarea>
+      <button class="icon-btn pk-btn" data-act="gifPick" data-tip="GIFs">GIF</button>
+      <button class="icon-btn" data-act="stickerPick" data-tip="Figurinhas">${ic('sticker')}</button>
       <button class="icon-btn" data-act="emojiPick" data-tip="Emoji">${ic('smile')}</button>
       <button class="icon-btn" data-act="sendBtn" data-tip="Enviar">${ic('send')}</button>
     </div><div class="typing" id="typing"></div>`;
@@ -972,11 +983,15 @@ function pop(html, anchor, cls = 'menu', place = 'below') {
   closePops();
   const p = document.createElement('div'); p.className = 'pop ' + cls; p.innerHTML = html;
   $('#popRoot').appendChild(p);
-  const r = anchor.getBoundingClientRect(), pw = p.offsetWidth, ph = p.offsetHeight;
+  p._anchor = anchor; p._place = place; reposPop(p);
+  return p;
+}
+// recalcula a posição (para painéis que desenham o conteúdo depois de abrir)
+function reposPop(p) {
+  const r = p._anchor.getBoundingClientRect(), pw = p.offsetWidth, ph = p.offsetHeight, place = p._place;
   let x = place === 'right' ? r.right + 8 : r.left, y = place === 'right' ? r.top : place === 'above' ? r.top - ph - 8 : r.bottom + 6;
   x = clamp(x, 8, innerWidth - pw - 8); y = clamp(y, 8, innerHeight - ph - 8);
   p.style.left = x + 'px'; p.style.top = y + 'px';
-  return p;
 }
 document.addEventListener('mousedown', e => { if (!e.target.closest('.pop') && !e.target.closest('[data-act]')) closePops(); });
 
@@ -1303,13 +1318,14 @@ function openGroupSettings(gid, tab) {
 }
 function drawGroupSettings() {
   const g = S.groups[gsGid]; if (!g) return closeSettings();
-  const tabs = [['geral', 'Visão geral', gCan(g, 'manageServer')], ['cargos', 'Cargos', gCan(g, 'manageRoles')], ['membros', 'Membros', true], ['canais', 'Canais', gCan(g, 'manageChannels')], ['convites', 'Convites', true], ['banimentos', 'Banimentos', gCan(g, 'ban')]].filter(t => t[2]);
+  const tabs = [['geral', 'Visão geral', gCan(g, 'manageServer')], ['cargos', 'Cargos', gCan(g, 'manageRoles')], ['membros', 'Membros', true], ['canais', 'Canais', gCan(g, 'manageChannels')], ['convites', 'Convites', true], ['sons', 'Central de Áudio', true], ['figurinhas', 'Figurinhas', true], ['banimentos', 'Banimentos', gCan(g, 'ban')]].filter(t => t[2]);
   if (!tabs.some(t => t[0] === gsTab)) gsTab = tabs[0][0];
   $('#gsNav').innerHTML = `<div class="gs-nav-g">${groupIcon(g).replace('class="inner"', 'class="inner gs-nav-ic"')}<b>${esc(g.name)}</b></div>
     ${tabs.map(([k, l]) => `<button data-gs="${k}" class="${gsTab === k ? 'active' : ''}">${l}</button>`).join('')}
     <h4></h4>${g.ownerId === S.me.id ? '<button data-gs="apagar" class="out">Apagar grupo</button>' : '<button data-gs="sair" class="out">Sair do grupo</button>'}`;
   const b = $('#setBody');
-  const T = { geral: gsGeral, cargos: gsCargos, membros: gsMembros, canais: gsCanais, convites: gsConvites, banimentos: gsBans };
+  const T = { geral: gsGeral, cargos: gsCargos, membros: gsMembros, canais: gsCanais, convites: gsConvites, banimentos: gsBans, sons: gsSons, figurinhas: gsFigurinhas };
+  b.onclick = null;
   T[gsTab](g, b);
 }
 
@@ -2223,13 +2239,16 @@ function renderStageSlot() {
     <span class="ctrl-sep"></span>
     <button class="ctrl ${V.cam ? 'on' : ''}" data-act="toggleCam" data-tip="${V.cam ? 'Desligar câmera' : 'Ligar câmera'}">${ic(V.cam ? 'cam' : 'camOff')}</button>
     <button class="ctrl ${V.screen ? 'on' : ''}" data-act="toggleScreen" data-tip="${V.screen ? 'Parar de compartilhar' : 'Compartilhar tela'}">${ic('screen')}</button>
+    <button class="ctrl" data-act="soundboard" data-tip="Central de Áudio">${ic('board')}</button>
+    <button class="ctrl" data-act="mixer" data-tip="Mixer: volume de cada pessoa">${ic('sliders')}</button>
     <button class="ctrl" data-act="voiceSettings" data-tip="Configurar voz e vídeo">${ic('gear')}</button>
     <span class="ctrl-sep"></span>
     <button class="ctrl hang" data-act="leaveVoice" data-tip="Sair da call">${ic('hang')}</button></div></div>`;
+  const sbw = SB.who && SB.who.until > Date.now() ? `<div class="sb-who">${esc(SB.who.emoji || '🔊')} <b>${esc(nameOf(SB.who.uid))}</b> tocou <b>${esc(SB.who.name)}</b></div>` : '';
   const calling = V.calling && peers.length <= 1 ? `<p style="text-align:center;margin:0;padding-top:12px" class="muted">Chamando ${esc(roomName(roomId))}...</p>` : '';
   // grade que ocupa o espaço: 1 → tudo, 2 → lado a lado, 3-4 → 2x2, 5-6 → 3x2, 7-9 → 3x3...
   const n = tiles.length, cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4, rows = Math.ceil(n / cols);
-  slot.innerHTML = `<div class="stage ${isDm ? 'mini' : ''}" style="${isDm ? '' : 'flex:1'}">${calling}<div class="stage-grid ${focus ? 'has-focus' : 'fill'}" style="--cols:${cols};--rows:${rows}">
+  slot.innerHTML = `<div class="stage ${isDm ? 'mini' : ''}" style="${isDm ? '' : 'flex:1'}">${calling}${sbw}<div class="stage-grid ${focus ? 'has-focus' : 'fill'}" style="--cols:${cols};--rows:${rows}">
     ${focus ? focus.html.replace('class="tile', 'class="tile focus') + `<div class="thumbs">${tiles.filter(t => t !== focus).map(t => t.html).join('')}</div>` : tiles.map(t => t.html).join('')}
   </div>${ctrls}</div>`;
   tiles.forEach(t => { if (t.stream) $$(`.vslot[data-v="${t.vkey}"]`, slot).forEach(s => s.appendChild(videoEl(t.vkey, t.stream, t.mirror && t.vkey.startsWith('cam')))); });
@@ -2260,6 +2279,293 @@ function onIncomingCall({ dmId, from }) {
   clearTimeout(ringTimeout); ringTimeout = setTimeout(closeRing, 35000);
 }
 function closeRing() { $('#ringBox')?.remove(); incoming = null; if (!V.calling) ring(false); }
+
+/* =============== Central de Áudio (soundboard) ===============
+   Quem clica num som avisa o servidor; o servidor confere permissão e anti-spam e manda o aviso só para quem
+   está na mesma call. Cada pessoa toca o arquivo no próprio app, no volume de Central de Áudio que escolheu.
+   (É assim que o Soundboard do Discord funciona: o som não passa pelo microfone, então não é cortado pela
+   supressão de ruído, não perde qualidade e cada um controla o volume.) */
+const SOUND_MAX = 30, SOUND_MS = 7000, STICKER_MAX = 60;
+const soundsFor = roomId => {
+  const g = groupOfChannel(roomId);
+  if (g) return (g.sounds || []).map(s => ({ ...s, gid: g.id, gname: g.name }));
+  // call direta: sons de todos os seus grupos
+  return Object.values(S.groups).flatMap(x => (x.sounds || []).map(s => ({ ...s, gid: x.id, gname: x.name })));
+};
+async function soundBuffer(url) {
+  if (SB.cache.has(url)) return SB.cache.get(url);
+  const p = (async () => { const c = audioCtx(); const ab = await (await fetch(url)).arrayBuffer(); return await c.decodeAudioData(ab); })();
+  SB.cache.set(url, p); p.catch(() => SB.cache.delete(url));
+  if (SB.cache.size > 60) SB.cache.delete(SB.cache.keys().next().value);
+  return p;
+}
+// toca um som localmente (prévia ou som recebido da call)
+async function playSoundLocal(url, vol = 1, uid = null) {
+  const c = audioCtx(); if (!c) return null;
+  try {
+    const buf = await soundBuffer(url);
+    if (SB.playing.size >= 4) { const [k, x] = SB.playing.entries().next().value; try { x.src.stop(); } catch {} SB.playing.delete(k); }
+    const src = c.createBufferSource(), g = c.createGain(); src.buffer = buf; g.gain.value = clamp(vol, 0, 1);
+    src.connect(g).connect(c.destination); applySink();
+    const key = Math.random().toString(36).slice(2); SB.playing.set(key, { src, uid });
+    src.onended = () => { SB.playing.delete(key); renderStageSoon(); };
+    src.start(); return key;
+  } catch (e) { toast('Não consegui tocar esse som.', true); return null; }
+}
+function stopSoundsOf(uid) { SB.playing.forEach((x, k) => { if (!uid || x.uid === uid) { try { x.src.stop(); } catch {} SB.playing.delete(k); } }); }
+function onSoundPlayed(ev) {
+  if (ev.roomId !== V.room) return;
+  SB.who = { uid: ev.uid, name: ev.name, emoji: ev.emoji, until: Date.now() + Math.max(1200, ev.duration) };
+  renderStageSoon(); setTimeout(renderStageSoon, Math.max(1200, ev.duration) + 50);
+  $$(`[data-speak]`).forEach(el => { const p = (S.voice[V.room] || []).find(x => x.sid === el.dataset.speak); if (p && p.uid === ev.uid) { el.classList.remove('sb-ping'); void el.offsetWidth; el.classList.add('sb-ping'); } });
+  if (V.deaf || !prefs.sbOn || (prefs.umute && prefs.umute[ev.uid])) return;
+  playSoundLocal(ev.url, (prefs.sbVol / 100) * (ev.volume / 100) * clamp(prefs.outVol ?? 100, 0, 200) / 100, ev.uid);
+}
+async function playSoundInCall(id) {
+  if (!V.room) return toast('Entre numa call para tocar sons para todo mundo.', true);
+  const r = await emit('sound:play', { id });
+  if (!r.ok) toast(r.erro, true);
+}
+function soundboardPanel(anchor) {
+  const list = V.room ? soundsFor(V.room) : (curGroup()?.sounds || []).map(s => ({ ...s, gid: curGroup().id }));
+  const cats = [...new Set(list.map(s => s.category || 'Geral'))];
+  let cat = SB.cat && cats.includes(SB.cat) ? SB.cat : 'Todos';
+  const g = V.room ? groupOfChannel(V.room) : curGroup();
+  const canManage = g && gCan(g, 'manageMedia');
+  const p = pop(`<div class="sb-h"><b>Central de Áudio</b><span class="muted small">${V.room ? 'Clique para tocar para todos na call' : 'Clique para ouvir só você (prévia)'}</span></div>
+    <div class="sb-cats" id="sbCats"></div><div class="sb-grid" id="sbGrid"></div>
+    <div class="sb-f"><label class="sb-vol" title="Volume da Central de Áudio (só para você)">${ic('voice')}<input type="range" id="sbVol" min="0" max="100" step="5" value="${prefs.sbVol}"></label>
+      ${V.room ? `<button class="btn sm ghost" id="sbStop">Parar meus sons</button>` : ''}${canManage ? `<button class="btn sm" id="sbMng">Gerenciar</button>` : ''}</div>`, anchor, 'sboard', 'above');
+  const draw = () => {
+    $('#sbCats', p).innerHTML = ['Todos', ...cats].map(c => `<button class="${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
+    const items = list.filter(s => cat === 'Todos' || (s.category || 'Geral') === cat);
+    $('#sbGrid', p).innerHTML = items.length ? items.map(s => `<button class="sb-btn" data-snd="${s.id}" title="${esc(s.name)}${s.gname ? ' · ' + esc(s.gname) : ''}"><span class="sb-e">${esc(s.emoji || '🔊')}</span><span class="sb-n">${esc(s.name)}</span><span class="sb-pv" data-pv="${s.id}" title="Ouvir só para mim">${ic('voice')}</span></button>`).join('')
+      : `<div class="sb-empty"><div style="font-size:34px">🎛️</div><p>${list.length ? 'Nada nesta categoria.' : 'Nenhum som ainda.'}</p>${canManage ? '<button class="btn sm primary" id="sbAdd">Adicionar som</button>' : '<span class="muted small">Peça para quem gerencia o grupo adicionar.</span>'}</div>`;
+    const add = $('#sbAdd', p); if (add) add.onclick = () => { closePops(); openGroupSettings(g.id, 'sons'); };
+    reposPop(p);
+  };
+  draw();
+  p.onclick = e => {
+    const c = e.target.closest('[data-cat]'); if (c) { cat = SB.cat = c.dataset.cat; draw(); return; }
+    const pv = e.target.closest('[data-pv]'); if (pv) { e.stopPropagation(); const s = list.find(x => x.id === pv.dataset.pv); if (s) playSoundLocal(s.url, prefs.sbVol / 100 * s.volume / 100); return; }
+    const b = e.target.closest('[data-snd]'); if (!b) return;
+    const s = list.find(x => x.id === b.dataset.snd); if (!s) return;
+    if (V.room) { b.classList.add('fired'); setTimeout(() => b.classList.remove('fired'), 400); playSoundInCall(s.id); }
+    else playSoundLocal(s.url, prefs.sbVol / 100 * s.volume / 100);
+  };
+  $('#sbVol', p).oninput = e => { prefs.sbVol = +e.target.value; savePrefs(); };
+  if ($('#sbStop', p)) $('#sbStop', p).onclick = () => emit('sound:stop');
+  if ($('#sbMng', p)) $('#sbMng', p).onclick = () => { closePops(); openGroupSettings(g.id, 'sons'); };
+}
+
+/* ---- mixer da call: volume local de cada pessoa, do seu microfone e da Central de Áudio ---- */
+function mixerPanel(anchor) {
+  const peers = (S.voice[V.room] || []).filter(p => p.sid !== S.mySid);
+  const row = p => {
+    const muted = prefs.umute && prefs.umute[p.uid];
+    return `<div class="mx-row" data-mx="${p.uid}"><div class="mx-who">${av(p.uid, 32, false).replace('class="av', `data-speak="${p.sid}" class="av`)}<div><b>${esc(nameOf(p.uid))}</b><span class="mx-st">${p.deafened ? ic('headOff') + 'sem áudio' : p.muted ? ic('micOff') + 'microfone mudo' : '<i class="mx-live"></i>recebendo áudio'}</span></div>
+      <button class="icon-btn ${muted ? 'on' : ''}" data-mxm="${p.uid}" data-tip="${muted ? 'Voltar a ouvir' : 'Silenciar para mim'}">${ic(muted ? 'micOff' : 'voice')}</button></div>
+      <label class="mx-sl">Voz<input type="range" min="0" max="200" step="5" value="${volOf(p.uid, 'voice')}" data-mxv="${p.uid}"><output>${volOf(p.uid, 'voice')}%</output></label>
+      ${p.screen ? `<label class="mx-sl">Tela<input type="range" min="0" max="200" step="5" value="${volOf(p.uid, 'screen')}" data-mxs="${p.uid}"><output>${volOf(p.uid, 'screen')}%</output></label>` : ''}</div>`;
+  };
+  const p = pop(`<div class="mx-h"><b>Mixer</b><span class="muted small">Os volumes de saída e de cada pessoa mudam só o que <b>você</b> escuta.</span></div>
+    <div class="mx-sec"><div class="mx-t">Você · muda o que os outros escutam</div>
+      <label class="mx-sl">Meu microfone<input type="range" min="0" max="200" step="5" value="${prefs.micGain}" id="mxMic"><output>${prefs.micGain}%</output></label>
+      <div class="mx-meter"><i id="mxLvl"></i></div></div>
+    <div class="mx-sec"><div class="mx-t">Geral</div>
+      <label class="mx-sl">Saída da call<input type="range" min="0" max="200" step="5" value="${prefs.outVol}" id="mxOut"><output>${prefs.outVol}%</output></label>
+      <label class="mx-sl">Central de Áudio<input type="range" min="0" max="100" step="5" value="${prefs.sbVol}" id="mxSb"><output>${prefs.sbVol}%</output></label></div>
+    <div class="mx-sec"><div class="mx-t">Pessoas na call · ${peers.length}</div>${peers.length ? peers.map(row).join('') : '<p class="muted small" style="margin:4px 0">Ninguém além de você.</p>'}</div>
+    <div class="mx-f"><button class="btn sm ghost" id="mxReset">Voltar tudo a 100%</button><button class="btn sm" data-act="voiceSettings">Mais opções</button></div>`, anchor, 'mixer', 'above');
+  const setV = (key, uid, v) => { prefs[key] = { ...(prefs[key] || {}) }; if (v === null || v === 100) delete prefs[key][uid]; else prefs[key][uid] = v; savePrefs(); applyVolumes(); };
+  p.oninput = e => {
+    const t = e.target; const o = t.nextElementSibling; if (o && o.tagName === 'OUTPUT') o.textContent = t.value + '%';
+    if (t.dataset.mxv) setV('vol', t.dataset.mxv, +t.value);
+    if (t.dataset.mxs) setV('svol', t.dataset.mxs, +t.value);
+    if (t.id === 'mxMic') { prefs.micGain = +t.value; savePrefs(); setMicGain(); }
+    if (t.id === 'mxOut') { prefs.outVol = +t.value; savePrefs(); applyVolumes(); }
+    if (t.id === 'mxSb') { prefs.sbVol = +t.value; savePrefs(); }
+  };
+  p.onchange = () => { renderSide(); };
+  p.onclick = e => {
+    const m = e.target.closest('[data-mxm]');
+    if (m) { const uid = m.dataset.mxm; prefs.umute = { ...(prefs.umute || {}) }; if (prefs.umute[uid]) delete prefs.umute[uid]; else prefs.umute[uid] = true; savePrefs(); applyVolumes(); renderSide(); renderStageSlot(); closePops(); mixerPanel(anchor); }
+    if (e.target.id === 'mxReset') { prefs.vol = {}; prefs.svol = {}; prefs.umute = {}; prefs.outVol = 100; savePrefs(); applyVolumes(); renderSide(); renderStageSlot(); closePops(); mixerPanel(anchor); }
+  };
+  // medidor do seu microfone dentro do mixer
+  const iv = setInterval(() => {
+    const el = $('#mxLvl', p); if (!el || !p.isConnected) return clearInterval(iv);
+    const l = V.levels.get(S.mySid); if (!l) return;
+    const on = V.mic && V.mic.getAudioTracks().some(t => t.enabled);
+    el.style.width = on ? levelOf(l.an, l.buf) + '%' : '0%';
+  }, 80);
+}
+
+/* =============== figurinhas e GIFs =============== */
+const favs = () => ({ stickers: [], gifs: [], recentStickers: [], recentGifs: [], ...(S.me.favs || {}) });
+const allStickers = () => Object.values(S.groups).flatMap(g => (g.stickers || []).map(s => ({ ...s, gid: g.id, gname: g.name })));
+function saveFavs(patch) { const f = { ...favs(), ...patch }; S.me.favs = f; emit('favs:update', patch); return f; }
+async function sendSticker(st) {
+  const cid = viewingCid(); if (!cid) return;
+  closePops();
+  const r = await emit('message:send', { cid, sticker: { gid: st.gid, id: st.id }, replyTo: S.reply });
+  if (!r.ok) return toast(r.erro, true);
+  S.reply = null; renderReplyBar();
+  saveFavs({ recentStickers: [st.id, ...favs().recentStickers.filter(x => x !== st.id)].slice(0, 24) });
+}
+async function sendGif(gf) {
+  const cid = viewingCid(); if (!cid) return;
+  closePops();
+  const r = await emit('message:send', { cid, gif: { url: gf.url, w: gf.w, h: gf.h, title: gf.title }, replyTo: S.reply });
+  if (!r.ok) return toast(r.erro, true);
+  S.reply = null; renderReplyBar();
+  saveFavs({ recentGifs: [gf, ...favs().recentGifs.filter(x => x.url !== gf.url)].slice(0, 24) });
+}
+function stickerPicker(anchor) {
+  let tab = SB.stTab || 'todas';
+  const p = pop(`<div class="pk-h"><b>Figurinhas</b><input class="input pk-q" id="stQ" placeholder="Procurar figurinha" autocomplete="off"></div><div class="pk-tabs" id="stTabs"></div><div class="pk-grid st" id="stGrid"></div>`, anchor, 'picker', 'above');
+  const draw = () => {
+    const all = allStickers(), f = favs(), q = $('#stQ', p).value.trim().toLowerCase();
+    const packs = [...new Set(all.map(s => s.gname + ' · ' + (s.pack || 'Geral')))];
+    $('#stTabs', p).innerHTML = [['todas', 'Todas'], ['fav', '★ Favoritas'], ['rec', 'Recentes'], ...packs.map(k => [k, k])].map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" data-tab="${esc(k)}">${esc(l)}</button>`).join('');
+    let list = tab === 'fav' ? f.stickers.map(id => all.find(s => s.id === id)).filter(Boolean)
+      : tab === 'rec' ? f.recentStickers.map(id => all.find(s => s.id === id)).filter(Boolean)
+      : tab === 'todas' ? all : all.filter(s => s.gname + ' · ' + (s.pack || 'Geral') === tab);
+    if (q) list = list.filter(s => (s.name + ' ' + s.pack).toLowerCase().includes(q));
+    const g = curGroup();
+    $('#stGrid', p).innerHTML = list.length ? list.map(s => `<button class="pk-it" data-st="${s.id}" title="${esc(s.name)} · ${esc(s.gname)}"><img src="${esc(s.url)}" alt="${esc(s.name)}" loading="lazy"><span class="pk-star ${f.stickers.includes(s.id) ? 'on' : ''}" data-fav="${s.id}" title="Favoritar">★</span></button>`).join('')
+      : `<div class="sb-empty"><div style="font-size:34px">🗂️</div><p>${tab === 'fav' ? 'Clique na estrela de uma figurinha para favoritar.' : tab === 'rec' ? 'As figurinhas que você mandar aparecem aqui.' : 'Nenhuma figurinha ainda.'}</p>${g && gCan(g, 'manageMedia') && tab === 'todas' ? '<button class="btn sm primary" id="stAdd">Adicionar figurinhas</button>' : ''}</div>`;
+    const add = $('#stAdd', p); if (add) add.onclick = () => { closePops(); openGroupSettings(g.id, 'figurinhas'); };
+  };
+  draw();
+  $('#stQ', p).oninput = draw;
+  p.onclick = e => {
+    const t = e.target.closest('[data-tab]'); if (t) { tab = SB.stTab = t.dataset.tab; draw(); return; }
+    const fv = e.target.closest('[data-fav]'); if (fv) { e.stopPropagation(); const id = fv.dataset.fav, f = favs(); saveFavs({ stickers: f.stickers.includes(id) ? f.stickers.filter(x => x !== id) : [id, ...f.stickers].slice(0, 60) }); draw(); return; }
+    const it = e.target.closest('[data-st]'); if (it) { const s = allStickers().find(x => x.id === it.dataset.st); if (s) sendSticker(s); }
+  };
+  setTimeout(() => $('#stQ', p)?.focus(), 30);
+}
+function gifPicker(anchor) {
+  let tab = 'trend', items = [], next = 0, loading = false, configured = true, q = '', gen = 0;
+  const p = pop(`<div class="pk-h"><b>GIFs</b><input class="input pk-q" id="gfQ" placeholder="Procurar GIFs" autocomplete="off"></div><div class="pk-tabs" id="gfTabs"></div><div class="pk-grid gf" id="gfGrid"></div><div class="pk-attr" id="gfAttr"></div>`, anchor, 'picker', 'above');
+  const card = x => `<button class="pk-it gif" data-gu="${esc(x.url)}" title="${esc(x.title || '')}"><img src="${esc(x.preview || x.url)}" alt="${esc(x.title || 'GIF')}" loading="lazy"><span class="pk-star ${favs().gifs.some(f => f.url === x.url) ? 'on' : ''}" data-gfav="${esc(x.url)}" title="Favoritar">★</span></button>`;
+  const draw = () => {
+    $('#gfTabs', p).innerHTML = [['trend', 'Em alta'], ['fav', '★ Favoritos'], ['rec', 'Recentes']].map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('') + (q ? `<button class="on">“${esc(q)}”</button>` : '');
+    const f = favs();
+    const list = tab === 'fav' ? f.gifs : tab === 'rec' ? f.recentGifs : items;
+    const grid = $('#gfGrid', p);
+    if (tab === 'trend' && !configured) grid.innerHTML = `<div class="sb-empty"><div style="font-size:34px">🔑</div><p>A busca de GIFs ainda não foi ligada neste servidor.</p><span class="muted small">Quem cuida do servidor precisa colocar a chave do GIPHY (ou do Tenor) nos segredos da função <b>discordia-db</b> no Supabase. Favoritos e recentes continuam funcionando.</span></div>`;
+    else grid.innerHTML = list.length ? list.map(card).join('') : `<div class="sb-empty"><p>${loading ? 'Carregando...' : tab === 'fav' ? 'Clique na estrela de um GIF para favoritar.' : tab === 'rec' ? 'Os GIFs que você mandar aparecem aqui.' : 'Nada encontrado.'}</p></div>`;
+    $('#gfAttr', p).textContent = tab === 'trend' && configured ? (SB.gifProvider === 'tenor' ? 'Via Tenor' : 'Powered by GIPHY') : '';
+  };
+  const load = async more => {
+    if (loading) return; loading = true; const my = ++gen; if (!more) { items = []; next = 0; } draw();
+    try {
+      const r = await fetch(`/api/gifs?q=${encodeURIComponent(q)}&pos=${next}`, { headers: { 'x-token': S.token || '' } });
+      const j = await r.json(); if (my !== gen) return;
+      if (!r.ok) { toast(j.erro || 'Não consegui buscar GIFs.', true); return; }
+      configured = j.configured !== false; SB.gifProvider = j.provider;
+      items = more ? [...items, ...(j.items || [])] : (j.items || []); next = j.next || next + 24;
+    } catch { toast('Sem conexão para buscar GIFs.', true); }
+    finally { if (my === gen) { loading = false; draw(); } }
+  };
+  let tq; $('#gfQ', p).oninput = e => { clearTimeout(tq); tq = setTimeout(() => { q = e.target.value.trim(); tab = 'trend'; load(false); }, 350); };
+  $('#gfGrid', p).addEventListener('scroll', e => { const g = e.target; if (tab === 'trend' && configured && g.scrollTop + g.clientHeight > g.scrollHeight - 120) load(true); });
+  p.onclick = e => {
+    const t = e.target.closest('[data-tab]'); if (t) { tab = t.dataset.tab; draw(); return; }
+    const all = () => [...items, ...favs().gifs, ...favs().recentGifs];
+    const fv = e.target.closest('[data-gfav]'); if (fv) { e.stopPropagation(); const u = fv.dataset.gfav, f = favs(); const x = all().find(i => i.url === u); saveFavs({ gifs: f.gifs.some(i => i.url === u) ? f.gifs.filter(i => i.url !== u) : [x, ...f.gifs].filter(Boolean).slice(0, 60) }); draw(); return; }
+    const it = e.target.closest('[data-gu]'); if (it) { const x = all().find(i => i.url === it.dataset.gu); if (x) sendGif(x); }
+  };
+  load(false);
+  setTimeout(() => $('#gfQ', p)?.focus(), 30);
+}
+
+/* ---- configurações do grupo: Central de Áudio e figurinhas ---- */
+function gsSons(g, b) {
+  const can = gCan(g, 'manageMedia'); const list = g.sounds || [];
+  b.innerHTML = `<h2>Central de Áudio</h2><p class="muted set-sub">Sons que qualquer pessoa na call pode tocar para todo mundo. ${list.length}/${SOUND_MAX} sons.</p>
+    ${can ? `<div class="set-card"><h3>Adicionar som</h3>
+      <div class="pe-row"><div><b>Arquivo</b><span class="muted small">MP3, WAV, OGG, WEBM ou M4A · até 1 MB e ${SOUND_MS / 1000} segundos.</span></div><div class="pe-btns"><button class="btn sm" id="snFile">Escolher arquivo</button><span class="muted small" id="snInfo">nenhum arquivo</span><button class="btn sm ghost" id="snPrev" disabled>Ouvir</button></div></div>
+      <div class="pe-2"><label class="field">Nome<input id="snName" maxlength="32" placeholder="ex.: buzina"></label><label class="field">Categoria<input id="snCat" maxlength="24" list="snCats" placeholder="Geral"><datalist id="snCats">${[...new Set(['Geral', 'Memes', 'Reações', 'Música', ...list.map(s => s.category)])].map(c => `<option value="${esc(c)}">`).join('')}</datalist></label></div>
+      <div class="field">Ícone<div class="emoji-grid sn-emo" id="snEmo">${'🔊 📯 🥁 🎺 🎸 👏 😂 😱 💀 🔥 🚨 🐐 🦆 🐸 💥 🎉'.split(' ').map((e, i) => `<button type="button" data-e="${e}" class="${i ? '' : 'on'}">${e}</button>`).join('')}</div></div>
+      <div class="field">Volume do som<div class="range-row"><input type="range" id="snVol" min="10" max="100" step="5" value="100"><output id="snVolO">100%</output></div></div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn primary" id="snAdd" disabled>Adicionar à Central</button></div></div>` : `<div class="set-card"><p class="muted" style="margin:0">Você pode tocar os sons numa call. Para adicionar ou apagar, precisa da permissão <b>Gerenciar Central de Áudio e figurinhas</b>.</p></div>`}
+    <div class="set-card"><h3>Sons do grupo</h3>${list.length ? `<div class="sn-list">${list.map(s => `<div class="sn-it"><span class="sb-e">${esc(s.emoji || '🔊')}</span><div><b>${esc(s.name)}</b><span class="muted small">${esc(s.category || 'Geral')} · ${(s.duration / 1000).toFixed(1)} s · ${s.volume}% · por ${esc(nameOf(s.createdBy))}</span></div>
+      <button class="icon-btn" data-snp="${s.id}" data-tip="Ouvir">${ic('voice')}</button>${can ? `<button class="icon-btn" data-snd-del="${s.id}" data-tip="Apagar" style="color:var(--danger)">${ic('trash')}</button>` : ''}</div>`).join('')}</div>` : '<p class="muted" style="margin:0">Nenhum som ainda.</p>'}</div>`;
+  b.onclick = async e => {
+    const pv = e.target.closest('[data-snp]'); if (pv) { const s = list.find(x => x.id === pv.dataset.snp); if (s) playSoundLocal(s.url, prefs.sbVol / 100 * s.volume / 100); return; }
+    const del = e.target.closest('[data-snd-del]'); if (del) { const s = list.find(x => x.id === del.dataset.sndDel); if (s && await confirmBox('Apagar som', `Apagar "${s.name}" da Central de Áudio?`, 'Apagar')) act('sound:delete', { gid: g.id, id: s.id }, 'Som apagado.'); }
+  };
+  if (!can) return;
+  const draft = { file: null, data: null, duration: 0, emoji: '🔊' };
+  $('#snEmo').onclick = e => { const x = e.target.closest('[data-e]'); if (!x) return; draft.emoji = x.dataset.e; $$('#snEmo button').forEach(y => y.classList.toggle('on', y === x)); };
+  $('#snVol').oninput = e => { $('#snVolO').textContent = e.target.value + '%'; };
+  const ready = () => { $('#snAdd').disabled = !(draft.data && $('#snName').value.trim()); };
+  $('#snName').oninput = ready;
+  $('#snFile').onclick = async () => {
+    const f = await pickFile('audio/mpeg,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/mp4,audio/x-m4a,.mp3,.wav,.ogg,.webm,.m4a'); if (!f) return;
+    if (f.size > 1024 * 1024) return toast('O áudio passa de 1 MB. Corte ou comprima antes.', true);
+    try {
+      const data = await readFile(f);
+      const buf = await audioCtx().decodeAudioData(await f.arrayBuffer());
+      const ms = Math.round(buf.duration * 1000);
+      if (ms > SOUND_MS) return toast(`O som tem ${(ms / 1000).toFixed(1)} s. O máximo é ${SOUND_MS / 1000} s.`, true);
+      Object.assign(draft, { file: f, data: data.replace(/^data:[^;]*;/, 'data:audio/x;'), duration: ms, buf });
+      $('#snInfo').textContent = `${f.name.slice(0, 28)} · ${(ms / 1000).toFixed(1)} s`; $('#snPrev').disabled = false;
+      if (!$('#snName').value.trim()) $('#snName').value = f.name.replace(/\.[^.]+$/, '').slice(0, 32);
+      ready();
+    } catch { toast('Não consegui ler esse áudio. Tente MP3, WAV ou OGG.', true); }
+  };
+  $('#snPrev').onclick = () => { if (!draft.buf) return; const c = audioCtx(), s = c.createBufferSource(), gn = c.createGain(); s.buffer = draft.buf; gn.gain.value = prefs.sbVol / 100 * +$('#snVol').value / 100; s.connect(gn).connect(c.destination); s.start(); };
+  $('#snAdd').onclick = async () => {
+    $('#snAdd').disabled = true; $('#snAdd').textContent = 'Enviando...';
+    try {
+      const up = await api('/api/upload-audio', { data: draft.data });
+      const r = await act('sound:add', { gid: g.id, name: $('#snName').value, category: $('#snCat').value, emoji: draft.emoji, url: up.url, duration: draft.duration, volume: +$('#snVol').value }, 'Som adicionado.');
+      if (r.ok) return; // o grupo atualiza e a tela redesenha sozinha
+    } catch (e) { toast(e.message, true); }
+    $('#snAdd').disabled = false; $('#snAdd').textContent = 'Adicionar à Central';
+  };
+}
+function gsFigurinhas(g, b) {
+  const can = gCan(g, 'manageMedia'); const list = g.stickers || [];
+  const packs = [...new Set(list.map(s => s.pack || 'Geral'))];
+  b.innerHTML = `<h2>Figurinhas</h2><p class="muted set-sub">Todo mundo do grupo pode usar estas figurinhas em qualquer conversa. ${list.length}/${STICKER_MAX}.</p>
+    ${can ? `<div class="set-card"><h3>Adicionar figurinha</h3>
+      <div class="pe-row"><div><b>Imagem</b><span class="muted small">PNG ou WEBP com fundo transparente, ou GIF animado. Fica com até 320 px.</span></div><div class="pe-btns"><div class="st-prev" id="fgPrev">?</div><button class="btn sm" id="fgFile">Escolher imagem</button></div></div>
+      <div class="pe-2"><label class="field">Nome<input id="fgName" maxlength="32" placeholder="ex.: gato chorando"></label><label class="field">Pacote<input id="fgPack" maxlength="24" list="fgPacks" placeholder="Geral"><datalist id="fgPacks">${['Geral', ...packs].map(c => `<option value="${esc(c)}">`).join('')}</datalist></label></div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn primary" id="fgAdd" disabled>Adicionar figurinha</button></div></div>` : `<div class="set-card"><p class="muted" style="margin:0">Para adicionar ou apagar figurinhas, precisa da permissão <b>Gerenciar Central de Áudio e figurinhas</b>.</p></div>`}
+    ${packs.length ? packs.map(pk => `<div class="set-card"><h3>${esc(pk)}</h3><div class="fg-grid">${list.filter(s => (s.pack || 'Geral') === pk).map(s => `<div class="fg-it"><img src="${esc(s.url)}" alt="${esc(s.name)}" loading="lazy"><span>${esc(s.name)}</span>${can ? `<button class="icon-btn" data-fg-del="${s.id}" data-tip="Apagar">${ic('trash')}</button>` : ''}</div>`).join('')}</div></div>`).join('') : '<div class="set-card"><p class="muted" style="margin:0">Nenhuma figurinha ainda.</p></div>'}`;
+  b.onclick = async e => { const del = e.target.closest('[data-fg-del]'); if (del) { const s = list.find(x => x.id === del.dataset.fgDel); if (s && await confirmBox('Apagar figurinha', `Apagar "${s.name}"? Mensagens antigas com ela continuam aparecendo.`, 'Apagar')) act('sticker:delete', { gid: g.id, id: s.id }, 'Figurinha apagada.'); } };
+  if (!can) return;
+  let data = null;
+  const ready = () => { $('#fgAdd').disabled = !data; };
+  $('#fgFile').onclick = async () => {
+    const f = await pickFile('image/png,image/webp,image/gif'); if (!f) return;
+    if (!/^image\/(png|webp|gif)$/.test(f.type)) return toast('Use PNG, WEBP ou GIF.', true);
+    if (f.size > 4 * 1024 * 1024) return toast('A imagem passa de 4 MB.', true);
+    data = await readFile(f);
+    if (!/^data:image\/gif/.test(data)) data = await shrinkAlpha(data, 320);
+    $('#fgPrev').innerHTML = `<img src="${data}" alt="">`;
+    if (!$('#fgName').value.trim()) $('#fgName').value = f.name.replace(/\.[^.]+$/, '').slice(0, 32);
+    ready();
+  };
+  $('#fgAdd').onclick = async () => {
+    $('#fgAdd').disabled = true; $('#fgAdd').textContent = 'Enviando...';
+    try { const up = await api('/api/upload', { data }); const r = await act('sticker:add', { gid: g.id, name: $('#fgName').value, pack: $('#fgPack').value, url: up.url }, 'Figurinha adicionada.'); if (r.ok) return; }
+    catch (e) { toast(e.message, true); }
+    $('#fgAdd').disabled = false; $('#fgAdd').textContent = 'Adicionar figurinha';
+  };
+}
+// reduz mantendo a transparência (WEBP; se o navegador não fizer WEBP, PNG)
+async function shrinkAlpha(dataUrl, max) {
+  const img = new Image(); img.src = dataUrl; await img.decode();
+  const k = Math.min(1, max / Math.max(img.width, img.height)); const w = Math.round(img.width * k), h = Math.round(img.height * k);
+  const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h);
+  const webp = c.toDataURL('image/webp', .9); return /^data:image\/webp/.test(webp) ? webp : c.toDataURL('image/png');
+}
 
 /* =============== navegação =============== */
 function go(view) {
@@ -2343,7 +2649,18 @@ const A = {
     };
   },
   settings: el => { closePops(); openSettings(el.dataset.tab); },
-  voiceSettings: () => openSettings('voz'),
+  voiceSettings: () => { closePops(); openSettings('voz'); },
+  soundboard: el => soundboardPanel(el),
+  mixer: el => { if (!V.room) return toast('Entre numa call para usar o mixer.', true); mixerPanel(el); },
+  stickerPick: el => stickerPicker(el),
+  gifPick: el => gifPicker(el),
+  stickerInfo: el => {
+    const s = allStickers().find(x => x.id === el.dataset.id);
+    if (!s) return toast('Essa figurinha é de um grupo em que você não está.', true);
+    const fav = favs().stickers.includes(s.id);
+    const p = pop(`<div class="um-h"><img src="${esc(s.url)}" alt="" style="width:40px;height:40px;object-fit:contain"><div><b>${esc(s.name)}</b><span>${esc(s.gname)} · ${esc(s.pack || 'Geral')}</span></div></div>${viewingCid() ? '<button data-m="send">Enviar esta figurinha</button>' : ''}<button data-m="fav">${fav ? 'Tirar dos favoritos' : '★ Favoritar'}</button>`, el, 'menu');
+    p.onclick = e => { const m = e.target.closest('[data-m]')?.dataset.m; if (!m) return; closePops(); if (m === 'send') sendSticker(s); if (m === 'fav') { const f = favs(); saveFavs({ stickers: fav ? f.stickers.filter(x => x !== s.id) : [s.id, ...f.stickers].slice(0, 60) }); toast(fav ? 'Tirada dos favoritos.' : 'Favoritada.'); } };
+  },
   mute: toggleMute, deafen: toggleDeaf,
   toggleScreen, toggleCam,
   leaveVoice: () => leaveVoice(),

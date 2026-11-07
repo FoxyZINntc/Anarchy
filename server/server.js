@@ -134,7 +134,23 @@ const FRAMES = ['neon', 'arco', 'ouro', 'fogo', 'gelo', 'folhas', 'pixel', 'orbi
 const EFFECTS = ['estrelas', 'neve', 'brilho', 'bolhas', 'aurora'];
 
 /* ---------- grupos: cargos e permissões ---------- */
-const PERMS = ['admin', 'manageServer', 'manageChannels', 'manageRoles', 'kick', 'ban', 'manageMessages', 'mentionEveryone'];
+const PERMS = ['admin', 'manageServer', 'manageChannels', 'manageRoles', 'kick', 'ban', 'manageMessages', 'mentionEveryone', 'manageMedia'];
+// Central de Áudio e figurinhas: limites por grupo
+const SOUND_MAX = 30, SOUND_BYTES = 1024 * 1024, SOUND_MS = 7000, STICKER_MAX = 60;
+const AUDIO_EXT = { 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/mp4': 'm4a' };
+// confere o tipo pelo começo do arquivo (não confia só no que o navegador disse)
+function audioKind(buf) {
+  const s = (a, b) => buf.slice(a, b).toString('latin1');
+  if (s(0, 3) === 'ID3' || (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0)) return 'audio/mpeg';
+  if (s(0, 4) === 'RIFF' && s(8, 12) === 'WAVE') return 'audio/wav';
+  if (s(0, 4) === 'OggS') return 'audio/ogg';
+  if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return 'audio/webm';
+  if (s(4, 8) === 'ftyp') return 'audio/mp4';
+  return null;
+}
+const clampN = (v, a, b, d) => { const n = Math.round(+v); return Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : d; };
+const sbLast = new Map(), sbRoom = new Map(); // anti-spam da Central de Áudio (por pessoa e por sala)
+const GIF_RE =/^https:\/\/(media\d*\.giphy\.com|i\.giphy\.com|media\.tenor\.com)\/[\w\-./%?=&]+$/;
 const HEX = /^#[0-9a-f]{6}$/i;
 function fixGroup(g) {
   if (!Array.isArray(g.roles)) g.roles = [];
@@ -144,6 +160,8 @@ function fixGroup(g) {
   if (g.banner === undefined) g.banner = null;
   if (g.systemJoin === undefined) g.systemJoin = true;
   if (g.welcomeCid === undefined) g.welcomeCid = null;
+  if (!Array.isArray(g.sounds)) g.sounds = [];
+  if (!Array.isArray(g.stickers)) g.stickers = [];
   return g;
 }
 Object.values(db.groups).forEach(fixGroup);
@@ -281,8 +299,42 @@ app.post('/api/upload', auth, (req, res) => {
   if (!m) return res.status(400).json({ erro: 'Envie uma imagem PNG, JPG, GIF ou WEBP.' });
   const buf = Buffer.from(m[2], 'base64');
   if (buf.length > 8 * 1024 * 1024) return res.status(400).json({ erro: 'A imagem passa de 8 MB.' });
-  const name = newId() + '.' + (m[1] === 'jpeg' ? 'jpg' : m[1]);
-  store.upload(buf, name, 'image/' + (m[1] === 'jpg' ? 'jpeg' : m[1])).then(url => res.json({ url })).catch(e => res.status(500).json({ erro: e.message }));
+  // o conteúdo precisa ser mesmo uma imagem (assinatura do arquivo), não só ter o nome certo
+  const sig = buf.slice(0, 12).toString('latin1');
+  const real = sig.startsWith('\x89PNG') ? 'png' : buf[0] === 0xff && buf[1] === 0xd8 ? 'jpeg' : sig.startsWith('GIF8') ? 'gif' : sig.startsWith('RIFF') && sig.slice(8, 12) === 'WEBP' ? 'webp' : null;
+  if (!real) return res.status(400).json({ erro: 'O arquivo não é uma imagem válida.' });
+  const name = newId() + '.' + (real === 'jpeg' ? 'jpg' : real);
+  store.upload(buf, name, 'image/' + real).then(url => res.json({ url })).catch(e => res.status(500).json({ erro: e.message }));
+});
+// áudios da Central de Áudio: até 1 MB, MP3/WAV/OGG/WEBM/M4A (conferido pelo conteúdo)
+const audioHits = new Map();
+app.post('/api/upload-audio', auth, (req, res) => {
+  if (!store.mediaReady) return res.status(503).json({ erro: 'A Central de Áudio e as figurinhas ainda estão sendo ativadas neste servidor. Tente mais tarde.' });
+  const t = now(), hits = (audioHits.get(req.uid) || []).filter(x => t - x < 60e3);
+  if (hits.length >= 10) return res.status(429).json({ erro: 'Muitos envios seguidos. Espere um minuto.' });
+  audioHits.set(req.uid, [...hits, t]);
+  const m = /^data:audio\/[\w.+-]+;base64,(.+)$/.exec(str(req.body.data, 2 * 1024 * 1024));
+  if (!m) return res.status(400).json({ erro: 'Envie um áudio MP3, WAV, OGG, WEBM ou M4A.' });
+  const buf = Buffer.from(m[1], 'base64');
+  if (buf.length > SOUND_BYTES) return res.status(400).json({ erro: 'O áudio passa de 1 MB.' });
+  const type = audioKind(buf);
+  if (!type) return res.status(400).json({ erro: 'Formato de áudio não reconhecido. Use MP3, WAV, OGG, WEBM ou M4A.' });
+  store.upload(buf, newId() + '.' + AUDIO_EXT[type], type).then(url => res.json({ url })).catch(e => res.status(500).json({ erro: e.message }));
+});
+// GIFs: a chave do GIPHY/Tenor fica no Supabase (função discordia-db); aqui só repassa, com cache e limite
+const gifCache = new Map(), gifHits = new Map();
+app.get('/api/gifs', auth, async (req, res) => {
+  const q = str(req.query.q, 60).trim(), pos = Math.max(0, Math.min(500, parseInt(req.query.pos, 10) || 0));
+  const key = q.toLowerCase() + '|' + pos, hit = gifCache.get(key);
+  if (hit && now() - hit.t < 10 * 60e3) return res.json(hit.data);
+  const t = now(), hits = (gifHits.get(req.uid) || []).filter(x => t - x < 60e3);
+  if (hits.length >= 40) return res.status(429).json({ erro: 'Muitas buscas seguidas. Espere um pouquinho.' });
+  gifHits.set(req.uid, [...hits, t]);
+  try {
+    const data = await store.gifs({ q, pos, limit: 24 });
+    if (data.configured) { gifCache.set(key, { t, data }); if (gifCache.size > 300) gifCache.delete(gifCache.keys().next().value); }
+    res.json(data);
+  } catch (e) { res.status(502).json({ erro: 'Não consegui buscar GIFs agora (' + e.message + ').' }); }
 });
 app.get('/api/config', (req, res) => res.json({ iceServers: cfg.iceServers, build: BUILD }));
 
@@ -612,14 +664,28 @@ function onConnection(socket) {
     if (info.kind === 'dm' && info.members.some(m => m !== uid && blockedBetween(uid, m))) return fail(cb, 'Você não pode mandar mensagens para essa pessoa.');
     const content = str(d.content, 4000).trim();
     const image = store.isUpload(d.image) ? d.image : null;
-    if (!content && !image) return fail(cb, 'Mensagem vazia.');
+    // figurinha: precisa existir num grupo seu (guarda uma cópia do endereço, para a mensagem não quebrar se apagarem)
+    let sticker = null;
+    if (d.sticker && typeof d.sticker === 'object') {
+      const sg = groupsOf(uid).find(g => g.id === d.sticker.gid), st = sg && sg.stickers.find(s => s.id === d.sticker.id);
+      if (!st) return fail(cb, 'Essa figurinha não existe mais.');
+      sticker = { id: st.id, gid: sg.id, url: st.url, name: st.name };
+    }
+    // GIF: só endereços do GIPHY ou do Tenor
+    let gif = null;
+    if (d.gif && typeof d.gif === 'object') {
+      if (!GIF_RE.test(str(d.gif.url, 500))) return fail(cb, 'GIF inválido.');
+      gif = { url: d.gif.url, w: Math.min(2000, d.gif.w | 0), h: Math.min(2000, d.gif.h | 0), title: str(d.gif.title, 100) };
+    }
+    if (!content && !image && !sticker && !gif) return fail(cb, 'Mensagem vazia.');
     // modo lento: quem gerencia canais ou mensagens não espera
     if (info.kind === 'group' && info.channel.slowmode && !can(info.group, uid, 'manageChannels') && !can(info.group, uid, 'manageMessages')) {
       const k = d.cid + ':' + uid, last = slowLast.get(k) || 0, wait = info.channel.slowmode * 1000 - (now() - last);
       if (wait > 0) return fail(cb, `Modo lento: espere ${Math.ceil(wait / 1000)}s para mandar outra mensagem.`);
       slowLast.set(k, now());
     }
-    const msg = { id: newId(), cid: d.cid, authorId: uid, content, image, ts: now(), edited: null, reactions: {}, replyTo: str(d.replyTo, 20) || null };
+    const msg = { id: newId(), cid: d.cid, authorId: uid, content: sticker || gif ? '' : content, image: sticker || gif ? null : image, ts: now(), edited: null, reactions: {}, replyTo: str(d.replyTo, 20) || null };
+    if (sticker) msg.sticker = sticker; if (gif) msg.gif = gif;
     const list = db.messages[d.cid] || (db.messages[d.cid] = []);
     list.push(msg); if (list.length > 3000) list.splice(0, list.length - 3000);
     save(); toUsers(info.members, 'message:new', msg);
@@ -650,6 +716,85 @@ function onConnection(socket) {
   on('typing', d => { const info = canAccess(uid, d.cid); if (info) toUsers(info.members.filter(m => m !== uid), 'typing', { cid: d.cid, uid }); });
 
   /* voz, vídeo e tela */
+  /* Central de Áudio: sons do grupo, tocados para todo mundo que está na mesma call */
+  const isAudioUrl = u => store.isUpload(u) && /\.(mp3|wav|ogg|webm|m4a)$/i.test(u);
+  const cleanEmoji = e => str(e, 16).trim() || '🔊';
+  on('sound:add', (d, cb) => {
+    if (!store.mediaReady) return fail(cb, 'A Central de Áudio e as figurinhas ainda estão sendo ativadas neste servidor. Tente mais tarde.');
+    const g = withPerm(d.gid, 'manageMedia'); if (!g) return fail(cb, 'Você não pode gerenciar a Central de Áudio deste grupo.');
+    if (g.sounds.length >= SOUND_MAX) return fail(cb, `Limite de ${SOUND_MAX} sons por grupo. Apague algum para adicionar outro.`);
+    const name = str(d.name, 32).trim(); if (!name) return fail(cb, 'Dê um nome ao som.');
+    if (!isAudioUrl(d.url)) return fail(cb, 'Envie o arquivo de áudio primeiro.');
+    const duration = Math.round(+d.duration || 0); if (!(duration > 0 && duration <= SOUND_MS)) return fail(cb, `O som precisa ter até ${SOUND_MS / 1000} segundos.`);
+    const s = { id: newId(), name, emoji: cleanEmoji(d.emoji), category: str(d.category, 24).trim() || 'Geral', url: d.url, duration, volume: clampN(d.volume, 10, 100, 100), createdBy: uid, createdAt: now() };
+    g.sounds.push(s); save(); pushGroup(g); ok(cb, { sound: s });
+  });
+  on('sound:edit', (d, cb) => {
+    const g = withPerm(d.gid, 'manageMedia'); const s = g && g.sounds.find(x => x.id === d.id); if (!s) return fail(cb, 'Som não encontrado.');
+    if ('name' in d && str(d.name, 32).trim()) s.name = str(d.name, 32).trim();
+    if ('emoji' in d) s.emoji = cleanEmoji(d.emoji);
+    if ('category' in d) s.category = str(d.category, 24).trim() || 'Geral';
+    if ('volume' in d) s.volume = clampN(d.volume, 10, 100, s.volume);
+    save(); pushGroup(g); ok(cb);
+  });
+  on('sound:delete', (d, cb) => {
+    const g = withPerm(d.gid, 'manageMedia'); if (!g || !g.sounds.some(x => x.id === d.id)) return fail(cb, 'Som não encontrado.');
+    g.sounds = g.sounds.filter(x => x.id !== d.id); save(); pushGroup(g); ok(cb);
+  });
+  // anti-spam: 1 som a cada 2,5 s por pessoa e no máximo 3 tocando ao mesmo tempo na sala
+  const soundLast = sbLast;
+  on('sound:play', (d, cb) => {
+    const roomId = socket.data.voice; if (!roomId) return fail(cb, 'Entre numa call para tocar sons.');
+    const info = channelInfo(roomId); if (!info) return fail(cb, 'Sala inválida.');
+    const pool = info.kind === 'group' ? [info.group] : groupsOf(uid); // na call direta vale som de qualquer grupo seu
+    let snd = null; for (const g of pool) { snd = g.sounds.find(x => x.id === d.id); if (snd) break; }
+    if (!snd) return fail(cb, 'Som não encontrado.');
+    const t = now();
+    if (t - (soundLast.get(uid) || 0) < 2500) return fail(cb, 'Calma! Espere um pouquinho para tocar outro som.');
+    const playing = (sbRoom.get(roomId) || []).filter(x => x > t);
+    if (playing.length >= 3) return fail(cb, 'Já tem sons demais tocando. Espere acabar.');
+    soundLast.set(uid, t); sbRoom.set(roomId, [...playing, t + snd.duration]);
+    const ev = { roomId, uid, id: snd.id, url: snd.url, name: snd.name, emoji: snd.emoji, volume: snd.volume, duration: snd.duration };
+    for (const sid of (voice.get(roomId) || new Map()).keys()) sockets.get(sid)?.emit('sound:played', ev);
+    ok(cb);
+  });
+  on('sound:stop', (_, cb) => {
+    const roomId = socket.data.voice; if (!roomId) return fail(cb, 'Fora da call.');
+    for (const sid of (voice.get(roomId) || new Map()).keys()) sockets.get(sid)?.emit('sound:stopped', { roomId, uid });
+    ok(cb);
+  });
+  /* figurinhas do grupo */
+  on('sticker:add', (d, cb) => {
+    if (!store.mediaReady) return fail(cb, 'A Central de Áudio e as figurinhas ainda estão sendo ativadas neste servidor. Tente mais tarde.');
+    const g = withPerm(d.gid, 'manageMedia'); if (!g) return fail(cb, 'Você não pode gerenciar as figurinhas deste grupo.');
+    if (g.stickers.length >= STICKER_MAX) return fail(cb, `Limite de ${STICKER_MAX} figurinhas por grupo.`);
+    if (!store.isUpload(d.url) || !/\.(png|webp|gif)$/i.test(d.url)) return fail(cb, 'Envie uma imagem PNG, WEBP ou GIF.');
+    const st = { id: newId(), name: str(d.name, 32).trim() || 'figurinha', pack: str(d.pack, 24).trim() || 'Geral', url: d.url, createdBy: uid, createdAt: now() };
+    g.stickers.push(st); save(); pushGroup(g); ok(cb, { sticker: st });
+  });
+  on('sticker:edit', (d, cb) => {
+    const g = withPerm(d.gid, 'manageMedia'); const st = g && g.stickers.find(x => x.id === d.id); if (!st) return fail(cb, 'Figurinha não encontrada.');
+    if ('name' in d && str(d.name, 32).trim()) st.name = str(d.name, 32).trim();
+    if ('pack' in d) st.pack = str(d.pack, 24).trim() || 'Geral';
+    save(); pushGroup(g); ok(cb);
+  });
+  on('sticker:delete', (d, cb) => {
+    const g = withPerm(d.gid, 'manageMedia'); if (!g || !g.stickers.some(x => x.id === d.id)) return fail(cb, 'Figurinha não encontrada.');
+    g.stickers = g.stickers.filter(x => x.id !== d.id); save(); pushGroup(g); ok(cb);
+  });
+  /* favoritos e recentes (figurinhas e GIFs), guardados na conta: aparecem em qualquer aparelho */
+  on('favs:update', (d, cb) => {
+    const u = me(); const f = { stickers: [], gifs: [], recentStickers: [], recentGifs: [], ...(u.favs || {}) };
+    const ids = (a, n) => (Array.isArray(a) ? a : []).filter(x => typeof x === 'string' && x.length <= 20).slice(0, n);
+    const gifs = (a, n) => (Array.isArray(a) ? a : []).filter(x => x && GIF_RE.test(str(x.url, 500))).slice(0, n)
+      .map(x => ({ url: x.url, preview: GIF_RE.test(str(x.preview, 500)) ? x.preview : x.url, w: Math.min(2000, x.w | 0), h: Math.min(2000, x.h | 0), title: str(x.title, 100) }));
+    if ('stickers' in d) f.stickers = ids(d.stickers, 60);
+    if ('recentStickers' in d) f.recentStickers = ids(d.recentStickers, 24);
+    if ('gifs' in d) f.gifs = gifs(d.gifs, 60);
+    if ('recentGifs' in d) f.recentGifs = gifs(d.recentGifs, 24);
+    u.favs = f; save(); toUser(uid, 'me:update', selfUser(u)); ok(cb);
+  });
+
   on('voice:join', (d, cb) => {
     const info = canAccess(uid, d.roomId);
     if (!info || (info.kind === 'group' && info.channel.type !== 'voice')) return fail(cb, 'Sem acesso a essa sala.');

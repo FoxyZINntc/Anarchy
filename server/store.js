@@ -28,7 +28,12 @@ const TABLES = [
   { name: 'conversas', key: ['id'], rows: db => Object.values(db.dms).map(d => ({ id: d.id, members: d.members, created_at: d.createdAt || null })) },
   { name: 'mensagens', key: ['id'], rows: db => Object.values(db.messages).flat().map(m => ({
     id: m.id, cid: m.cid, author_id: m.authorId, content: m.content || '', image: m.image || null, ts: m.ts, edited: m.edited || null,
-    reply_to: m.replyTo || null, reactions: m.reactions || {}, extra: pack(m, MSG_X) })) }
+    reply_to: m.replyTo || null, reactions: m.reactions || {}, extra: pack(m, MSG_X) })) },
+  // Central de Áudio e figurinhas: só os dados ficam na tabela; o arquivo fica no Storage (buckets "sons" e "uploads")
+  { name: 'sons', key: ['id'], optional: true, rows: db => Object.values(db.groups).flatMap(g => (g.sounds || []).map(s => ({
+    id: s.id, group_id: g.id, name: s.name, emoji: s.emoji || null, category: s.category || 'Geral', url: s.url, duration_ms: s.duration | 0, volume: s.volume ?? 100, created_by: s.createdBy || null, created_at: s.createdAt || null }))) },
+  { name: 'figurinhas', key: ['id'], optional: true, rows: db => Object.values(db.groups).flatMap(g => (g.stickers || []).map(s => ({
+    id: s.id, group_id: g.id, name: s.name, pack: s.pack || 'Geral', url: s.url, created_by: s.createdBy || null, created_at: s.createdAt || null }))) }
 ];
 const keyOf = (t, row) => t.key.map(k => row[k]).join('\u0001');
 
@@ -42,6 +47,8 @@ function build(data) {
   const mems = {};
   for (const m of data.grupo_membros) (mems[m.group_id] = mems[m.group_id] || []).push(m.user_id);
   for (const g of data.grupos) db.groups[g.id] = { id: g.id, name: g.name, icon: g.icon, color: g.color, ownerId: g.owner_id, invite: g.invite, createdAt: num(g.created_at), channels: chans[g.id] || [], members: mems[g.id] || [], ...unpack(g.extra, GROUP_X) };
+  for (const s of (data.sons || []).sort((a, b) => num(a.created_at) - num(b.created_at))) { const g = db.groups[s.group_id]; if (g) (g.sounds = g.sounds || []).push({ id: s.id, name: s.name, emoji: s.emoji, category: s.category || 'Geral', url: s.url, duration: s.duration_ms | 0, volume: s.volume ?? 100, createdBy: s.created_by, createdAt: num(s.created_at) }); }
+  for (const s of (data.figurinhas || []).sort((a, b) => num(a.created_at) - num(b.created_at))) { const g = db.groups[s.group_id]; if (g) (g.stickers = g.stickers || []).push({ id: s.id, name: s.name, pack: s.pack || 'Geral', url: s.url, createdBy: s.created_by, createdAt: num(s.created_at) }); }
   for (const f of data.amizades) (db.friends[f.user_id] = db.friends[f.user_id] || []).push(f.friend_id);
   for (const r of data.pedidos_amizade) db.requests.push({ from: r.from_id, to: r.to_id, ts: num(r.ts) });
   for (const d of data.conversas) db.dms[d.id] = { id: d.id, members: d.members, createdAt: num(d.created_at) };
@@ -49,6 +56,26 @@ function build(data) {
   return db;
 }
 const num = v => (v === null || v === undefined ? null : Number(v));
+
+/* ---------- GIFs (GIPHY ou Tenor) ----------
+   Com o Supabase por token, a busca passa pela função discordia-db (a chave fica nos segredos do Supabase).
+   Nos outros modos (teste local), usa GIPHY_API_KEY ou TENOR_API_KEY do .env do servidor. */
+async function directGifs({ q, pos, limit }) {
+  const giphy = process.env.GIPHY_API_KEY, tenor = process.env.TENOR_API_KEY;
+  if (giphy) {
+    const u = new URL('https://api.giphy.com/v1/gifs/' + (q ? 'search' : 'trending'));
+    u.search = new URLSearchParams({ api_key: giphy, limit: String(limit), offset: String(pos), rating: 'pg-13', ...(q ? { q, lang: 'pt' } : {}) });
+    const j = await (await fetch(u)).json();
+    return { configured: true, provider: 'giphy', next: pos + limit, items: (j.data || []).map(x => ({ id: x.id, title: x.title || '', url: x.images?.fixed_height?.url, preview: x.images?.fixed_height_small?.url || x.images?.fixed_height?.url, w: +x.images?.fixed_height?.width || 0, h: +x.images?.fixed_height?.height || 0 })).filter(x => x.url) };
+  }
+  if (tenor) {
+    const u = new URL('https://tenor.googleapis.com/v2/' + (q ? 'search' : 'featured'));
+    u.search = new URLSearchParams({ key: tenor, client_key: 'discordia', limit: String(limit), media_filter: 'gif,tinygif', contentfilter: 'medium', locale: 'pt_BR', ...(q ? { q } : {}), ...(pos ? { pos: String(pos) } : {}) });
+    const j = await (await fetch(u)).json();
+    return { configured: true, provider: 'tenor', next: +j.next || pos + limit, items: (j.results || []).map(x => ({ id: x.id, title: x.content_description || '', url: x.media_formats?.gif?.url, preview: x.media_formats?.tinygif?.url || x.media_formats?.gif?.url, w: x.media_formats?.gif?.dims?.[0] || 0, h: x.media_formats?.gif?.dims?.[1] || 0 })).filter(x => x.url) };
+  }
+  return { configured: false, items: [] };
+}
 
 /* ---------- arquivo JSON local ---------- */
 function jsonStore(dataDir, log) {
@@ -63,7 +90,8 @@ function jsonStore(dataDir, log) {
     saveNow, flush: async () => saveNow(),
     uploadsDir: path.join(dataDir, 'uploads'),
     isUpload: u => typeof u === 'string' && /^\/uploads\/[\w-]+\.\w+$/.test(u),
-    upload: async (buf, name) => { fs.writeFileSync(path.join(dataDir, 'uploads', name), buf); return '/uploads/' + name; }
+    upload: async (buf, name) => { fs.writeFileSync(path.join(dataDir, 'uploads', name), buf); return '/uploads/' + name; },
+    gifs: directGifs, mediaReady: true
   };
 }
 
@@ -81,9 +109,11 @@ function sdkClient(url, key) {
     deleteIn: async (t, col, values) => chk(await sb.from(t).delete().in(col, values), t),
     deleteMatch: async (t, match) => chk(await sb.from(t).delete().match(match), t),
     upload: async (name, buf, type) => {
-      chk(await sb.storage.from('uploads').upload(name, buf, { contentType: type, upsert: false, cacheControl: '2592000' }));
-      return sb.storage.from('uploads').getPublicUrl(name).data.publicUrl;
-    }
+      const bucket = /^audio\//.test(type) ? 'sons' : 'uploads'; // áudios da Central de Áudio ficam no bucket "sons"
+      chk(await sb.storage.from(bucket).upload(name, buf, { contentType: type, upsert: false, cacheControl: '2592000' }));
+      return sb.storage.from(bucket).getPublicUrl(name).data.publicUrl;
+    },
+    gifs: directGifs
   };
 }
 function edgeClient(url, token) {
@@ -107,7 +137,8 @@ function edgeClient(url, token) {
     upsert: (t, rows) => call({ op: 'upsert', table: t, rows }),
     deleteIn: (t, col, values) => call({ op: 'deleteIn', table: t, values }),
     deleteMatch: (t, match) => call({ op: 'deleteMatch', table: t, match }),
-    upload: async (name, buf, type) => (await call({ op: 'upload', name, type, data: buf.toString('base64') })).url
+    upload: async (name, buf, type) => (await call({ op: 'upload', name, type, data: buf.toString('base64') })).url,
+    gifs: q => call({ op: 'gifs', ...q })
   };
 }
 
@@ -124,6 +155,8 @@ async function supabaseStore({ url, key, token, dataDir, log }) {
       let rows;
       try { rows = await client.select(t.name, from, from + 999); }
       catch (error) {
+        // tabelas novas (sons, figurinhas): se o Supabase ainda não tem, o servidor sobe sem elas em vez de cair
+        if (t.optional) { t.off = true; rows = []; log('Supabase: tabela "' + t.name + '" indisponível (' + error.message + '). Central de Áudio e figurinhas desligadas até atualizar o Supabase.'); break; }
         if (/does not exist|Could not find the table/i.test(error.message)) throw new Error(`A tabela "${t.name}" não existe no Supabase. Rode o arquivo supabase/schema.sql no SQL Editor do Supabase.`);
         throw new Error('Supabase: ' + error.message);
       }
@@ -146,7 +179,8 @@ async function supabaseStore({ url, key, token, dataDir, log }) {
 
   // fotografia do que já está no Supabase, para mandar só o que mudou
   const synced = new Map();
-  for (const t of TABLES) synced.set(t.name, new Map((imported ? [] : t.rows(db)).map(r => [keyOf(t, r), JSON.stringify(r)])));
+  const ACTIVE = TABLES.filter(t => !t.off);
+  for (const t of ACTIVE) synced.set(t.name, new Map((imported ? [] : t.rows(db)).map(r => [keyOf(t, r), JSON.stringify(r)])));
 
   let running = false, again = false, timer = null, retry = null;
   async function sync() {
@@ -155,14 +189,14 @@ async function supabaseStore({ url, key, token, dataDir, log }) {
     let failed = false;
     const current = new Map();
     try {
-      for (const t of TABLES) {
+      for (const t of ACTIVE) {
         const prev = synced.get(t.name), now = new Map(), changed = [];
         for (const r of t.rows(db)) { const k = keyOf(t, r), j = JSON.stringify(r); now.set(k, j); if (prev.get(k) !== j) changed.push(r); }
         current.set(t.name, now);
         for (let i = 0; i < changed.length; i += 500) await client.upsert(t.name, changed.slice(i, i + 500), t.key);
         for (const r of changed) prev.set(keyOf(t, r), JSON.stringify(r));
       }
-      for (const t of [...TABLES].reverse()) {
+      for (const t of [...ACTIVE].reverse()) {
         const prev = synced.get(t.name), now = current.get(t.name);
         const gone = [...prev.keys()].filter(k => !now.has(k));
         if (!gone.length) continue;
@@ -183,13 +217,16 @@ async function supabaseStore({ url, key, token, dataDir, log }) {
   if (imported) await sync();
 
   const prefix = url.replace(/\/$/, '') + '/storage/v1/object/public/' + BUCKET + '/';
+  const sonsPrefix = url.replace(/\/$/, '') + '/storage/v1/object/public/sons/';
   return {
     kind: 'supabase', label: 'Supabase (' + new URL(url).host + ')' + (token ? '' : ' com chave service_role'), db,
     save: () => { clearTimeout(timer); timer = setTimeout(sync, 250); },
     saveNow: () => { clearTimeout(timer); sync(); },
     flush: async () => { clearTimeout(timer); await sync(); while (running) await new Promise(r => setTimeout(r, 50)); },
     uploadsDir: null,
-    isUpload: u => typeof u === 'string' && (u.startsWith(prefix) || /^\/uploads\/[\w-]+\.\w+$/.test(u)),
+    isUpload: u => typeof u === 'string' && (u.startsWith(prefix) || u.startsWith(sonsPrefix) || /^\/uploads\/[\w-]+\.\w+$/.test(u)),
+    gifs: client.gifs,
+    mediaReady: !TABLES.some(t => t.off),
     // mesma ordem do arquivo local e do server.js: (imagem, nome, tipo)
     upload: (buf, name, type) => client.upload(name, buf, type)
   };

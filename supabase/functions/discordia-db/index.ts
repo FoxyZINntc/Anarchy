@@ -11,7 +11,27 @@ const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
 const TABLES: Record<string, string[]> = {
   usuarios: ["id"], sessoes: ["token"], grupos: ["id"], canais: ["id"], grupo_membros: ["group_id", "user_id"],
   amizades: ["user_id", "friend_id"], pedidos_amizade: ["from_id", "to_id"], conversas: ["id"], mensagens: ["id"],
+  sons: ["id"], figurinhas: ["id"],
 };
+const AUDIO: Record<string, string> = { mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", webm: "audio/webm", m4a: "audio/mp4" };
+
+// GIFs: a chave fica só aqui (Supabase > Edge Functions > Secrets: GIPHY_API_KEY ou TENOR_API_KEY)
+async function gifs(q: string, pos: number, limit: number) {
+  const giphy = Deno.env.get("GIPHY_API_KEY"), tenor = Deno.env.get("TENOR_API_KEY");
+  if (giphy) {
+    const u = new URL("https://api.giphy.com/v1/gifs/" + (q ? "search" : "trending"));
+    u.search = new URLSearchParams({ api_key: giphy, limit: String(limit), offset: String(pos), rating: "pg-13", ...(q ? { q, lang: "pt" } : {}) }).toString();
+    const j: any = await (await fetch(u)).json();
+    return { configured: true, provider: "giphy", next: pos + limit, items: (j.data || []).map((x: any) => ({ id: x.id, title: x.title || "", url: x.images?.fixed_height?.url, preview: x.images?.fixed_height_small?.url || x.images?.fixed_height?.url, w: +x.images?.fixed_height?.width || 0, h: +x.images?.fixed_height?.height || 0 })).filter((x: any) => x.url) };
+  }
+  if (tenor) {
+    const u = new URL("https://tenor.googleapis.com/v2/" + (q ? "search" : "featured"));
+    u.search = new URLSearchParams({ key: tenor, client_key: "discordia", limit: String(limit), media_filter: "gif,tinygif", contentfilter: "medium", locale: "pt_BR", ...(q ? { q } : {}), ...(pos ? { pos: String(pos) } : {}) }).toString();
+    const j: any = await (await fetch(u)).json();
+    return { configured: true, provider: "tenor", next: +j.next || pos + limit, items: (j.results || []).map((x: any) => ({ id: x.id, title: x.content_description || "", url: x.media_formats?.gif?.url, preview: x.media_formats?.tinygif?.url || x.media_formats?.gif?.url, w: x.media_formats?.gif?.dims?.[0] || 0, h: x.media_formats?.gif?.dims?.[1] || 0 })).filter((x: any) => x.url) };
+  }
+  return { configured: false, items: [] };
+}
 const BUCKET = "uploads";
 const okTokens = new Map<string, number>(); // cache de tokens válidos (5 min)
 
@@ -74,7 +94,21 @@ Deno.serve(async (req) => {
         if (error) throw error;
         return json({ ok: true });
       }
+      case "gifs": {
+        const q = String(b.q || "").slice(0, 60), pos = Math.max(0, Math.min(500, b.pos | 0)), limit = Math.max(1, Math.min(48, b.limit | 0 || 24));
+        return json(await gifs(q, pos, limit));
+      }
       case "upload": {
+        // áudio da Central de Áudio: bucket "sons", até 1 MB
+        const am = /^[\w-]+\.(mp3|wav|ogg|webm|m4a)$/.exec(b.name || "");
+        if (am) {
+          if (b.type !== AUDIO[am[1]]) throw new Error("tipo de áudio inválido");
+          const bytes = Uint8Array.from(atob(b.data || ""), (c) => c.charCodeAt(0));
+          if (bytes.length > 1024 * 1024) throw new Error("áudio maior que 1 MB");
+          const { error } = await sb.storage.from("sons").upload(b.name, bytes, { contentType: b.type, upsert: false, cacheControl: "2592000" });
+          if (error) throw error;
+          return json({ url: sb.storage.from("sons").getPublicUrl(b.name).data.publicUrl });
+        }
         if (!/^[\w-]+\.(png|jpg|gif|webp)$/.test(b.name || "")) throw new Error("nome de arquivo inválido");
         if (!/^image\/(png|jpeg|gif|webp)$/.test(b.type || "")) throw new Error("tipo inválido");
         const bytes = Uint8Array.from(atob(b.data || ""), (c) => c.charCodeAt(0));
