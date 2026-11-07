@@ -87,6 +87,9 @@ Deno.serve(async (req) => {
         return json({ error: "Operação desconhecida." }, 400);
     }
   } catch (e) {
-    return json({ error: (e as Error).message || String(e) }, 400);
+    const msg = (e as Error).message || String(e);
+    // fica no registro da função (Supabase > Edge Functions > Logs) para descobrir o motivo de cada erro
+    console.error(`discordia-db ${b && b.op} ${b && (b.table || b.name || "")}: ${msg}`);
+    return json({ error: msg }, 400);
   }
 });
