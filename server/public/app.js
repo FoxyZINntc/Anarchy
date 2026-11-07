@@ -87,7 +87,7 @@ const BGS = {
   grade: ['Grade', t => `linear-gradient(${t.line}88 1px, transparent 1px) 0 0 / 28px 28px, linear-gradient(90deg, ${t.line}88 1px, transparent 1px) 0 0 / 28px 28px, ${t.rail}`],
   custom: ['Minha imagem', null]
 };
-const DEFAULT_PREFS = { theme: 'meia-noite', accent: null, font: 'inter', fontSize: 15, density: 'conf', radius: null, layout: 'padrao', avatars: true, clock24: true, bg: 'none', bgImage: null, glass: 82, anim: true, sounds: true, volume: 60, desktop: false, mentionsOnly: false, micId: '', spkId: '', camId: '', ns: true, ec: true, agc: true, ptt: false, pttKey: 'KeyV', quality: '1080p30', showMembers: true, joinSounds: true };
+const DEFAULT_PREFS = { theme: 'meia-noite', accent: null, font: 'inter', fontSize: 15, density: 'conf', radius: null, layout: 'padrao', avatars: true, clock24: true, bg: 'none', bgImage: null, glass: 82, anim: true, sounds: true, volume: 60, desktop: false, mentionsOnly: false, micId: '', spkId: '', camId: '', ns: true, ec: true, agc: true, ptt: false, pttKey: 'KeyV', quality: '1080p30', showMembers: true, joinSounds: true, vol: {}, svol: {}, umute: {} };
 let prefs = { ...DEFAULT_PREFS };
 try { const st = JSON.parse(localStorage.getItem('discordia:prefs') || '{}'); prefs = { ...prefs, ...st }; if (window.discordiaDesktop && !('desktop' in st)) prefs.desktop = true; } catch {}
 const DESK = window.discordiaDesktop || null;
@@ -619,7 +619,7 @@ function renderGroupSide(body) {
       ${S.mentions[c.id] ? `<span class="badge" style="border:0">${S.mentions[c.id]}</span>` : ''}
       ${own ? `<span class="row-act"><span class="icon-btn" data-act="editChannel" data-id="${c.id}" data-tip="Editar canal">${ic('gear')}</span></span>` : ''}
     </button>
-    ${peers.length ? `<div class="voice-people">${peers.map(p => `<div class="voice-person">${av(p.uid, 24, false, '').replace('class="av', `data-speak="${p.sid}" class="av`)}<span class="lbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nameOf(p.uid))}</span>${p.screen ? '<span class="live">AO VIVO</span>' : ''}${p.cam ? ic('cam') : ''}${p.deafened ? ic('headOff') : p.muted ? ic('micOff') : ''}</div>`).join('')}</div>` : ''}`;
+    ${peers.length ? `<div class="voice-people">${peers.map(p => `<div class="voice-person" data-act="voiceUser" data-vuid="${p.uid}" ${p.uid !== S.me.id ? 'data-tip="Clique para mudar o volume"' : ''}>${av(p.uid, 24, false, '').replace('class="av', `data-speak="${p.sid}" class="av`)}<span class="lbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nameOf(p.uid))}</span>${volTag(p.uid)}${p.screen ? '<span class="live">AO VIVO</span>' : ''}${p.cam ? ic('cam') : ''}${p.deafened ? ic('headOff') : p.muted ? ic('micOff') : ''}</div>`).join('')}</div>` : ''}`;
   };
   const text = g.channels.filter(c => c.type === 'text'), vc = g.channels.filter(c => c.type === 'voice');
   const ban = g.banner ? (isImg(g.banner) ? `background-image:url('${esc(g.banner)}')` : `background:${esc(g.banner)}`) : '';
@@ -1549,7 +1549,7 @@ function cleanupVoice() {
   V.peers.clear();
   [V.mic, V.screen, V.cam].forEach(s => s && s.getTracks().forEach(t => t.stop()));
   V.mic = V.screen = V.cam = null; V.room = null; V.calling = false; S.focusTile = null;
-  V.levels.clear(); V.videoCache.clear(); $('#audioSink').innerHTML = '';
+  V.levels.clear(); V.videoCache.clear(); dropAudio(() => true); $('#audioSink').innerHTML = '';
   ring(false); render();
 }
 function leaveVoice() {
@@ -1586,7 +1586,7 @@ function getPeer(sid) {
     const st = streams[0] || new MediaStream([track]);
     p.streams.set(st.id, st);
     if (track.kind === 'audio') attachAudio(sid, st);
-    st.onremovetrack = () => { if (!st.getTracks().length) { p.streams.delete(st.id); $(`audio[data-s="${st.id}"]`)?.remove(); } renderStageSoon(); };
+    st.onremovetrack = () => { if (!st.getTracks().length) { p.streams.delete(st.id); dropAudio((a, id) => id === st.id); } renderStageSoon(); };
     track.onunmute = renderStageSoon;
     renderStageSoon();
   };
@@ -1607,16 +1607,69 @@ async function onSignal({ from, data }) {
     }
   } catch (e) { console.warn('sinal', e); }
 }
+/* ---- volume de cada pessoa (salvo neste aparelho) ----
+   O som de cada pessoa passa por um "ganho" próprio (0 a 200%). A voz e a tela compartilhada
+   de uma pessoa chegam em fluxos separados, então cada uma tem seu volume. */
+const AUD = new Map(); // id do fluxo -> { sid, el, gain }
+const peerInfo = sid => (S.voice[V.room] || []).find(p => p.sid === sid);
+const volOf = (uid, kind) => { const v = ((kind === 'screen' ? prefs.svol : prefs.vol) || {})[uid]; return typeof v === 'number' ? clamp(v, 0, 200) : 100; };
+function applyVolumes() {
+  AUD.forEach((a, id) => {
+    const p = peerInfo(a.sid), uid = p && p.uid;
+    const kind = p && p.screen === id ? 'screen' : 'voice';
+    const off = V.deaf || (uid && kind === 'voice' && prefs.umute && prefs.umute[uid]);
+    const v = off ? 0 : (uid ? volOf(uid, kind) : 100) / 100;
+    if (a.gain) a.gain.gain.value = v; else { a.el.muted = v === 0; a.el.volume = Math.min(1, v); }
+  });
+}
 function attachAudio(sid, stream) {
-  if ($(`audio[data-s="${stream.id}"]`)) return;
-  const a = document.createElement('audio'); a.autoplay = true; a.dataset.s = stream.id; a.dataset.sid = sid; a.srcObject = stream; a.muted = V.deaf;
-  if (prefs.spkId && a.setSinkId) a.setSinkId(prefs.spkId).catch(() => {});
+  if (AUD.has(stream.id)) return;
+  const a = document.createElement('audio'); a.autoplay = true; a.dataset.s = stream.id; a.dataset.sid = sid; a.srcObject = stream;
   $('#audioSink').appendChild(a);
+  const entry = { sid, el: a, gain: null };
+  // o elemento <audio> fica tocando mudo (o Chrome precisa disso para soltar o som da call) e o som sai pelo ganho
+  const c = audioCtx();
+  if (c && c.createGain) {
+    try { const src = c.createMediaStreamSource(stream), g = c.createGain(); src.connect(g); g.connect(c.destination); entry.gain = g; entry.src = src; a.muted = true; applySink(); }
+    catch { entry.gain = null; }
+  }
+  if (!entry.gain && prefs.spkId && a.setSinkId) a.setSinkId(prefs.spkId).catch(() => {});
+  AUD.set(stream.id, entry);
+  applyVolumes();
   a.play().catch(() => toast('Clique em qualquer lugar para liberar o áudio da call.'));
   watchLevel(sid, stream);
 }
-function applySink() { $$('#audioSink audio').forEach(a => a.setSinkId && a.setSinkId(prefs.spkId || '').catch(() => {})); }
-document.addEventListener('click', () => $$('#audioSink audio').forEach(a => a.paused && a.play().catch(() => {})));
+function dropAudio(filter) {
+  AUD.forEach((a, id) => { if (filter(a, id)) { try { a.src && a.src.disconnect(); a.gain && a.gain.disconnect(); } catch {} a.el.remove(); AUD.delete(id); } });
+}
+function applySink() {
+  $$('#audioSink audio').forEach(a => a.setSinkId && a.setSinkId(prefs.spkId || '').catch(() => {}));
+  if (actx && actx.setSinkId && actx.__sink !== (prefs.spkId || '')) { actx.__sink = prefs.spkId || ''; actx.setSinkId(prefs.spkId || '').catch(() => {}); }
+}
+document.addEventListener('click', () => { audioCtx(); $$('#audioSink audio').forEach(a => a.paused && a.play().catch(() => {})); });
+window.addEventListener('discordia:screen-no-audio', () => toast('Compartilhando sem o som do PC: o Windows não deixou capturar o áudio.'));
+
+function voiceMenu(uid, anchor) {
+  if (uid === S.me.id) { openSettings('voz'); return; }
+  const row = (id, label, kind) => `<label class="vm-l" for="${id}">${label}<output id="${id}O">${volOf(uid, kind)}%</output></label><input type="range" id="${id}" min="0" max="200" step="5" value="${volOf(uid, kind)}">`;
+  const p = pop(`<div class="vm-h">${av(uid, 32, false)}<b>${esc(nameOf(uid))}</b></div>
+    ${row('vmV', 'Volume da voz', 'voice')}
+    ${row('vmS', 'Volume da tela compartilhada', 'screen')}
+    <label class="vm-c"><input type="checkbox" id="vmM" ${prefs.umute && prefs.umute[uid] ? 'checked' : ''}>Silenciar para mim</label>
+    <p class="muted small" style="margin:0">Só muda o que você escuta. Fica salvo neste aparelho.</p>
+    <div class="vm-f"><button class="btn sm ghost" id="vmR">Voltar ao normal</button><button class="btn sm" data-act="profile" data-id="${uid}">Ver perfil</button></div>`, anchor, 'vmenu', anchor.closest('#side') ? 'right' : 'above');
+  const set = (key, v) => { prefs[key] = { ...(prefs[key] || {}) }; if (v === null) delete prefs[key][uid]; else prefs[key][uid] = v; savePrefs(); applyVolumes(); };
+  const bind = (id, key) => { const r = $('#' + id, p); r.oninput = () => { $('#' + id + 'O', p).textContent = r.value + '%'; set(key, +r.value === 100 ? null : +r.value); }; r.onchange = () => renderSide(); };
+  bind('vmV', 'vol'); bind('vmS', 'svol');
+  $('#vmM', p).onchange = e => { set('umute', e.target.checked ? true : null); renderSide(); renderStageSlot(); };
+  $('#vmR', p).onclick = () => { ['vol', 'svol', 'umute'].forEach(k => set(k, null)); closePops(); renderSide(); renderStageSlot(); };
+}
+document.addEventListener('contextmenu', e => {
+  const t = e.target.closest('[data-vuid]'); if (!t) return;
+  e.preventDefault(); voiceMenu(t.dataset.vuid, t);
+});
+// marquinha ao lado do nome quando você mudou o volume da pessoa
+const volTag = uid => (prefs.umute && prefs.umute[uid]) ? '<span class="vol-tag" title="Silenciado para você">🔇</span>' : (prefs.vol && prefs.vol[uid] !== undefined) ? `<span class="vol-tag" title="Volume para você">${prefs.vol[uid]}%</span>` : '';
 
 function onVoiceRoom({ roomId, peers }) {
   const before = (S.voice[roomId] || []).map(p => p.sid);
@@ -1624,7 +1677,8 @@ function onVoiceRoom({ roomId, peers }) {
   if (roomId === V.room) {
     const now = peers.map(p => p.sid);
     now.forEach(sid => { if (sid !== S.mySid) getPeer(sid); });
-    V.peers.forEach((p, sid) => { if (!now.includes(sid)) { try { p.pc.close(); } catch {} V.peers.delete(sid); $$(`audio[data-sid="${sid}"]`).forEach(a => a.remove()); V.levels.delete(sid); } });
+    V.peers.forEach((p, sid) => { if (!now.includes(sid)) { try { p.pc.close(); } catch {} V.peers.delete(sid); dropAudio(a => a.sid === sid); V.levels.delete(sid); } });
+    applyVolumes(); // quem começou ou parou de compartilhar a tela muda qual volume vale
     const joined = now.filter(s => !before.includes(s) && s !== S.mySid), left = before.filter(s => !now.includes(s) && s !== S.mySid);
     if (joined.length) { SOUNDS.join(); if (V.calling) { V.calling = false; ring(false); } }
     if (left.length) SOUNDS.leave();
@@ -1638,11 +1692,11 @@ function renderStageSoon() { if (stageRq) return; stageRq = requestAnimationFram
 function toggleMute() {
   if (!V.mic && V.room) return toast('Sem microfone nesta call.', true);
   if (V.deaf) { V.deaf = false; V.muted = false; } else V.muted = !V.muted;
-  $$('#audioSink audio').forEach(a => a.muted = V.deaf);
+  applyVolumes();
   (V.muted ? SOUNDS.mute : SOUNDS.unmute)(); applyMicGate(); sendState(); render();
 }
 function toggleDeaf() {
-  V.deaf = !V.deaf; $$('#audioSink audio').forEach(a => a.muted = V.deaf);
+  V.deaf = !V.deaf; applyVolumes();
   (V.deaf ? SOUNDS.mute : SOUNDS.unmute)(); applyMicGate(); sendState(); render();
 }
 async function toggleScreen() {
@@ -1737,8 +1791,9 @@ function renderStageSlot() {
     const camStream = me ? V.cam : p.cam && peer?.streams.get(p.cam);
     const scrStream = me ? V.screen : p.screen && peer?.streams.get(p.screen);
     const flags = `${p.deafened ? ic('headOff') : p.muted ? ic('micOff') : ''}`;
-    tiles.push({ key: 'user:' + p.sid, html: `<div class="tile ${camStream ? 'cam' : ''}" data-act="focus" data-key="user:${p.sid}" data-speak="${p.sid}">${camStream ? `<div class="vslot" data-v="cam:${p.sid}" style="position:absolute;inset:0"></div>` : av(p.uid, 80, false)}<span class="nm">${flags}${esc(nameOf(p.uid))}${me ? ' (você)' : ''}</span></div>`, stream: camStream, vkey: 'cam:' + p.sid, mirror: me });
-    if (p.screen || (me && V.screen)) tiles.push({ key: 'screen:' + p.sid, html: `<div class="tile" data-act="focus" data-key="screen:${p.sid}">${scrStream ? `<div class="vslot" data-v="screen:${p.sid}" style="position:absolute;inset:0"></div>` : '<span class="muted">Conectando à tela...</span>'}<span class="live">AO VIVO</span><span class="nm">${ic('screen')}Tela de ${esc(nameOf(p.uid))}</span><button class="fs" data-act="fullscreen" data-key="screen:${p.sid}" title="Tela cheia">${ic('max')}</button></div>`, stream: scrStream, vkey: 'screen:' + p.sid });
+    const vb = me ? '' : `<button class="tvol" data-act="voiceUser" data-vuid="${p.uid}" title="Volume de ${esc(nameOf(p.uid))}">${ic(prefs.umute && prefs.umute[p.uid] ? 'micOff' : 'voice')}</button>`;
+    tiles.push({ key: 'user:' + p.sid, html: `<div class="tile ${camStream ? 'cam' : ''}" data-act="focus" data-key="user:${p.sid}" data-speak="${p.sid}" ${me ? '' : `data-vuid="${p.uid}"`}>${camStream ? `<div class="vslot" data-v="cam:${p.sid}" style="position:absolute;inset:0"></div>` : av(p.uid, 80, false)}<span class="nm">${flags}${esc(nameOf(p.uid))}${me ? ' (você)' : ''}${volTag(p.uid)}</span>${vb}</div>`, stream: camStream, vkey: 'cam:' + p.sid, mirror: me });
+    if (p.screen || (me && V.screen)) tiles.push({ key: 'screen:' + p.sid, html: `<div class="tile" data-act="focus" data-key="screen:${p.sid}" ${me ? '' : `data-vuid="${p.uid}"`}>${scrStream ? `<div class="vslot" data-v="screen:${p.sid}" style="position:absolute;inset:0"></div>` : '<span class="muted">Conectando à tela...</span>'}<span class="live">AO VIVO</span><span class="nm">${ic('screen')}Tela de ${esc(nameOf(p.uid))}${!me && prefs.svol && prefs.svol[p.uid] !== undefined ? `<span class="vol-tag">${prefs.svol[p.uid]}%</span>` : ''}</span>${me ? '' : `<button class="tvol" data-act="voiceUser" data-vuid="${p.uid}" title="Volume da tela">${ic('voice')}</button>`}<button class="fs" data-act="fullscreen" data-key="screen:${p.sid}" title="Tela cheia">${ic('max')}</button></div>`, stream: scrStream, vkey: 'screen:' + p.sid });
   }
   const focus = S.focusTile && tiles.find(t => t.key === S.focusTile);
   const ctrls = `<div class="stage-ctrls">
@@ -1866,6 +1921,7 @@ const A = {
   leaveVoice: () => leaveVoice(),
   openStage,
   joinRoom: el => joinVoice(el.dataset.id, { video: !!el.dataset.video }),
+  voiceUser: (el, e) => { e.stopPropagation(); voiceMenu(el.dataset.vuid, el); },
   focus: (el, e) => { if (e.target.closest('.fs')) return; S.focusTile = S.focusTile === el.dataset.key ? null : el.dataset.key; renderStageSlot(); },
   fullscreen: (el, e) => { e.stopPropagation(); const v = el.closest('.tile').querySelector('video'); (v?.requestFullscreen ? v.requestFullscreen() : el.closest('.tile').requestFullscreen?.())?.catch?.(() => {}); },
   acceptCall: async () => { const d = incoming?.dmId; closeRing(); ring(false); if (d) { await joinVoice(d); go({ kind: 'dm', id: d }); } },

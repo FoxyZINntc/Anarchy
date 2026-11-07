@@ -552,6 +552,25 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   .set-close { top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; }
   .set-close span { display: none; }
 }
+/* ---- volume de cada pessoa ---- */
+.voice-person[data-vuid] { cursor: pointer; }
+.voice-person[data-vuid]:hover { background: var(--hover); color: var(--text); }
+.vol-tag { font-size: 10px; font-weight: 700; color: var(--muted); background: var(--elev); border-radius: 4px; padding: 0 4px; line-height: 16px; flex: none; }
+.tile .nm .vol-tag { background: rgba(255,255,255,.18); color: #fff; }
+.tile .tvol { position: absolute; right: 44px; bottom: 8px; background: rgba(0,0,0,.55); color: #fff; border: 0; border-radius: 6px; width: 30px; height: 30px; display: grid; place-items: center; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.tile:not(:has(.fs)) .tvol { right: 8px; }
+.tile:hover .tvol, .tile .tvol:focus-visible { opacity: 1; }
+.tile .tvol svg { width: 16px; height: 16px; }
+.pop.vmenu { padding: 14px; width: 270px; display: grid; gap: 8px; }
+.vm-h { display: flex; align-items: center; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.vm-h b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-l { display: flex; justify-content: space-between; font-size: .78em; font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; margin-top: 4px; }
+.vm-l output { color: var(--text); font-variant-numeric: tabular-nums; }
+.pop.vmenu input[type=range] { width: 100%; }
+.vm-c { display: flex; align-items: center; gap: 8px; font-size: .9em; cursor: pointer; margin-top: 2px; }
+.vm-c input { width: 16px; height: 16px; accent-color: var(--danger); }
+.vm-f { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
+
 /* ---- barra de atualização no topo ---- */
 #updBar { position: fixed; top: 0; left: 0; right: 0; height: 36px; z-index: 80; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 0 44px;
   background: linear-gradient(90deg, var(--ok), color-mix(in srgb, var(--ok) 70%, var(--accent))); color: #062b1b; font-size: 14px; font-weight: 600; animation: updIn .35s cubic-bezier(.2,1.4,.4,1); }

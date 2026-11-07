@@ -322,6 +322,7 @@ ipcMain.handle('choose', async (e, d) => {
 // A janela abre na hora; a lista de telas e janelas (que pode demorar com muitas janelas abertas) carrega em paralelo.
 let pickResolve = null, pickSources = [], pickReady = Promise.resolve([]);
 let lastPick = null; // última tela escolhida: reusada se o app pedir de novo sem som (quando o Windows não deixa capturar o áudio)
+let noLoopback = false; // o som do PC já falhou nesta sessão: nem tenta de novo (evita a espera e o erro)
 ipcMain.handle('picker:sources', async () => {
   await pickReady;
   return pickSources.map(s => ({ id: s.id, name: s.name, thumb: s.thumbnail.toDataURL(), icon: s.appIcon ? s.appIcon.toDataURL() : null, screen: s.id.startsWith('screen') }));
@@ -356,7 +357,7 @@ app.whenReady().then(() => {
   ses.setDisplayMediaRequestHandler(async (req, cb) => {
     let src = null;
     // segunda tentativa, sem som, logo depois da primeira: usa a mesma tela sem abrir o seletor de novo
-    if (!req.audioRequested && lastPick && Date.now() - lastPick.at < 15000) { src = lastPick.src; lastPick = null; }
+    if (!req.audioRequested && lastPick && Date.now() - lastPick.at < 15000) { src = lastPick.src; lastPick = null; noLoopback = true; }
     else {
       const id = await askSource();
       src = id && pickSources.find(s => s.id === id);
@@ -365,7 +366,7 @@ app.whenReady().then(() => {
     if (!src) return cb({});
     const grant = { video: src };
     // tela inteira no Windows: manda o som do computador junto (se o Windows deixar)
-    if (req.audioRequested && process.platform === 'win32' && src.id.startsWith('screen')) grant.audio = 'loopback';
+    if (req.audioRequested && !noLoopback && process.platform === 'win32' && src.id.startsWith('screen')) grant.audio = 'loopback';
     cb(grant);
   });
   buildTray();
