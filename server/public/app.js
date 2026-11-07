@@ -87,7 +87,8 @@ const BGS = {
   grade: ['Grade', t => `linear-gradient(${t.line}88 1px, transparent 1px) 0 0 / 28px 28px, linear-gradient(90deg, ${t.line}88 1px, transparent 1px) 0 0 / 28px 28px, ${t.rail}`],
   custom: ['Minha imagem', null]
 };
-const DEFAULT_PREFS = { theme: 'meia-noite', accent: null, font: 'inter', fontSize: 15, density: 'conf', radius: null, layout: 'padrao', avatars: true, clock24: true, bg: 'none', bgImage: null, glass: 82, anim: true, sounds: true, volume: 60, desktop: false, mentionsOnly: false, micId: '', spkId: '', camId: '', ns: true, ec: true, agc: true, ptt: false, pttKey: 'KeyV', quality: '1080p30', showMembers: true, joinSounds: true, vol: {}, svol: {}, umute: {} };
+const DEFAULT_PREFS = { theme: 'meia-noite', accent: null, font: 'inter', fontSize: 15, density: 'conf', radius: null, layout: 'padrao', avatars: true, clock24: true, bg: 'none', bgImage: null, glass: 82, anim: true, sounds: true, volume: 60, desktop: false, mentionsOnly: false, micId: '', spkId: '', camId: '', ns: true, ec: true, agc: true, ptt: false, pttKey: 'KeyV', quality: '1080p30', showMembers: true, joinSounds: true, vol: {}, svol: {}, umute: {},
+  profileFx: true, lite: false, hidePreview: false, micGain: 100, vadMode: 'auto', vadLevel: 12, outVol: 100, sbVol: 70, sbOn: true };
 let prefs = { ...DEFAULT_PREFS };
 try { const st = JSON.parse(localStorage.getItem('discordia:prefs') || '{}'); prefs = { ...prefs, ...st }; if (window.discordiaDesktop && !('desktop' in st)) prefs.desktop = true; } catch {}
 const DESK = window.discordiaDesktop || null;
@@ -116,6 +117,8 @@ function applyPrefs() {
   document.body.classList.toggle('no-anim', !prefs.anim);
   document.body.classList.toggle('hide-avatars', !prefs.avatars);
   document.body.classList.toggle('bubbles', prefs.layout === 'bolhas');
+  document.body.classList.toggle('no-pfx', !prefs.profileFx);
+  document.body.classList.toggle('lite', !!prefs.lite);
 }
 function contrast(hex) { const n = parseInt(hex.slice(1), 16); const r = n >> 16, g = (n >> 8) & 255, b = n & 255; return (r * 299 + g * 587 + b * 114) / 1000 > 150; }
 applyPrefs();
@@ -124,7 +127,7 @@ applyPrefs();
 const S = {
   token: localStorage.getItem('discordia:token'), me: null, users: {}, friends: { friends: [], incoming: [], outgoing: [] },
   groups: {}, dms: {}, voice: {}, view: { kind: 'friends', tab: 'online' }, lastCh: {}, msgs: {}, more: {}, loading: {},
-  unread: {}, mentions: {}, typing: {}, drafts: {}, reply: null, editing: null, focusTile: null, mySid: null, connected: false
+  unread: {}, mentions: {}, typing: {}, drafts: {}, reply: null, editing: null, focusTile: null, mySid: null, connected: false, unhide: {}
 };
 let socket = null;
 const user = id => S.users[id] || (S.me && S.me.id === id ? S.me : null) || { id, username: '?', displayName: 'Desconhecido', color: '#777', status: 'offline' };
@@ -202,12 +205,18 @@ const SLOW_OPTS = [[0, 'Desligado'], [5, '5 segundos'], [10, '10 segundos'], [15
 const slowLabel = s => (SLOW_OPTS.find(o => o[0] === s) || [0, ''])[1];
 
 /* =============== avatares =============== */
-function av(id, size = 32, dot = true, extra = '') {
-  const u = user(id);
+/* Avatar: a foto fica numa camada própria (.av-i), recortada para a bolinha de status (sem borda colorida
+   que dependia da cor do painel). A moldura é outra camada por cima, do tamanho do avatar (--s), e as cores
+   vêm só de variáveis no próprio elemento: o perfil de uma pessoa nunca pinta o de outra. */
+const HEXC = /^#[0-9a-f]{6}$/i;
+const safeC = (c, d = '#777777') => (HEXC.test(c || '') ? c : d);
+function av(id, size = 32, dot = true, extra = '', uo = null) {
+  const u = uo || user(id);
   const st = u.status || 'offline';
-  const img = u.avatar ? `background-image:url('${esc(u.avatar)}');` : '';
+  const img = u.avatar ? `background-image:url('${esc(u.avatar)}')` : '';
   const ini = u.avatar ? '' : esc((u.displayName || u.username || '?').trim()[0]?.toUpperCase() || '?');
-  return `<div class="av s${size} ${extra}" style="background-color:${esc(u.color || '#777')};${img}" data-user="${esc(id)}">${ini}${dot ? `<i class="dot ${st}"></i>` : ''}</div>`;
+  const fr = u.frame ? ` fr fr-${esc(u.frame)}` : '';
+  return `<div class="av s${size}${dot ? ' has-dot' : ''}${fr} ${extra}" style="--s:${size}px;--uc:${safeC(u.color)};--fc:${safeC(u.accent, safeC(u.color))}" data-user="${esc(id)}"><span class="av-i" style="${img}">${ini}</span>${dot ? `<i class="dot ${st}"></i>` : ''}</div>`;
 }
 function groupIcon(g) {
   if (isImg(g.icon)) return `<div class="inner" style="background-image:url('${esc(g.icon)}')"></div>`;
@@ -551,7 +560,7 @@ function onMessage(m) {
   if (!quiet) {
     SOUNDS.msg();
     const g = groupOfChannel(m.cid);
-    notifyDesktop(isDm ? nameOf(m.authorId) : `${nameOf(m.authorId)} em #${g?.channels.find(c => c.id === m.cid)?.name}`, m.content || 'Enviou uma imagem', user(m.authorId).avatar);
+    notifyDesktop(isDm ? nameOf(m.authorId) : `${nameOf(m.authorId)} em #${g?.channels.find(c => c.id === m.cid)?.name}`, prefs.hidePreview ? 'Nova mensagem' : m.sticker ? 'Enviou uma figurinha' : m.gif ? 'Enviou um GIF' : m.content || 'Enviou uma imagem', user(m.authorId).avatar);
   }
   updateTitle(); renderRail(); renderSide();
 }
@@ -816,7 +825,7 @@ const onlyEmoji = t => t && t.length <= 12 && /^(\p{Extended_Pictographic}|️|�
 function renderMessages(forceBottom) {
   const box = $('#msgs'); const cid = viewingCid(); if (!box || !cid) return;
   const list = S.msgs[cid];
-  if (!list) { box.innerHTML = '<div class="empty">Carregando...</div>'; return; }
+  if (!list) { box.innerHTML = `<div class="skel" aria-label="Carregando mensagens">${[60, 85, 40, 70].map(w => `<div class="skel-row"><i></i><div><b style="width:${w * .4}%"></b><b style="width:${w}%"></b></div></div>`).join('')}</div>`; return; }
   const atBottom = forceBottom || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
   const prevTop = box.scrollTop;
   let html = '';
@@ -834,6 +843,10 @@ function renderMessages(forceBottom) {
       const n = `<b data-act="profile" data-id="${m.authorId}" style="color:${esc(nameColor(m.authorId, g))}">${esc(nameOf(m.authorId))}</b>`;
       const line = JOIN_LINES[[...m.id].reduce((a, c) => a + c.charCodeAt(0), 0) % JOIN_LINES.length].replace('{n}', n);
       html += `<div class="msg sys" id="m-${m.id}"><span class="sys-ic">${ic('reply').replace('<svg', '<svg style="transform:scaleX(-1) rotate(180deg)"')}</span><span class="sys-t">${line} <time>${fmtDay(m.ts) === 'Hoje' ? 'Hoje às ' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></span></div>`;
+      prev = null; continue;
+    }
+    if ((S.me.blocked || []).includes(m.authorId) && !S.unhide[m.id]) {
+      html += `<div class="msg sys blocked" id="m-${m.id}"><span class="sys-ic">${ic('ban')}</span><span class="sys-t muted">Mensagem de alguém que você bloqueou. <button class="link" data-act="unhide" data-id="${m.id}">Mostrar</button></span></div>`;
       prev = null; continue;
     }
     const head = !prev || prev.authorId !== m.authorId || m.ts - prev.ts > 7 * 60e3 || m.replyTo;
@@ -972,30 +985,156 @@ function emojiPicker(anchor, onPick) {
   p.onclick = e => { const b = e.target.closest('[data-e]'); if (b) { onPick(b.dataset.e); closePops(); } };
 }
 
-function profileCard(id, g) {
-  const u = user(id);
-  const banner = u.banner ? (isImg(u.banner) ? `background-image:url('${esc(u.banner)}')` : `background:${esc(u.banner)}`) : `background:${esc(u.color)}`;
-  const th = Array.isArray(u.theme) && u.theme.length === 2 ? `background:linear-gradient(170deg, ${esc(u.theme[0])}, ${esc(u.theme[1])})` : '';
+/* =============== perfis =============== */
+const FRAMES = { neon: 'Neon', arco: 'Arco-íris', ouro: 'Ouro', fogo: 'Fogo', gelo: 'Gelo', folhas: 'Folhagem', pixel: 'Pixel', orbita: 'Órbita' };
+const EFFECTS = { estrelas: 'Estrelas', neve: 'Neve', brilho: 'Brilho', bolhas: 'Bolhas', aurora: 'Aurora' };
+const BADGES = {
+  pioneiro: ['🚀', 'Pioneiro', 'Uma das 25 primeiras contas deste servidor.'],
+  fundador: ['🏰', 'Fundador', 'Criou um grupo.'],
+  veterano: ['🎖️', 'Veterano', 'Está no Discordia há mais de um ano.'],
+  sociavel: ['🫂', 'Sociável', 'Tem 10 amigos ou mais.'],
+  estiloso: ['🎨', 'Estiloso', 'Montou o perfil com foto, banner e bio.']
+};
+// cores do cartão de uma pessoa, todas como variáveis no próprio cartão (nada global)
+function cardVars(u) {
+  const th = Array.isArray(u.theme) && u.theme.length === 2 && u.theme.every(c => HEXC.test(c)) ? u.theme : null;
+  const ac = safeC(u.accent, safeC(u.color, '#6c7cff'));
+  // fundo claro → texto escuro e corpo do cartão claro; fundo escuro → o contrário (sempre legível)
+  const light = th && contrast(th[0]) && contrast(th[1]);
+  return { th, ac, style: `--pc:${ac};${th ? `--t1:${th[0]};--t2:${th[1]};--ptext:${light ? '#15171c' : '#f4f5f8'};--card-bg:color-mix(in srgb, ${th[0]} ${light ? '28%, #ffffff' : '42%, #0b0d12'})` : ''}` };
+}
+function bannerStyle(u) {
+  return u.banner ? (isImg(u.banner) ? `background-image:url('${esc(u.banner)}')` : `background:${safeC(u.banner)}`) : `background:linear-gradient(135deg, ${safeC(u.color)}, color-mix(in srgb, ${safeC(u.color)} 55%, #000))`;
+}
+const badgeRow = u => (u.badges || []).filter(b => BADGES[b]).map(b => `<span class="pf-badge" data-tip="${esc(BADGES[b][1] + ': ' + BADGES[b][2])}">${BADGES[b][0]}</span>`).join('');
+const fxLayer = u => (u.effect && EFFECTS[u.effect] ? `<div class="pf-fx fx-${esc(u.effect)}" aria-hidden="true"></div>` : '');
+const profileCard = (id, g) => profileCardOf(user(id), g);
+function profileCardOf(u, g) {
+  const id = u.id; const cv = cardVars(u);
   const roles = g && g.members.includes(id) ? gRoles(g, id) : [];
-  return `<div class="profile-prev ${th ? 'themed' : ''}" style="${th}"><div class="banner" style="${banner}"></div><div class="pbody">${av(id, 80)}<h3>${esc(u.displayName)}</h3><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}</div>
-    ${u.customStatus ? `<div style="margin-top:6px">${esc(u.customStatus)}</div>` : ''}
+  const badges = badgeRow(u);
+  return `<div class="profile-prev ${cv.th ? 'themed' : ''}" style="${cv.style}">${fxLayer(u)}<div class="banner" style="${bannerStyle(u)}"></div><div class="pbody">
+    <div class="pf-top">${av(id, 80, true, '', u)}${badges ? `<div class="pf-badges">${badges}</div>` : ''}</div>
+    <h3>${esc(u.displayName)}</h3><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}</div>
+    ${u.customStatus ? `<div class="pf-status">${esc(u.customStatus)}</div>` : ''}
     <div class="bio">${u.bio ? md(u.bio) : '<span class="muted">Sem bio.</span>'}${u.createdAt ? `<div class="muted small" style="margin-top:8px">No Discordia desde ${new Date(u.createdAt).toLocaleDateString('pt-BR')}</div>` : ''}</div>
     ${g && g.members.includes(id) ? `<div class="pf-roles"><div class="pf-h">${roles.length ? 'Cargos' : 'Sem cargos'}${g.ownerId === id ? ' · 👑 dono' : ''}</div>${roles.map(r => `<span class="role-chip"><i style="background:${esc(r.color || 'var(--muted)')}"></i>${esc(r.name)}</span>`).join('')}</div>` : ''}
     </div></div>`;
 }
-function openProfile(id, anchor) {
+// botões de ação de um perfil (mensagem, ligar, amizade, moderação)
+function profileActs(id, full) {
   const isMe = id === S.me.id, fr = S.friends.friends.includes(id), inc = S.friends.incoming.includes(id), out = S.friends.outgoing.includes(id);
-  const acts = isMe ? `<button class="btn primary sm" data-act="settings" data-tab="perfil">Editar perfil</button>`
-    : fr ? `<button class="btn primary sm" data-act="openDm" data-id="${id}">${ic('msg')}Mensagem</button><button class="btn sm" data-act="callUser" data-id="${id}">${ic('phone')}Ligar</button>`
-    : inc ? `<button class="btn primary sm" data-act="accept" data-id="${id}">Aceitar pedido</button>`
-    : out ? `<button class="btn sm" disabled>Pedido enviado</button>`
-    : `<button class="btn primary sm" data-act="addUser" data-id="${id}">${ic('plus')}Adicionar amigo</button>`;
+  if (isMe) return `<button class="btn primary sm" data-act="settings" data-tab="perfil">${ic('edit')}Editar perfil</button>${full ? '' : `<button class="btn sm" data-act="fullProfile" data-id="${id}">Ver perfil completo</button>`}`;
+  const main = fr ? `<button class="btn primary sm" data-act="openDm" data-id="${id}">${ic('msg')}Mensagem</button><button class="btn sm" data-act="callUser" data-id="${id}">${ic('phone')}Ligar</button>`
+    : inc ? `<button class="btn primary sm" data-act="accept" data-id="${id}">Aceitar pedido</button><button class="btn sm" data-act="openDm" data-id="${id}">${ic('msg')}Mensagem</button>`
+    : out ? `<button class="btn sm" disabled>Pedido enviado</button><button class="btn sm" data-act="openDm" data-id="${id}">${ic('msg')}Mensagem</button>`
+    : `<button class="btn primary sm" data-act="addUser" data-id="${id}">${ic('plus')}Adicionar amigo</button><button class="btn sm" data-act="openDm" data-id="${id}">${ic('msg')}Mensagem</button>`;
+  return main + (full ? '' : `<button class="btn sm ghost" data-act="fullProfile" data-id="${id}">Perfil completo</button>`);
+}
+/* perfil completo: janela grande, diferente da tela de edição */
+async function openFullProfile(id, tab = 'sobre', uo = null) {
+  closePops(); $('.pf-full-back')?.remove();
+  const u = uo || user(id); const cv = cardVars(u); const g = curGroup(); const isMe = id === S.me.id;
+  const roles = g && g.members.includes(id) ? gRoles(g, id) : [];
+  let mutual = { groups: Object.values(S.groups).filter(x => x.members.includes(id)).map(x => x.id), friends: [] };
+  const back = document.createElement('div'); back.className = 'modal-back pf-full-back';
+  const draw = () => {
+    const tabs = [['sobre', 'Sobre'], ...(isMe ? [] : [['grupos', `Grupos em comum · ${mutual.groups.length}`], ['amigos', `Amigos em comum · ${mutual.friends.length}`]])];
+    const body = tab === 'grupos' ? (mutual.groups.length ? mutual.groups.map(gid => { const x = S.groups[gid]; return x ? `<button class="pf-li" data-act="group" data-id="${x.id}"><span class="pf-gi">${groupIcon(x)}</span><b>${esc(x.name)}</b><span class="muted small">${x.members.length} membros</span></button>` : ''; }).join('') : '<p class="muted">Nenhum grupo em comum.</p>')
+      : tab === 'amigos' ? (mutual.friends.length ? mutual.friends.map(f => `<button class="pf-li" data-act="fullProfile" data-id="${f}">${av(f, 32)}<b>${esc(nameOf(f))}</b><span class="muted small">@${esc(user(f).username)}</span></button>`).join('') : '<p class="muted">Nenhum amigo em comum.</p>')
+      : `<div class="pf-sec"><h4>Sobre mim</h4><div class="pf-bio">${u.bio ? md(u.bio) : '<span class="muted">Sem bio.</span>'}</div></div>
+         <div class="pf-sec"><h4>Membro desde</h4><div>${u.createdAt ? new Date(u.createdAt).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}</div></div>
+         ${(u.badges || []).length ? `<div class="pf-sec"><h4>Insígnias</h4><div class="pf-blist">${u.badges.filter(b => BADGES[b]).map(b => `<div class="pf-bitem"><span>${BADGES[b][0]}</span><div><b>${BADGES[b][1]}</b><span class="muted small">${BADGES[b][2]}</span></div></div>`).join('')}</div></div>` : ''}
+         ${g && g.members.includes(id) ? `<div class="pf-sec"><h4>Cargos em ${esc(g.name)}${g.ownerId === id ? ' · 👑 dono' : ''}</h4><div>${roles.length ? roles.map(r => `<span class="role-chip"><i style="background:${esc(r.color || 'var(--muted)')}"></i>${esc(r.name)}</span>`).join('') : '<span class="muted">Sem cargos.</span>'}</div></div>` : ''}`;
+    back.innerHTML = `<div class="pf-full ${cv.th ? 'themed' : ''}" style="${cv.style}" role="dialog" aria-modal="true" aria-label="Perfil de ${esc(u.displayName)}">
+      ${fxLayer(u)}<div class="pf-banner" style="${bannerStyle(u)}"><button class="icon-btn pf-x" data-close aria-label="Fechar">${ic('x')}</button></div>
+      <div class="pf-main">
+        <div class="pf-head">${av(id, 120, true, '', u)}<div class="pf-acts">${uo ? '<span class="pf-tag">Prévia: ainda não salvo</span>' : profileActs(id, true)}</div></div>
+        <div class="pf-names"><h2>${esc(u.displayName)}</h2><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}<span class="pf-st"><i class="dot ${esc(u.status || 'offline')}"></i>${esc(STATUS[u.status] || 'Offline')}</span></div>
+          ${badgeRow(u) ? `<div class="pf-badges big">${badgeRow(u)}</div>` : ''}
+          ${u.customStatus ? `<div class="pf-status">${esc(u.customStatus)}</div>` : ''}</div>
+        <nav class="pf-tabs">${tabs.map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" data-pft="${k}">${l}</button>`).join('')}</nav>
+        <div class="pf-body">${body}</div>
+      </div></div>`;
+  };
+  draw(); $('#modalRoot').appendChild(back);
+  const close = () => { back.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  back.addEventListener('mousedown', e => { if (e.target === back) close(); });
+  back.addEventListener('click', e => {
+    if (e.target.closest('[data-close]')) return close();
+    const t = e.target.closest('[data-pft]'); if (t) { tab = t.dataset.pft; draw(); return; }
+    if (e.target.closest('[data-act]') && !e.target.closest('[data-act="fullProfile"]')) close();
+  });
+  if (!isMe) { const r = await emit('user:mutual', { id }); if (r.ok && back.isConnected) { mutual = r; draw(); } }
+}
+function openProfile(id, anchor) {
+  const isMe = id === S.me.id;
+  const acts = profileActs(id, false);
   const g = curGroup();
   const inG = g && !isMe && g.members.includes(id) && gAbove(g, id);
   const mod = `${inG && gCan(g, 'manageRoles') ? `<button class="btn sm" data-act="memberRoles" data-id="${id}">${ic('shield')}Cargos</button>` : ''}${inG && gCan(g, 'kick') ? `<button class="btn danger sm" data-act="kick" data-id="${id}">Expulsar</button>` : ''}${inG && gCan(g, 'ban') ? `<button class="btn danger sm" data-act="ban" data-id="${id}">Banir</button>` : ''}`;
   pop(`${profileCard(id, g)}<div class="acts">${acts}${mod}</div>`, anchor, 'profile', anchor.closest('#members') ? 'left' : 'right');
   const p = $('.pop'); if (anchor.closest('#members')) { const r = anchor.getBoundingClientRect(); p.style.left = clamp(r.left - p.offsetWidth - 10, 8, innerWidth - p.offsetWidth - 8) + 'px'; }
 }
+
+/* menu do botão direito em qualquer pessoa (lista de membros, mensagens, amigos, call...) */
+function popAt(html, x, y, cls = 'menu') {
+  return pop(html, { getBoundingClientRect: () => ({ left: x, right: x, top: y, bottom: y, width: 0, height: 0 }), closest: () => null }, cls, 'below');
+}
+function userMenu(uid, x, y, anchor) {
+  const u = user(uid), me = uid === S.me.id, g = curGroup();
+  const fr = S.friends.friends.includes(uid), out = S.friends.outgoing.includes(uid), inc = S.friends.incoming.includes(uid);
+  const inVoice = !me && V.room && (S.voice[V.room] || []).some(p => p.uid === uid);
+  const canMention = !!$('#composer');
+  const mod = g && !me && g.members.includes(uid) && gAbove(g, uid);
+  const blocked = (S.me.blocked || []).includes(uid);
+  const I = n => ic(n).replace('<svg', '<svg style="width:16px;height:16px"');
+  const p = popAt(`<div class="um-h">${av(uid, 32)}<div><b>${esc(u.displayName)}</b><span>@${esc(u.username)}</span></div></div>
+    <button data-m="pf">Ver perfil ${I('user')}</button>
+    ${me ? `<button data-m="edit">Editar perfil ${I('edit')}</button>` : `<button data-m="dm">Enviar mensagem ${I('msg')}</button><button data-m="call">Iniciar chamada ${I('phone')}</button><button data-m="vid">Chamada de vídeo ${I('cam')}</button>`}
+    ${canMention ? `<button data-m="men">Mencionar</button>` : ''}
+    ${inVoice ? `<hr><div class="um-vol"><label>Volume para você <output>${volOf(uid, 'voice')}%</output></label><input type="range" min="0" max="200" step="5" value="${volOf(uid, 'voice')}" data-m="vol"></div>
+      <button data-m="mute">${prefs.umute && prefs.umute[uid] ? 'Voltar a ouvir' : 'Silenciar para mim'} ${I(prefs.umute && prefs.umute[uid] ? 'voice' : 'micOff')}</button>` : ''}
+    ${me ? '' : `<hr>${fr ? '<button data-m="unf" class="danger">Desfazer amizade</button>' : inc ? '<button data-m="acc">Aceitar pedido de amizade</button>' : out ? '<button disabled>Pedido de amizade enviado</button>' : '<button data-m="add">Adicionar amigo</button>'}
+      <button data-m="blk" class="${blocked ? '' : 'danger'}">${blocked ? 'Desbloquear' : 'Bloquear'}</button>`}
+    ${mod && (gCan(g, 'manageRoles') || gCan(g, 'kick') || gCan(g, 'ban')) ? `<hr>${gCan(g, 'manageRoles') ? `<button data-m="roles">Cargos ${I('shield')}</button>` : ''}${gCan(g, 'kick') ? `<button data-m="kick" class="danger">Expulsar de ${esc(g.name)}</button>` : ''}${gCan(g, 'ban') ? `<button data-m="ban" class="danger">Banir de ${esc(g.name)}</button>` : ''}` : ''}
+    <hr><button data-m="cpu">Copiar nome de usuário</button><button data-m="cpi">Copiar ID do usuário</button>`, x, y, 'menu umenu');
+  const vol = $('[data-m="vol"]', p);
+  if (vol) vol.oninput = () => { vol.previousElementSibling.querySelector('output').textContent = vol.value + '%'; prefs.vol = { ...(prefs.vol || {}) }; if (+vol.value === 100) delete prefs.vol[uid]; else prefs.vol[uid] = +vol.value; savePrefs(); applyVolumes(); };
+  if (vol) vol.onchange = () => { renderSide(); renderStageSlot(); };
+  p.onclick = async e => {
+    const m = e.target.closest('button[data-m]')?.dataset.m; if (!m) return; closePops();
+    if (m === 'pf') openFullProfile(uid);
+    if (m === 'edit') openSettings('perfil');
+    if (m === 'dm') openDm(uid);
+    if (m === 'call' || m === 'vid') { const d = await openDm(uid); if (d) startCall(d, m === 'vid'); }
+    if (m === 'men') { const ta = $('#composer'); const t = '@' + u.username + ' '; const at = ta.selectionStart; ta.value = ta.value.slice(0, at) + t + ta.value.slice(ta.selectionEnd); ta.focus(); ta.selectionStart = ta.selectionEnd = at + t.length; }
+    if (m === 'mute') { prefs.umute = { ...(prefs.umute || {}) }; if (prefs.umute[uid]) delete prefs.umute[uid]; else prefs.umute[uid] = true; savePrefs(); applyVolumes(); renderSide(); renderStageSlot(); }
+    if (m === 'add') act('friend:request', { username: u.username }, 'Pedido enviado.');
+    if (m === 'acc') act('friend:respond', { from: uid, accept: true }, 'Agora vocês são amigos!');
+    if (m === 'unf' && await confirmBox('Desfazer amizade', `Remover ${u.displayName} dos seus amigos?`, 'Remover')) act('friend:remove', { id: uid });
+    if (m === 'blk') toggleBlock(uid);
+    if (m === 'roles' && g) rolePicker(g, uid, anchor || document.body);
+    if (m === 'kick' && g && await confirmBox('Expulsar do grupo', `Expulsar ${u.displayName} de "${g.name}"? A pessoa pode voltar com um convite.`, 'Expulsar')) act('group:kick', { gid: g.id, userId: uid }, 'Membro expulso.');
+    if (m === 'ban' && g) banModal(g, uid);
+    if (m === 'cpu') copy('@' + u.username, 'Nome de usuário copiado.');
+    if (m === 'cpi') copy(uid, 'ID copiado.');
+  };
+}
+async function toggleBlock(uid) {
+  const blocked = (S.me.blocked || []).includes(uid);
+  if (!blocked && !await confirmBox('Bloquear', `${nameOf(uid)} não vai poder te mandar mensagens diretas, pedidos de amizade nem te ligar. As mensagens dessa pessoa nos grupos ficam escondidas para você.`, 'Bloquear')) return;
+  act('user:block', { id: uid, block: !blocked }, blocked ? 'Desbloqueado.' : 'Bloqueado.');
+}
+document.addEventListener('contextmenu', e => {
+  if (e.target.closest('input, textarea, .settings, .modal')) return;
+  const t = e.target.closest('[data-vuid], .av[data-user], .mem[data-id], .person[data-id], [data-act="profile"][data-id], .voice-person[data-vuid]');
+  if (!t) return;
+  const uid = t.dataset.vuid || t.dataset.user || t.dataset.id; if (!uid || !S.users[uid] && uid !== S.me?.id) return;
+  e.preventDefault(); userMenu(uid, e.clientX, e.clientY, t);
+});
 
 function groupModal(g) {
   const editing = !!g;
@@ -1312,21 +1451,24 @@ function gsBans(g, b) {
 
 /* =============== configurações =============== */
 let setTab = 'perfil';
-function closeSettings() { $('.settings')?.remove(); stopMicTest(); }
+function closeSettings() { $('.settings')?.remove(); stopMicTest(); stopOutTest(); }
 function openSettings(tab) {
   closeSettings(); if (tab) setTab = tab;
   const el = document.createElement('div'); el.className = 'settings'; el.setAttribute('role', 'dialog');
+  const I = n => ic(n).replace('<svg', '<svg class="sn-ic"');
   el.innerHTML = `<nav class="set-nav"><div class="set-nav-in">
-      <h4>Usuário</h4>
-      <button data-st="perfil">Meu perfil</button><button data-st="conta">Conta</button>
-      <h4>App</h4>
-      <button data-st="aparencia">Aparência</button>${DESK ? '<button data-st="app">Aplicativo</button>' : ''}<button data-st="voz">Voz e vídeo</button><button data-st="notif">Notificações</button><button data-st="atalhos">Atalhos</button>
-      <h4></h4><button data-st="sair" class="out">Sair da conta</button>
+      <div class="set-me">${av(S.me.id, 40)}<div><b>${esc(S.me.displayName)}</b><button class="link" data-st="perfil">Editar perfil</button></div></div>
+      <h4>Configurações de usuário</h4>
+      <button data-st="conta">${I('user')}Minha conta</button><button data-st="perfil">${I('edit')}Perfil</button><button data-st="privacidade">${I('shield')}Privacidade e segurança</button>
+      <h4>Configurações do app</h4>
+      <button data-st="aparencia">${I('smile')}Aparência</button><button data-st="voz">${I('mic')}Voz e vídeo</button><button data-st="notif">${I('bell')}Notificações</button><button data-st="atalhos">${I('menu')}Atalhos</button><button data-st="app">${I('gear')}Aplicativo</button>
+      <hr><button data-st="sair" class="out">${I('out')}Sair da conta</button>
     </div></nav>
     <div class="set-body"><div class="set-body-in" id="setBody"></div></div>
     <div class="set-close"><button class="icon-btn" id="setX" aria-label="Fechar">${ic('x')}</button><span>ESC</span></div>`;
   document.body.appendChild(el);
   $('#setX').onclick = closeSettings;
+  el.querySelector('.set-body').addEventListener('click', e => { const x = e.target.closest('[data-st-go]'); if (x) { setTab = x.dataset.stGo; drawSettings(); } });
   el.querySelector('.set-nav').onclick = e => { const b = e.target.closest('[data-st]'); if (!b) return; if (b.dataset.st === 'sair') return confirmBox('Sair da conta', 'Você vai precisar entrar de novo com usuário e senha.', 'Sair').then(ok => ok && logout()); setTab = b.dataset.st; drawSettings(); };
   drawSettings();
 }
@@ -1340,50 +1482,120 @@ let capturingKey = false;
 
 function drawSettings() {
   $$('.set-nav [data-st]').forEach(b => b.classList.toggle('active', b.dataset.st === setTab));
-  const b = $('#setBody'); stopMicTest();
+  const b = $('#setBody'); stopMicTest(); stopOutTest(); b.onclick = null;
+  b.closest('.set-body').scrollTop = 0;
   if (setTab === 'perfil') {
-    const u = S.me; let draft = { displayName: u.displayName, bio: u.bio, color: u.color, avatar: u.avatar, banner: u.banner, theme: u.theme || null };
-    const TH = [['#2b1055', '#7597de'], ['#ff6b8b', '#f5b83d'], ['#0f2027', '#2c5364'], ['#3ee0c5', '#6c7cff'], ['#1d1d1d', '#b07cff'], ['#ff8a4c', '#e0517f']];
-    b.innerHTML = `<h2>Meu perfil</h2><div class="profile-grid"><div class="set-card">
-      <label class="field">Nome de exibição<input id="pName" maxlength="32" value="${esc(u.displayName)}"></label>
-      <label class="field">Pronomes<input id="pPro" maxlength="40" value="${esc(u.pronouns || '')}" placeholder="ex.: ele/dele, ela/dela"></label>
-      <div class="field">Foto de perfil<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm primary" id="pAv">Enviar foto ou GIF</button><button class="btn sm ghost" id="pAvX">Remover foto</button></div><span class="muted small">GIF animado continua animado. Até 8 MB.</span></div>
-      <div class="field">Cor do perfil<div class="colors" id="pColors">${COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}"></button>`).join('')}<input type="color" id="pColor" value="${esc(u.color)}"></div></div>
-      <div class="field">Banner<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn sm" id="pBan">Enviar imagem ou GIF</button><input type="color" id="pBanC" value="${u.banner && u.banner.startsWith('#') ? esc(u.banner) : '#6c7cff'}" title="Cor do banner"><button class="btn sm ghost" id="pBanX">Usar cor do perfil</button></div></div>
-      <div class="field">Tema do perfil<div class="themes-mini" id="pTh"><button type="button" data-th="" class="none" title="Sem tema">✕</button>${TH.map(t => `<button type="button" data-th="${t.join(',')}" style="background:linear-gradient(170deg, ${t[0]}, ${t[1]})"></button>`).join('')}
-        <span class="th-custom"><input type="color" id="pTh1" value="${esc(draft.theme?.[0] || '#2b1055')}" title="Cor de cima"><input type="color" id="pTh2" value="${esc(draft.theme?.[1] || '#7597de')}" title="Cor de baixo"></span></div><span class="muted small">Pinta o fundo do seu cartão de perfil com duas cores.</span></div>
-      <label class="field">Sobre mim<textarea id="pBio" maxlength="190" placeholder="Conte um pouco sobre você. Dá para usar **negrito**, *itálico* e links.">${esc(u.bio)}</textarea></label>
-      <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn primary" id="pSave">Salvar perfil</button></div>
-    </div><div><p class="muted small" style="margin:0 0 8px">PRÉVIA</p><div id="pPrev"></div></div></div>`;
+    // rascunho: nada vai para o servidor até clicar em Salvar. A prévia usa só o rascunho (não mexe nos outros).
+    const u = S.me;
+    const orig = { displayName: u.displayName, pronouns: u.pronouns || '', customStatus: u.customStatus || '', bio: u.bio || '', color: u.color, accent: u.accent || null, avatar: u.avatar || null, banner: u.banner || null, theme: u.theme || null, frame: u.frame || null, effect: u.effect || null };
+    const draft = { ...orig };
+    const TH = [['#2b1055', '#7597de'], ['#ff6b8b', '#f5b83d'], ['#0f2027', '#2c5364'], ['#3ee0c5', '#6c7cff'], ['#1d1d1d', '#b07cff'], ['#ff8a4c', '#e0517f'], ['#0b3d2e', '#7bd88f'], ['#f6d365', '#fda085']];
+    const preview = () => ({ ...u, ...draft, displayName: draft.displayName || u.username });
+    const frameBtn = (k, l) => `<button type="button" class="pick-tile ${draft.frame === k ? 'on' : ''}" data-fr="${k}">${av(u.id, 40, false, '', { ...preview(), frame: k })}<span>${l}</span></button>`;
+    const fxBtn = (k, l) => `<button type="button" class="pick-tile fx ${draft.effect === k ? 'on' : ''}" data-fx="${k}"><span class="fx-sw">${k ? `<span class="pf-fx fx-${k}"></span>` : '✕'}</span><span>${l}</span></button>`;
+    b.innerHTML = `<h2>Perfil</h2><p class="muted set-sub">Como as outras pessoas te veem. Nada muda para elas até você salvar.</p>
+      <div class="profile-grid"><div class="pe-col">
+      <div class="set-card"><h3>Identidade</h3>
+        <label class="field">Nome de exibição<input id="pName" maxlength="32" value="${esc(draft.displayName)}"></label>
+        <div class="pe-2"><label class="field">Pronomes<input id="pPro" maxlength="40" value="${esc(draft.pronouns)}" placeholder="ex.: ele/dele"></label>
+        <label class="field">Status personalizado<input id="pCs" maxlength="60" value="${esc(draft.customStatus)}" placeholder="ex.: jogando até tarde 🎮"></label></div>
+        <label class="field">Sobre mim<textarea id="pBio" maxlength="190" placeholder="Conte um pouco sobre você. Dá para usar **negrito**, *itálico* e links.">${esc(draft.bio)}</textarea><span class="pe-count" id="pBioN"></span></label>
+      </div>
+      <div class="set-card"><h3>Avatar e banner</h3>
+        <div class="pe-row"><div><b>Foto de perfil</b><span class="muted small">PNG, JPG, WEBP ou GIF animado, até 8 MB.</span></div><div class="pe-btns"><button class="btn sm primary" id="pAv">Trocar foto</button><button class="btn sm ghost" id="pAvX">Remover</button></div></div>
+        <div class="pe-row"><div><b>Banner</b><span class="muted small">Imagem/GIF, ou uma cor sólida.</span></div><div class="pe-btns"><button class="btn sm" id="pBan">Enviar imagem</button><input type="color" id="pBanC" value="${draft.banner && HEXC.test(draft.banner) ? esc(draft.banner) : '#6c7cff'}" title="Cor do banner" aria-label="Cor do banner"><button class="btn sm ghost" id="pBanX">Padrão</button></div></div>
+      </div>
+      <div class="set-card"><h3>Cores</h3>
+        <div class="field">Cor do avatar (quando não tem foto)<div class="colors" id="pColors">${COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}" aria-label="Cor ${c}"></button>`).join('')}<input type="color" id="pColor" value="${esc(safeC(draft.color))}" aria-label="Outra cor"></div></div>
+        <div class="field">Cor de destaque do perfil<div class="colors" id="pAcc"><button type="button" data-c="" class="none" title="Igual à cor do avatar">✕</button>${COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}" aria-label="Destaque ${c}"></button>`).join('')}<input type="color" id="pAccC" value="${esc(safeC(draft.accent, '#6c7cff'))}" aria-label="Outra cor de destaque"></div><span class="muted small">Usada nas bordas do cartão, na moldura e nos botões do seu perfil.</span></div>
+        <div class="field">Fundo do perfil<div class="themes-mini" id="pTh"><button type="button" data-th="" class="none" title="Sem fundo">✕</button>${TH.map(t => `<button type="button" data-th="${t.join(',')}" style="background:linear-gradient(170deg, ${t[0]}, ${t[1]})" aria-label="Fundo ${t.join(' e ')}"></button>`).join('')}
+          <span class="th-custom"><input type="color" id="pTh1" value="${esc(draft.theme?.[0] || '#2b1055')}" title="Cor de cima"><input type="color" id="pTh2" value="${esc(draft.theme?.[1] || '#7597de')}" title="Cor de baixo"></span></div><span class="muted small">Duas cores em degradê só no seu cartão. Não muda o tema de ninguém.</span></div>
+      </div>
+      <div class="set-card"><h3>Moldura do avatar</h3><div class="pick-grid" id="pFr">${frameBtn('', 'Nenhuma')}${Object.entries(FRAMES).map(([k, l]) => frameBtn(k, l)).join('')}</div></div>
+      <div class="set-card"><h3>Efeito do perfil</h3><div class="pick-grid" id="pFx">${fxBtn('', 'Nenhum')}${Object.entries(EFFECTS).map(([k, l]) => fxBtn(k, l)).join('')}</div><span class="muted small">Animação leve no seu cartão. Quem desligou as animações vê parado.</span></div>
+      <div class="set-card"><h3>Insígnias</h3><div class="pf-blist">${Object.entries(BADGES).map(([k, [e, n, d]]) => `<div class="pf-bitem ${(u.badges || []).includes(k) ? '' : 'locked'}"><span>${e}</span><div><b>${n}${(u.badges || []).includes(k) ? '' : ' · ainda não'}</b><span class="muted small">${d}</span></div></div>`).join('')}</div><span class="muted small">Insígnias são ganhas automaticamente, ninguém escolhe as próprias.</span></div>
+      </div>
+      <div class="pe-prev"><p class="pe-lbl">PRÉVIA</p><div id="pPrev"></div><button class="btn sm" id="pFull" style="margin-top:10px;width:100%">Ver como perfil completo</button></div></div>
+      <div class="unsaved" id="pBar" hidden><span>Cuidado: você tem alterações que não foram salvas.</span><button class="btn sm ghost" id="pReset">Redefinir</button><button class="btn sm primary" id="pSave">Salvar alterações</button></div>`;
+    const dirty = () => JSON.stringify(draft) !== JSON.stringify(orig);
     const prev = () => {
-      const old = S.users[u.id]; S.users[u.id] = { ...u, ...draft, displayName: $('#pName').value || u.username, bio: $('#pBio').value, pronouns: $('#pPro').value };
-      $('#pPrev').innerHTML = profileCard(u.id); S.users[u.id] = old;
-      $$('#pColors button').forEach(x => x.classList.toggle('on', x.dataset.c === draft.color));
+      $('#pPrev').innerHTML = profileCardOf(preview());
+      $$('#pColors [data-c]').forEach(x => x.classList.toggle('on', x.dataset.c === draft.color));
+      $$('#pAcc [data-c]').forEach(x => x.classList.toggle('on', x.dataset.c === (draft.accent || '')));
       $$('#pTh [data-th]').forEach(x => x.classList.toggle('on', x.dataset.th === (draft.theme ? draft.theme.join(',') : '')));
+      $$('#pFr [data-fr]').forEach(x => x.classList.toggle('on', x.dataset.fr === (draft.frame || '')));
+      $$('#pFx [data-fx]').forEach(x => x.classList.toggle('on', x.dataset.fx === (draft.effect || '')));
+      $('#pBioN').textContent = `${draft.bio.length}/190`;
+      $('#pBar').hidden = !dirty();
     };
     prev();
-    ['pName', 'pBio', 'pPro'].forEach(id => $('#' + id).oninput = prev);
+    [['pName', 'displayName'], ['pBio', 'bio'], ['pPro', 'pronouns'], ['pCs', 'customStatus']].forEach(([id, k]) => $('#' + id).oninput = e => { draft[k] = e.target.value; prev(); });
     $('#pTh').onclick = e => { const x = e.target.closest('[data-th]'); if (!x) return; draft.theme = x.dataset.th ? x.dataset.th.split(',') : null; if (draft.theme) { $('#pTh1').value = draft.theme[0]; $('#pTh2').value = draft.theme[1]; } prev(); };
     ['pTh1', 'pTh2'].forEach(id => $('#' + id).oninput = () => { draft.theme = [$('#pTh1').value, $('#pTh2').value]; prev(); });
     $('#pColors').onclick = e => { const x = e.target.closest('[data-c]'); if (x) { draft.color = x.dataset.c; prev(); } };
     $('#pColor').oninput = e => { draft.color = e.target.value; prev(); };
+    $('#pAcc').onclick = e => { const x = e.target.closest('[data-c]'); if (x) { draft.accent = x.dataset.c || null; prev(); } };
+    $('#pAccC').oninput = e => { draft.accent = e.target.value; prev(); };
+    $('#pFr').onclick = e => { const x = e.target.closest('[data-fr]'); if (x) { draft.frame = x.dataset.fr || null; prev(); } };
+    $('#pFx').onclick = e => { const x = e.target.closest('[data-fx]'); if (x) { draft.effect = x.dataset.fx || null; prev(); } };
     $('#pAv').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 384, square: true }); if (url) { draft.avatar = url; prev(); } };
     $('#pAvX').onclick = () => { draft.avatar = null; prev(); };
     $('#pBan').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 1200 }); if (url) { draft.banner = url; prev(); } };
     $('#pBanC').oninput = e => { draft.banner = e.target.value; prev(); };
     $('#pBanX').onclick = () => { draft.banner = null; prev(); };
-    $('#pSave').onclick = () => act('profile:update', { ...draft, displayName: $('#pName').value, bio: $('#pBio').value, pronouns: $('#pPro').value }, 'Perfil salvo.');
+    $('#pFull').onclick = () => openFullProfile(u.id, 'sobre', preview());
+    $('#pReset').onclick = () => { Object.assign(draft, orig); drawSettings(); };
+    $('#pSave').onclick = async () => {
+      $('#pSave').disabled = true;
+      const r = await act('profile:update', { ...draft, displayName: draft.displayName.trim() || u.username }, 'Perfil salvo.');
+      if (r.ok) { Object.assign(orig, draft); prev(); } else $('#pSave').disabled = false;
+    };
   }
   else if (setTab === 'conta') {
-    b.innerHTML = `<h2>Conta</h2><div class="set-card">${setRow('Nome de usuário', 'É assim que seus amigos te encontram.', `<span class="kbd">@${esc(S.me.username)}</span>`)}</div>
-      <div class="set-card"><h3>Trocar senha</h3>
-        <label class="field">Senha atual<input type="password" id="pwA" autocomplete="current-password"></label>
-        <label class="field">Nova senha<input type="password" id="pwN" autocomplete="new-password"></label>
+    b.innerHTML = `<h2>Minha conta</h2>
+      <div class="acct-card">${av(S.me.id, 80)}<div><b>${esc(S.me.displayName)}</b><span class="muted">@${esc(S.me.username)}</span></div><button class="btn sm primary" data-act="fullProfile" data-id="${S.me.id}">Ver meu perfil</button></div>
+      <div class="set-card"><h3>Informações</h3>
+        ${setRow('Nome de usuário', 'É assim que seus amigos te encontram. Não dá para trocar.', `<span class="kbd">@${esc(S.me.username)}</span>`)}
+        ${setRow('Nome de exibição', 'O nome que aparece nas conversas.', `<button class="btn sm" data-st-go="perfil">Editar no perfil</button>`)}
+        ${setRow('ID da conta', 'Útil para relatar problemas.', `<button class="btn sm ghost" id="acId">Copiar ID</button>`)}
+        ${setRow('Conta criada em', '', `<span class="muted">${S.me.createdAt ? new Date(S.me.createdAt).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}</span>`)}
+      </div>
+      <div class="set-card"><h3>Senha</h3>
+        <div class="pe-2"><label class="field">Senha atual<input type="password" id="pwA" autocomplete="current-password"></label>
+        <label class="field">Nova senha<input type="password" id="pwN" autocomplete="new-password" placeholder="pelo menos 6 caracteres"></label></div>
         <p class="form-err" id="pwE"></p>
         <div style="display:flex;justify-content:flex-end"><button class="btn primary" id="pwOk">Trocar senha</button></div></div>
-      <div class="set-card">${setRow('Sair da conta', 'Desconecta este navegador.', '<button class="btn danger" id="lo">Sair</button>')}</div>`;
+      <div class="set-card"><h3>Dispositivos conectados</h3><div id="sesBox" class="muted">Carregando...</div></div>
+      <div class="set-card">${setRow('Sair da conta', 'Desconecta este aparelho.', '<button class="btn danger" id="lo">Sair</button>')}</div>`;
+    $('#acId').onclick = () => copy(S.me.id, 'ID copiado.');
     $('#pwOk').onclick = async () => { try { await api('/api/password', { atual: $('#pwA').value, nova: $('#pwN').value }); $('#pwE').textContent = ''; $('#pwA').value = $('#pwN').value = ''; toast('Senha trocada.'); } catch (e) { $('#pwE').textContent = e.message; } };
     $('#lo').onclick = () => logout();
+    const ses = async () => {
+      const r = await emit('sessions:info'); const box = $('#sesBox'); if (!box) return;
+      if (!r.ok) { box.textContent = r.erro || 'Não consegui carregar.'; return; }
+      box.innerHTML = `${setRow(`${r.sessions} ${r.sessions === 1 ? 'aparelho com login' : 'aparelhos com login'}`, `${r.online} ${r.online === 1 ? 'janela aberta agora' : 'janelas abertas agora'} (contando esta).`, r.sessions > 1 ? '<button class="btn sm danger" id="sesOut">Sair dos outros</button>' : '<span class="muted small">Só este aparelho</span>')}`;
+      if ($('#sesOut')) $('#sesOut').onclick = async () => { if (await confirmBox('Sair dos outros aparelhos', 'Todos os outros computadores e celulares com sua conta vão precisar entrar de novo. Este continua conectado.', 'Sair dos outros')) { const x = await act('sessions:revokeOthers', {}, 'Os outros aparelhos foram desconectados.'); if (x.ok) ses(); } };
+    };
+    ses();
+  }
+  else if (setTab === 'privacidade') {
+    const pv = S.me.privacy || {}; const bl = (S.me.blocked || []).filter(id => S.users[id] || id);
+    b.innerHTML = `<h2>Privacidade e segurança</h2>
+      <div class="set-card"><h3>Pedidos de amizade</h3>
+        ${setRow('Quem pode te mandar pedido', 'O servidor recusa pedidos de quem não se encaixa.', seg('pvR', [['todos', 'Todo mundo'], ['grupos', 'Só de grupos em comum'], ['ninguem', 'Ninguém']], pv.requests || 'todos'))}
+      </div>
+      <div class="set-card"><h3>Bloqueados · ${bl.length}</h3>
+        <p class="muted small" style="margin:0">Quem você bloqueia não pode te mandar mensagem direta, pedido de amizade nem ligar. As mensagens dessa pessoa nos grupos ficam escondidas para você.</p>
+        ${bl.length ? `<div class="blk-list">${bl.map(id => `<div class="blk">${av(id, 32, false)}<span><b>${esc(nameOf(id))}</b><span class="muted small">@${esc(user(id).username)}</span></span><button class="btn sm" data-unblock="${id}">Desbloquear</button></div>`).join('')}</div>` : '<p class="muted" style="margin:0">Você não bloqueou ninguém. Para bloquear, clique com o botão direito numa pessoa.</p>'}
+      </div>
+      <div class="set-card"><h3>Mensagens</h3>
+        ${setRow('Só ser notificado por menções nos grupos', 'Mensagens diretas sempre avisam.', sw('pvM', prefs.mentionsOnly))}
+        ${setRow('Esconder prévia nas notificações', 'A notificação do Windows mostra só quem mandou, sem o texto.', sw('pvP', prefs.hidePreview))}
+      </div>`;
+    bindSeg('pvR', v => act('privacy:update', { requests: v }, 'Preferência salva.'));
+    $('#pvM').onchange = e => { prefs.mentionsOnly = e.target.checked; savePrefs(); };
+    $('#pvP').onchange = e => { prefs.hidePreview = e.target.checked; savePrefs(); };
+    b.onclick = async e => { const x = e.target.closest('[data-unblock]'); if (!x) return; const r = await act('user:block', { id: x.dataset.unblock, block: false }, 'Desbloqueado.'); if (r.ok) setTimeout(drawSettings, 150); };
   }
   else if (setTab === 'aparencia') {
     const t = THEMES[prefs.theme];
@@ -1406,7 +1618,7 @@ function drawSettings() {
         <div style="display:flex;gap:8px;flex-wrap:wrap" id="bgCustom" ${prefs.bg === 'custom' ? '' : 'hidden'}><button class="btn sm primary" id="bgUp">Escolher imagem</button>${prefs.bgImage ? '<button class="btn sm ghost" id="bgX">Remover imagem</button>' : ''}</div>
         <div class="field">Transparência dos painéis<div class="range-row"><input type="range" id="gls" min="40" max="100" step="2" value="${prefs.glass}"><output id="glsO">${prefs.glass}%</output></div></div>
       </div>
-      <div class="set-card">${setRow('Animações', 'Transições e efeitos de movimento.', sw('anm', prefs.anim))}${setRow('Lista de membros', 'Mostrar membros ao lado do chat nos grupos.', sw('mbs', prefs.showMembers))}</div>
+      <div class="set-card"><h3>Movimento e desempenho</h3>${setRow('Animações', 'Transições e efeitos de movimento.', sw('anm', prefs.anim))}${setRow('Efeitos nos perfis', 'Mostrar estrelas, neve e outros efeitos animados nos cartões de perfil.', sw('pfx', prefs.profileFx))}${setRow('Modo leve', 'Tira desfoques e sombras pesadas. Bom para PCs mais fracos.', sw('lite', prefs.lite))}${setRow('Lista de membros', 'Mostrar membros ao lado do chat nos grupos.', sw('mbs', prefs.showMembers))}</div>
       <div style="display:flex;justify-content:flex-end"><button class="btn ghost" id="rstA">Voltar tudo ao padrão</button></div>`;
     $('#thms').onclick = e => { const x = e.target.closest('[data-t]'); if (!x) return; prefs.radius = null; setPref('theme', x.dataset.t); drawSettings(); };
     $('#accs').onclick = e => { const x = e.target.closest('[data-c]'); if (!x) return; setPref('accent', x.dataset.c || null); drawSettings(); };
@@ -1418,43 +1630,65 @@ function drawSettings() {
     $('#gls').oninput = e => { $('#glsO').textContent = e.target.value + '%'; setPref('glass', +e.target.value); };
     $('#avs').onchange = e => setPref('avatars', e.target.checked); $('#c24').onchange = e => setPref('clock24', e.target.checked);
     $('#anm').onchange = e => setPref('anim', e.target.checked); $('#mbs').onchange = e => setPref('showMembers', e.target.checked);
+    $('#pfx').onchange = e => setPref('profileFx', e.target.checked); $('#lite').onchange = e => setPref('lite', e.target.checked);
     $('#bgUp').onclick = async () => { const f = await pickFile(); if (!f) return; let d = await readFile(f); d = await shrink(d, 1920, .82); prefs.bgImage = d; setPref('bg', 'custom'); drawSettings(); };
     if ($('#bgX')) $('#bgX').onclick = () => { prefs.bgImage = null; setPref('bg', 'none'); drawSettings(); };
-    $('#rstA').onclick = () => { ['theme', 'accent', 'font', 'fontSize', 'density', 'radius', 'layout', 'avatars', 'clock24', 'bg', 'bgImage', 'glass', 'anim', 'showMembers'].forEach(k => prefs[k] = DEFAULT_PREFS[k]); savePrefs(); applyPrefs(); render(); drawSettings(); };
+    $('#rstA').onclick = () => { ['theme', 'accent', 'font', 'fontSize', 'density', 'radius', 'layout', 'avatars', 'clock24', 'bg', 'bgImage', 'glass', 'anim', 'showMembers', 'profileFx', 'lite'].forEach(k => prefs[k] = DEFAULT_PREFS[k]); savePrefs(); applyPrefs(); render(); drawSettings(); };
   }
   else if (setTab === 'voz') {
-    b.innerHTML = `<h2>Voz e vídeo</h2>
-      <div class="set-card"><h3>Dispositivos</h3>
-        <label class="field">Microfone<select id="dMic"><option value="">Padrão do sistema</option></select></label>
-        <label class="field">Saída de áudio<select id="dSpk"><option value="">Padrão do sistema</option></select></label>
-        <label class="field">Câmera<select id="dCam"><option value="">Padrão do sistema</option></select></label>
-        <div class="field">Teste do microfone<div style="display:flex;gap:10px;align-items:center"><button class="btn sm" id="mTest">Testar</button><div class="meter" style="flex:1"><i id="mMeter"></i></div></div></div>
+    const live = V.room ? 'Vale na hora para a call atual.' : 'Vale a partir da próxima call.';
+    b.innerHTML = `<h2>Voz e vídeo</h2><p class="muted set-sub">Tudo aqui fica salvo neste aparelho.</p>
+      <div class="set-card"><h3>Entrada (seu microfone)</h3>
+        <label class="field">Dispositivo de entrada<select id="dMic"><option value="">Padrão do sistema</option></select></label>
+        <div class="field">Volume do microfone <span class="hint">· o que os outros escutam de você</span><div class="range-row"><input type="range" id="vGain" min="0" max="200" step="5" value="${prefs.micGain}"><output id="vGainO">${prefs.micGain}%</output></div></div>
+        <div class="field">Teste do microfone<div class="mic-test"><button class="btn sm" id="mTest">Testar</button><div class="meter big" id="mBox"><i id="mMeter"></i><b id="mTh" style="left:${prefs.vadLevel}%" ${prefs.vadMode === 'manual' ? '' : 'hidden'}></b></div></div><span class="muted small">Você vai se ouvir com o volume e os efeitos escolhidos. Use fone para não dar microfonia.</span></div>
+      </div>
+      <div class="set-card"><h3>Modo de entrada</h3>
+        ${setRow('Como o microfone abre', '', seg('vMode', [['voz', 'Ativação por voz'], ['ptt', 'Aperte para falar']], prefs.ptt ? 'ptt' : 'voz'))}
+        <div id="vVoz" ${prefs.ptt ? 'hidden' : ''}>
+          ${setRow('Sensibilidade automática', 'O app decide sozinho quando você está falando.', sw('vAuto', prefs.vadMode !== 'manual'))}
+          <div class="field" id="vLvl" ${prefs.vadMode === 'manual' ? '' : 'hidden'}>Sensibilidade manual <span class="hint">· o microfone só abre acima da marca</span><div class="range-row"><input type="range" id="vTh" min="1" max="60" step="1" value="${prefs.vadLevel}"><output id="vThO">${prefs.vadLevel}%</output></div></div>
+        </div>
+        <div id="vPtt" ${prefs.ptt ? '' : 'hidden'}>${setRow('Tecla de aperte para falar', 'Clique e aperte a tecla desejada. Funciona com a janela do Discordia em foco.', `<button class="kbd" id="vKey" style="cursor:pointer">${esc(keyName(prefs.pttKey))}</button>`)}</div>
       </div>
       <div class="set-card"><h3>Processamento de voz</h3>
         ${setRow('Supressão de ruído', 'Corta ventilador, teclado e barulho de fundo. Se sua voz ficar abafada ou cortando, tente desligar.', sw('vNs', prefs.ns))}
         ${setRow('Cancelamento de eco', 'Evita que seus amigos se ouçam pelo seu alto-falante. <b>Deixe ligado se não usar fone de ouvido.</b>', sw('vEc', prefs.ec))}
         ${setRow('Ganho automático', 'Ajusta o volume da sua voz sozinho. Se sua voz ficar subindo e descendo, desligue.', sw('vAgc', prefs.agc))}
-        <div class="set-row"><span class="muted small" id="vFx">${V.room ? 'As mudanças valem na hora para a call atual.' : 'Valem a partir da próxima call.'}</span><button class="btn sm ghost" id="vFxReset">Voltar ao padrão</button></div>
+        <div class="set-row"><span class="muted small">${live}</span><button class="btn sm ghost" id="vFxReset">Voltar ao padrão</button></div>
       </div>
-      <div class="set-card"><h3>Modo de entrada</h3>
-        ${setRow('Aperte para falar', 'O microfone só abre enquanto você segura a tecla.', sw('vPtt', prefs.ptt))}
-        ${setRow('Tecla', 'Clique e aperte a tecla desejada.', `<button class="kbd" id="vKey" style="cursor:pointer">${esc(keyName(prefs.pttKey))}</button>`)}
+      <div class="set-card"><h3>Saída (o que você escuta)</h3>
+        <label class="field">Dispositivo de saída<select id="dSpk"><option value="">Padrão do sistema</option></select></label>
+        <div class="field">Volume geral da call <span class="hint">· só para você</span><div class="range-row"><input type="range" id="vOut" min="0" max="200" step="5" value="${prefs.outVol}"><output id="vOutO">${prefs.outVol}%</output></div></div>
+        <div class="field">Volume da Central de Áudio <span class="hint">· sons tocados na call</span><div class="range-row"><input type="range" id="vSb" min="0" max="100" step="5" value="${prefs.sbVol}"><output id="vSbO">${prefs.sbVol}%</output></div></div>
+        ${setRow('Ouvir a Central de Áudio', 'Desligue para não ouvir os sons que as pessoas tocam na call.', sw('vSbOn', prefs.sbOn))}
+        <div class="set-row"><div class="t"><b>Teste de saída</b><span>Toca um som no dispositivo escolhido.</span></div><button class="btn sm" id="oTest">Tocar som de teste</button></div>
+        <p class="muted small" style="margin:0">O volume de cada pessoa fica no mixer da call (botão de barras) ou clicando com o botão direito nela. Isso muda só o que você escuta.</p>
       </div>
-      <div class="set-card"><h3>Compartilhamento de tela</h3>${setRow('Qualidade', 'Mais qualidade usa mais internet.', seg('vQ', [['720p30', '720p'], ['1080p30', '1080p'], ['1080p60', '1080p 60fps']], prefs.quality))}</div>
-      <div class="set-card">${setRow('Sons de entrar e sair', 'Tocar um som quando alguém entra ou sai da call.', sw('vJs', prefs.joinSounds))}</div>`;
+      <div class="set-card"><h3>Vídeo</h3>
+        <label class="field">Câmera<select id="dCam"><option value="">Padrão do sistema</option></select></label>
+        ${setRow('Qualidade da tela compartilhada', 'Mais qualidade usa mais internet.', seg('vQ', [['720p30', '720p'], ['1080p30', '1080p'], ['1080p60', '1080p 60fps']], prefs.quality))}
+      </div>
+      <div class="set-card"><h3>Sons</h3>${setRow('Sons de entrar e sair', 'Tocar um som quando alguém entra ou sai da call.', sw('vJs', prefs.joinSounds))}</div>`;
     fillDevices();
     const restart = () => { if (V.room) restartMic(); };
-    $('#dMic').onchange = e => { prefs.micId = e.target.value; savePrefs(); restart(); };
+    $('#dMic').onchange = e => { prefs.micId = e.target.value; savePrefs(); restart(); if (micTest) { stopMicTest(); toggleMicTest(); } };
     $('#dSpk').onchange = e => { prefs.spkId = e.target.value; savePrefs(); applySink(); };
     $('#dCam').onchange = e => { prefs.camId = e.target.value; savePrefs(); };
+    $('#vGain').oninput = e => { prefs.micGain = +e.target.value; $('#vGainO').textContent = prefs.micGain + '%'; savePrefs(); setMicGain(); };
+    bindSeg('vMode', v => { prefs.ptt = v === 'ptt'; savePrefs(); $('#vVoz').hidden = prefs.ptt; $('#vPtt').hidden = !prefs.ptt; applyMicGate(); renderUserBar(); micChainCheck(); });
+    $('#vAuto').onchange = e => { prefs.vadMode = e.target.checked ? 'auto' : 'manual'; savePrefs(); $('#vLvl').hidden = !!e.target.checked; $('#mTh').hidden = !!e.target.checked; applyMicGate(); micChainCheck(); };
+    $('#vTh').oninput = e => { prefs.vadLevel = +e.target.value; $('#vThO').textContent = prefs.vadLevel + '%'; $('#mTh').style.left = prefs.vadLevel + '%'; savePrefs(); };
     $('#vNs').onchange = e => { prefs.ns = e.target.checked; savePrefs(); restart(); };
-    $('#vEc').onchange = e => { prefs.ec = e.target.checked; savePrefs(); restart(); };
+    $('#vEc').onchange = e => { prefs.ec = e.target.checked; savePrefs(); restart(); if (!e.target.checked) toast('Sem cancelamento de eco, use fone de ouvido ou seus amigos vão ouvir eco.', true); };
     $('#vAgc').onchange = e => { prefs.agc = e.target.checked; savePrefs(); restart(); };
     $('#vFxReset').onclick = () => { prefs.ns = prefs.ec = prefs.agc = true; savePrefs(); ['vNs', 'vEc', 'vAgc'].forEach(id => $('#' + id).checked = true); restart(); toast('Efeitos de voz no padrão.'); };
-    $('#vEc').addEventListener('change', e => { if (!e.target.checked) toast('Sem cancelamento de eco, use fone de ouvido ou seus amigos vão ouvir eco.', true); });
-    $('#vPtt').onchange = e => { prefs.ptt = e.target.checked; savePrefs(); applyMicGate(); renderUserBar(); };
+    $('#vOut').oninput = e => { prefs.outVol = +e.target.value; $('#vOutO').textContent = prefs.outVol + '%'; savePrefs(); applyVolumes(); };
+    $('#vSb').oninput = e => { prefs.sbVol = +e.target.value; $('#vSbO').textContent = prefs.sbVol + '%'; savePrefs(); };
+    $('#vSbOn').onchange = e => { prefs.sbOn = e.target.checked; savePrefs(); };
+    $('#oTest').onclick = toggleOutTest;
     $('#vJs').onchange = e => { prefs.joinSounds = e.target.checked; savePrefs(); };
-    bindSeg('vQ', v => { prefs.quality = v; savePrefs(); });
+    bindSeg('vQ', v => { prefs.quality = v; savePrefs(); V.peers.forEach(p => tuneSenders(p.pc)); });
     $('#vKey').onclick = () => {
       capturingKey = true; $('#vKey').textContent = 'Aperte uma tecla...';
       const h = e => { e.preventDefault(); prefs.pttKey = e.code; savePrefs(); capturingKey = false; $('#vKey').textContent = keyName(e.code); document.removeEventListener('keydown', h, true); };
@@ -1483,6 +1717,13 @@ function drawSettings() {
       }
       prefs.desktop = e.target.checked; savePrefs();
     };
+  }
+  else if (setTab === 'app' && !DESK) {
+    b.innerHTML = `<h2>Aplicativo</h2>
+      <div class="set-card"><h3>Versão</h3>${setRow('Discordia no navegador', 'Interface ' + esc(UPD.build || '?') + '. Quando o servidor recebe uma versão nova, aparece a barra Atualizar no topo.', '<button class="btn" id="wRl">Recarregar</button>')}</div>
+      <div class="set-card"><h3>Idioma</h3>${setRow('Português (Brasil)', 'É o único idioma disponível por enquanto.', '')}</div>
+      <div class="set-card"><h3>App de computador</h3><p class="muted small" style="margin:0">O app para Windows abre sozinho com o PC, fica perto do relógio e se atualiza sozinho. Baixe em github.com/FoxyZINntc/Discordia/releases.</p></div>`;
+    $('#wRl').onclick = () => location.reload();
   }
   else if (setTab === 'app' && DESK) {
     b.innerHTML = '<h2>Aplicativo</h2><p class="muted">Carregando...</p>';
@@ -1534,22 +1775,95 @@ async function fillDevices() {
   } catch { toast('Não consegui listar os dispositivos. O site precisa estar em https ou localhost.', true); }
 }
 let micTest = null;
+// nível de 0 a 100 de um analisador (mesma escala do medidor e da sensibilidade manual)
+function levelOf(an, buf) { an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128)); return clamp(m / 64 * 100, 0, 100); }
 async function toggleMicTest() {
   if (micTest) return stopMicTest();
   try {
     const s = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints() });
     const c = audioCtx(); const src = c.createMediaStreamSource(s); const an = c.createAnalyser(); an.fftSize = 512; src.connect(an);
-    const out = c.createMediaStreamDestination(); src.connect(out);
-    const el = new Audio(); el.srcObject = out.stream; el.play().catch(() => {});
+    const g = c.createGain(); g.gain.value = prefs.micGain / 100; const out = c.createMediaStreamDestination(); src.connect(g); g.connect(out);
+    const el = new Audio(); el.srcObject = out.stream; if (prefs.spkId && el.setSinkId) el.setSinkId(prefs.spkId).catch(() => {}); el.play().catch(() => {});
     const buf = new Uint8Array(an.fftSize);
-    const iv = setInterval(() => { an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128)); const meter = $('#mMeter'); if (meter) meter.style.width = clamp(m / 64 * 100, 0, 100) + '%'; }, 60);
-    micTest = { s, iv, el }; $('#mTest').textContent = 'Parar teste'; toast('Fale algo: você vai ouvir a própria voz.');
+    const iv = setInterval(() => {
+      g.gain.value = prefs.micGain / 100;
+      const lv = clamp(levelOf(an, buf) * prefs.micGain / 100, 0, 100);
+      const meter = $('#mMeter'); if (!meter) return;
+      meter.style.width = lv + '%';
+      meter.classList.toggle('below', prefs.vadMode === 'manual' && !prefs.ptt && lv < prefs.vadLevel);
+    }, 50);
+    micTest = { s, iv, el, src, g }; $('#mTest').textContent = 'Parar teste'; toast('Fale algo: você vai ouvir a própria voz.');
   } catch { toast('Não consegui abrir o microfone. Verifique a permissão do navegador.', true); }
 }
-function stopMicTest() { if (!micTest) return; clearInterval(micTest.iv); micTest.s.getTracks().forEach(t => t.stop()); micTest.el.srcObject = null; micTest = null; const b = $('#mTest'); if (b) b.textContent = 'Testar'; const m = $('#mMeter'); if (m) m.style.width = '0'; }
+function stopMicTest() { if (!micTest) return; clearInterval(micTest.iv); try { micTest.src.disconnect(); micTest.g.disconnect(); } catch {} micTest.s.getTracks().forEach(t => t.stop()); micTest.el.srcObject = null; micTest = null; const b = $('#mTest'); if (b) b.textContent = 'Testar'; const m = $('#mMeter'); if (m) m.style.width = '0'; }
+// teste de saída: uma melodia curta no dispositivo escolhido, no volume geral escolhido
+let outTest = null;
+function toggleOutTest() {
+  if (outTest) return stopOutTest();
+  const c = audioCtx(); if (!c) return;
+  const d = c.createMediaStreamDestination(); let t = c.currentTime + .05;
+  [[523, .18], [659, .18], [784, .18], [1047, .4]].forEach(([f, len]) => {
+    const o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = f;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.22, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + len);
+    o.connect(g).connect(d); o.start(t); o.stop(t + len + .05); t += len * .9;
+  });
+  const el = new Audio(); el.srcObject = d.stream; el.volume = Math.min(1, prefs.outVol / 100);
+  if (prefs.spkId && el.setSinkId) el.setSinkId(prefs.spkId).catch(() => {});
+  el.play().catch(() => {});
+  outTest = { el, tm: setTimeout(stopOutTest, 1500) }; const b = $('#oTest'); if (b) b.textContent = 'Tocando...';
+}
+function stopOutTest() { if (!outTest) return; clearTimeout(outTest.tm); outTest.el.srcObject = null; outTest = null; const b = $('#oTest'); if (b) b.textContent = 'Tocar som de teste'; }
+
+/* ---- caminho do microfone ----
+   Por padrão a faixa do microfone vai direto para a call (como sempre foi). Só quando você muda o volume do
+   microfone ou usa sensibilidade manual ela passa por um ganho (Web Audio). O cancelamento de eco e a
+   supressão de ruído acontecem antes, na captura, então continuam funcionando. */
+const MICP = { raw: null, chain: null, open: true, last: 0 };
+const needChain = () => prefs.micGain !== 100 || (prefs.vadMode === 'manual' && !prefs.ptt);
+async function getMic() { return buildMic(await navigator.mediaDevices.getUserMedia({ audio: audioConstraints() })); }
+function buildMic(raw) {
+  if (MICP.raw && MICP.raw !== raw) MICP.raw.getTracks().forEach(t => t.stop());
+  dropMicChain(); MICP.raw = raw; MICP.open = true;
+  const c = audioCtx();
+  try {
+    const src = c.createMediaStreamSource(raw); const an = c.createAnalyser(); an.fftSize = 512; src.connect(an);
+    MICP.chain = { src, an, buf: new Uint8Array(512) };
+    if (needChain()) {
+      const g = c.createGain(); g.gain.value = prefs.micGain / 100; const d = c.createMediaStreamDestination();
+      src.connect(g); g.connect(d); Object.assign(MICP.chain, { g, d });
+      return d.stream;
+    }
+  } catch (e) { console.warn('microfone sem processamento', e); }
+  return raw;
+}
+function dropMicChain() {
+  const ch = MICP.chain; MICP.chain = null; if (!ch) return;
+  try { ch.src.disconnect(); ch.g && ch.g.disconnect(); } catch {}
+  if (ch.d) ch.d.stream.getTracks().forEach(t => t.stop());
+}
+function stopMic() { [V.mic, MICP.raw].forEach(s => s && s.getTracks().forEach(t => t.stop())); dropMicChain(); MICP.raw = null; V.mic = null; }
+// volume do microfone mudou: ajusta na hora se já tem o ganho; senão monta o caminho uma vez
+function setMicGain() {
+  if (MICP.chain && MICP.chain.g) MICP.chain.g.gain.value = prefs.micGain / 100;
+  micChainCheck();
+}
+function micChainCheck() {
+  if (!V.room || !V.mic) return;
+  if (!!(MICP.chain && MICP.chain.d) !== needChain()) { clearTimeout(micChainCheck.t); micChainCheck.t = setTimeout(restartMic, 350); }
+}
+// sensibilidade manual: abre o microfone só quando o nível passa da marca (e segura 400 ms para não picotar)
+setInterval(() => {
+  const ch = MICP.chain;
+  if (!V.room || prefs.ptt || prefs.vadMode !== 'manual' || !ch || !ch.d) { if (!MICP.open) { MICP.open = true; applyMicGate(); } return; }
+  const lv = levelOf(ch.an, ch.buf) * prefs.micGain / 100, now = Date.now();
+  if (lv >= prefs.vadLevel) MICP.last = now;
+  const open = now - MICP.last < 400;
+  if (open !== MICP.open) { MICP.open = open; applyMicGate(); }
+}, 40);
 
 /* =============== voz, vídeo e tela (WebRTC) =============== */
 const V = { room: null, mic: null, screen: null, cam: null, peers: new Map(), muted: false, deaf: false, ice: [], pttDown: false, calling: false, levels: new Map(), videoCache: new Map() };
+const SB = { playing: new Map(), cache: new Map(), last: 0 }; // Central de Áudio (sons tocando, áudios já baixados)
 const audioConstraints = () => ({ deviceId: prefs.micId ? { exact: prefs.micId } : undefined, noiseSuppression: prefs.ns, echoCancellation: prefs.ec, autoGainControl: prefs.agc, channelCount: { ideal: 1 }, sampleRate: { ideal: 48000 } });
 
 /* ---- qualidade de áudio e vídeo ----
@@ -1585,7 +1899,8 @@ function tuneSenders(pc) {
 }
 function secureOk() { return window.isSecureContext && navigator.mediaDevices; }
 function applyMicGate() {
-  const on = !V.muted && !V.deaf && (!prefs.ptt || V.pttDown);
+  const vadOk = prefs.ptt || prefs.vadMode !== 'manual' || MICP.open;
+  const on = !V.muted && !V.deaf && (!prefs.ptt || V.pttDown) && vadOk;
   V.mic && V.mic.getAudioTracks().forEach(t => t.enabled = on);
 }
 async function joinVoice(roomId, opts = {}) {
@@ -1594,14 +1909,14 @@ async function joinVoice(roomId, opts = {}) {
   if (V.room) leaveVoice();
   V.jt = Date.now() * 1000 + Math.floor(Math.random() * 1000); // sessão nova desta entrada na call
   audioCtx();
-  try { V.mic = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints() }); }
-  catch (e) { V.mic = null; toast('Sem acesso ao microfone. Você entra só ouvindo.', true); }
+  try { V.mic = await getMic(); }
+  catch (e) { stopMic(); toast('Sem acesso ao microfone. Você entra só ouvindo.', true); }
   if (!V.mic) V.muted = true;
   applyMicGate(); // antes de conectar: quem entra silenciado não vaza nenhum pedaço de áudio
   // já marca a sala antes da resposta: os sinais de conexão que chegam nesse meio-tempo não se perdem
   V.room = roomId;
   const r = await emit('voice:join', { roomId, muted: V.muted || !V.mic, deafened: V.deaf });
-  if (!r.ok) { V.room = null; V.mic && V.mic.getTracks().forEach(t => t.stop()); V.mic = null; toast(r.erro, true); return false; }
+  if (!r.ok) { V.room = null; stopMic(); toast(r.erro, true); return false; }
   V.ice = r.iceServers || V.ice; V.calling = !!opts.calling;
   if (V.mic) watchLevel(S.mySid, V.mic);
   r.peers.forEach(p => getPeer(p.sid));
@@ -1612,8 +1927,8 @@ async function joinVoice(roomId, opts = {}) {
 function cleanupVoice() {
   V.peers.forEach(p => { try { p.pc.close(); } catch {} });
   V.peers.clear();
-  [V.mic, V.screen, V.cam].forEach(s => s && s.getTracks().forEach(t => t.stop()));
-  V.mic = V.screen = V.cam = null; V.room = null; V.calling = false; S.focusTile = null;
+  [V.screen, V.cam].forEach(s => s && s.getTracks().forEach(t => t.stop())); stopMic();
+  V.screen = V.cam = null; V.room = null; SB.playing.forEach(x => { try { x.src.stop(); } catch {} }); SB.playing.clear(); V.calling = false; S.focusTile = null;
   [...V.levels.keys()].forEach(dropLevel); V.videoCache.clear(); dropAudio(() => true); $('#audioSink').innerHTML = '';
   ring(false); render();
 }
@@ -1627,10 +1942,12 @@ function sendState() { if (V.room) socket.emit('voice:state', { muted: V.muted |
 async function restartMic() {
   if (!V.room) return;
   try {
-    const s = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints() });
+    const old = V.mic;
+    const s = await getMic();
     const t = s.getAudioTracks()[0];
-    V.peers.forEach(p => { const snd = p.pc.getSenders().find(x => x.track && x.track.kind === 'audio' && V.mic && V.mic.getTracks().includes(x.track)); if (snd) snd.replaceTrack(t); else p.pc.addTrack(t, s); });
-    V.mic && V.mic.getTracks().forEach(x => x.stop()); V.mic = s; applyMicGate(); watchLevel(S.mySid, s);
+    // troca a faixa sem renegociar (quem está na call não percebe)
+    V.peers.forEach(p => { const snd = p.pc.getSenders().find(x => x.track && x.track.kind === 'audio' && old && old.getTracks().includes(x.track)); if (snd) snd.replaceTrack(t); else p.pc.addTrack(t, s); });
+    old && old !== s && old.getTracks().forEach(x => x.stop()); V.mic = s; applyMicGate(); watchLevel(S.mySid, s);
     toast('Microfone atualizado.');
   } catch { toast('Não consegui trocar o microfone.', true); }
 }
@@ -1724,7 +2041,7 @@ function applyVolumes() {
     const p = peerInfo(a.sid), uid = p && p.uid;
     const kind = p && p.screen === id ? 'screen' : 'voice';
     const off = V.deaf || (uid && kind === 'voice' && prefs.umute && prefs.umute[uid]);
-    const v = off ? 0 : (uid ? volOf(uid, kind) : 100) / 100;
+    const v = off ? 0 : (uid ? volOf(uid, kind) : 100) / 100 * clamp(prefs.outVol ?? 100, 0, 200) / 100;
     if (v > 1 && boost(a, true)) { a.el.muted = true; a.gain.gain.value = v; }
     else { boost(a, false); a.el.muted = v === 0; a.el.volume = Math.min(1, v); }
   });
@@ -1764,10 +2081,6 @@ function voiceMenu(uid, anchor) {
   $('#vmM', p).onchange = e => { set('umute', e.target.checked ? true : null); renderSide(); renderStageSlot(); };
   $('#vmR', p).onclick = () => { ['vol', 'svol', 'umute'].forEach(k => set(k, null)); closePops(); renderSide(); renderStageSlot(); };
 }
-document.addEventListener('contextmenu', e => {
-  const t = e.target.closest('[data-vuid]'); if (!t) return;
-  e.preventDefault(); voiceMenu(t.dataset.vuid, t);
-});
 // marquinha ao lado do nome quando você mudou o volume da pessoa
 const volTag = uid => (prefs.umute && prefs.umute[uid]) ? '<span class="vol-tag" title="Silenciado para você">🔇</span>' : (prefs.vol && prefs.vol[uid] !== undefined) ? `<span class="vol-tag" title="Volume para você">${prefs.vol[uid]}%</span>` : '';
 
@@ -1995,6 +2308,8 @@ const A = {
   },
   profile: (el, e) => { e.stopPropagation(); if (e.target.closest('.acts')) return; openProfile(el.dataset.id || el.dataset.user, el); },
   openDm: el => { closePops(); openDm(el.dataset.id); },
+  fullProfile: (el, e) => { e.stopPropagation(); openFullProfile(el.dataset.id); },
+  unhide: el => { S.unhide[el.dataset.id] = true; renderMessages(); },
   callUser: async el => { closePops(); const id = await openDm(el.dataset.id); if (id) startCall(id); },
   call: el => startCall(el.dataset.id, !!el.dataset.video),
   addUser: async el => { const r = await act('friend:request', { username: user(el.dataset.id).username }, 'Pedido enviado.'); if (r.ok) closePops(); },
@@ -2020,11 +2335,11 @@ const A = {
   meMenu: el => {
     const cur = S.me.realStatus || S.me.status;
     const p = pop(`${Object.entries(STATUS).filter(([k]) => k !== 'offline').map(([k, l]) => `<button data-s="${k}"><span style="display:flex;gap:10px;align-items:center"><i class="dot ${k}" style="position:static;border:0"></i>${l}</span>${cur === k ? ic('check').replace('<svg', '<svg style="width:16px;height:16px"') : ''}</button>`).join('')}
-      <hr><button data-m="cs">${S.me.customStatus ? 'Editar status personalizado' : 'Definir status personalizado'}</button><button data-m="pf">Editar perfil</button><button data-m="cp">Copiar meu usuário</button>`, el, 'menu', 'above');
+      <hr><button data-m="cs">${S.me.customStatus ? 'Editar status personalizado' : 'Definir status personalizado'}</button><button data-m="vp">Ver meu perfil ${ic('user').replace('<svg', '<svg style="width:16px;height:16px"')}</button><button data-m="pf">Editar perfil ${ic('edit').replace('<svg', '<svg style="width:16px;height:16px"')}</button><button data-m="cp">Copiar meu usuário</button>`, el, 'menu', 'above');
     p.onclick = e => {
       const s = e.target.closest('[data-s]'); const m = e.target.closest('[data-m]')?.dataset.m; closePops();
       if (s) act('profile:update', { status: s.dataset.s });
-      if (m === 'cs') statusModal(); if (m === 'pf') openSettings('perfil'); if (m === 'cp') copy(S.me.username);
+      if (m === 'cs') statusModal(); if (m === 'pf') openSettings('perfil'); if (m === 'vp') openFullProfile(S.me.id); if (m === 'cp') copy(S.me.username);
     };
   },
   settings: el => { closePops(); openSettings(el.dataset.tab); },

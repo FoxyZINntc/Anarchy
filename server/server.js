@@ -90,7 +90,8 @@ const save = store.save, saveNow = store.saveNow;
 // com a que receberam e mostram o botão "Atualizar".
 const BUILD = (() => {
   const h = crypto.createHash('sha1');
-  for (const f of ['index.html', 'app.js', 'style.css']) { try { h.update(fs.readFileSync(path.join(PUBLIC, f))); } catch {} }
+  // todos os arquivos da interface: mudou qualquer um, os apps abertos mostram "Atualizar"
+  for (const f of fs.readdirSync(PUBLIC).filter(f => /\.(html|js|css)$/.test(f)).sort()) { try { h.update(fs.readFileSync(path.join(PUBLIC, f))); } catch {} }
   return h.digest('hex').slice(0, 12);
 })();
 
@@ -112,9 +113,25 @@ function publicUser(u) {
     id: u.id, username: u.username, displayName: u.displayName, avatar: u.avatar || null,
     color: u.color, banner: u.banner, bio: u.bio || '', customStatus: u.customStatus || '',
     pronouns: u.pronouns || '', theme: u.theme || null,
+    accent: u.accent || null, frame: u.frame || null, effect: u.effect || null, badges: badgesOf(u),
     status: on ? (u.status || 'online') : 'offline', createdAt: u.createdAt
   };
 }
+/* insígnias: calculadas a partir de dados reais da conta (ninguém escolhe a própria) */
+let pioneers = null; // as 25 primeiras contas do servidor
+function badgesOf(u) {
+  if (!pioneers) pioneers = new Set(Object.values(db.users).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).slice(0, 25).map(x => x.id));
+  const b = [];
+  if (pioneers.has(u.id)) b.push('pioneiro');
+  if (Object.values(db.groups).some(g => g.ownerId === u.id)) b.push('fundador');
+  if (u.createdAt && now() - u.createdAt > 365 * 864e5) b.push('veterano');
+  if ((db.friends[u.id] || []).length >= 10) b.push('sociavel');
+  if (u.avatar && u.banner && u.bio) b.push('estiloso');
+  return b;
+}
+// visuais de perfil que existem no app (o servidor só aceita estes)
+const FRAMES = ['neon', 'arco', 'ouro', 'fogo', 'gelo', 'folhas', 'pixel', 'orbita'];
+const EFFECTS = ['estrelas', 'neve', 'brilho', 'bolhas', 'aurora'];
 
 /* ---------- grupos: cargos e permissões ---------- */
 const PERMS = ['admin', 'manageServer', 'manageChannels', 'manageRoles', 'kick', 'ban', 'manageMessages', 'mentionEveryone'];
@@ -143,7 +160,9 @@ function rank(g, uid) {
   return idx.length ? Math.min(...idx) : g.roles.length;
 }
 const above = (g, uid, target) => rank(g, uid) < rank(g, target);
-function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online' }; }
+function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online', blocked: u.blocked || [], favs: u.favs || null, privacy: u.privacy || {} }; }
+// bloqueio vale nos dois sentidos: quem bloqueou e quem foi bloqueado não se alcançam
+const blockedBetween = (a, b) => !!((db.users[a] && (db.users[a].blocked || []).includes(b)) || (db.users[b] && (db.users[b].blocked || []).includes(a)));
 
 /* ---------- relações ---------- */
 const friendsOf = uid => db.friends[uid] || (db.friends[uid] = []);
@@ -235,6 +254,7 @@ app.post('/api/register', (req, res) => {
     id, username, displayName: str(req.body.displayName, 32).trim() || username, salt, passHash: hashPw(password, salt),
     color: COLORS[Object.keys(db.users).length % COLORS.length], banner: null, avatar: null, bio: '', status: 'online', customStatus: '', createdAt: now()
   };
+  pioneers = null;
   const token = crypto.randomBytes(32).toString('hex');
   db.sessions[token] = id; save();
   res.json({ token });
@@ -309,7 +329,42 @@ function onConnection(socket) {
     if ('status' in d && ['online', 'ausente', 'ocupado', 'invisivel'].includes(d.status)) u.status = d.status;
     if ('pronouns' in d) u.pronouns = str(d.pronouns, 40).trim();
     if ('theme' in d) u.theme = Array.isArray(d.theme) && d.theme.length === 2 && d.theme.every(c => HEX.test(c)) ? d.theme : null;
+    if ('accent' in d) u.accent = HEX.test(d.accent || '') ? d.accent : null;
+    if ('frame' in d) u.frame = FRAMES.includes(d.frame) ? d.frame : null;
+    if ('effect' in d) u.effect = EFFECTS.includes(d.effect) ? d.effect : null;
     save(); pushUser(uid); ok(cb);
+  });
+  on('user:block', (d, cb) => {
+    const other = db.users[d.id]; if (!other || other.id === uid) return fail(cb, 'Usuário inválido.');
+    const u = me(); u.blocked = (u.blocked || []).filter(x => x !== other.id && db.users[x]);
+    if (d.block) {
+      if (u.blocked.length >= 500) return fail(cb, 'Você chegou ao limite de bloqueios.');
+      u.blocked.push(other.id);
+      // bloquear desfaz a amizade e apaga pedidos pendentes entre os dois
+      db.friends[uid] = friendsOf(uid).filter(x => x !== other.id); db.friends[other.id] = friendsOf(other.id).filter(x => x !== uid);
+      db.requests = db.requests.filter(r => !((r.from === uid && r.to === other.id) || (r.from === other.id && r.to === uid)));
+      pushFriends(other.id);
+    }
+    save(); pushFriends(uid); toUser(uid, 'me:update', selfUser(u)); ok(cb);
+  });
+  // aparelhos com login (cada login é um token) e janelas abertas agora
+  on('sessions:info', (_, cb) => ok(cb, { sessions: Object.values(db.sessions).filter(x => x === uid).length, online: (online.get(uid) || new Set()).size }));
+  on('sessions:revokeOthers', (_, cb) => {
+    for (const [t, u] of Object.entries(db.sessions)) if (u === uid && t !== socket.data.token) delete db.sessions[t];
+    save();
+    (online.get(uid) || new Set()).forEach(sid => { const s = sockets.get(sid); if (s && s.data.token !== socket.data.token) { s.emit('session:revoked'); s.disconnect(true); } });
+    ok(cb);
+  });
+  on('privacy:update', (d, cb) => {
+    const u = me(); const p = { ...(u.privacy || {}) };
+    if (['todos', 'grupos', 'ninguem'].includes(d.requests)) p.requests = d.requests;
+    u.privacy = p; save(); toUser(uid, 'me:update', selfUser(u)); ok(cb);
+  });
+  // o que você tem em comum com alguém: grupos e amigos (só a interseção com os seus)
+  on('user:mutual', (d, cb) => {
+    const other = db.users[d.id]; if (!other || other.id === uid) return fail(cb, 'Usuário inválido.');
+    const mine = new Set(friendsOf(uid));
+    ok(cb, { groups: groupsOf(uid).filter(g => g.members.includes(other.id)).map(g => g.id), friends: friendsOf(other.id).filter(f => mine.has(f)) });
   });
 
   /* amigos */
@@ -318,6 +373,9 @@ function onConnection(socket) {
     const target = Object.values(db.users).find(u => u.username === name);
     if (!target) return fail(cb, 'Não achei ninguém com esse nome de usuário.');
     if (target.id === uid) return fail(cb, 'Você não pode adicionar a si mesmo.');
+    if (blockedBetween(uid, target.id)) return fail(cb, 'Não dá para enviar pedido para essa pessoa.');
+    if (target.privacy && target.privacy.requests === 'ninguem') return fail(cb, 'Essa pessoa não está aceitando pedidos de amizade.');
+    if (target.privacy && target.privacy.requests === 'grupos' && !groupsOf(uid).some(g => g.members.includes(target.id))) return fail(cb, 'Essa pessoa só aceita pedidos de quem está num grupo com ela.');
     if (friendsOf(uid).includes(target.id)) return fail(cb, 'Vocês já são amigos.');
     if (db.requests.some(r => r.from === uid && r.to === target.id)) return fail(cb, 'Pedido já enviado. Aguarde a resposta.');
     const reverse = db.requests.find(r => r.from === target.id && r.to === uid);
@@ -352,6 +410,7 @@ function onConnection(socket) {
   on('dm:open', (d, cb) => {
     const other = db.users[d.userId];
     if (!other || other.id === uid) return fail(cb, 'Usuário inválido.');
+    if (blockedBetween(uid, other.id)) return fail(cb, 'Você não pode conversar com essa pessoa.');
     let dm = Object.values(db.dms).find(x => x.members.includes(uid) && x.members.includes(other.id));
     if (!dm) {
       dm = { id: newId(), members: [uid, other.id], createdAt: now() };
@@ -550,6 +609,7 @@ function onConnection(socket) {
   });
   on('message:send', (d, cb) => {
     const info = canAccess(uid, d.cid); if (!info) return fail(cb, 'Sem acesso.');
+    if (info.kind === 'dm' && info.members.some(m => m !== uid && blockedBetween(uid, m))) return fail(cb, 'Você não pode mandar mensagens para essa pessoa.');
     const content = str(d.content, 4000).trim();
     const image = store.isUpload(d.image) ? d.image : null;
     if (!content && !image) return fail(cb, 'Mensagem vazia.');
@@ -615,6 +675,7 @@ function onConnection(socket) {
   });
   on('call:ring', (d, cb) => {
     const dm = db.dms[d.dmId]; if (!dm || !dm.members.includes(uid)) return fail(cb, 'Conversa inválida.');
+    if (dm.members.some(m => m !== uid && blockedBetween(uid, m))) return fail(cb, 'Você não pode ligar para essa pessoa.');
     dm.members.filter(m => m !== uid).forEach(m => toUser(m, 'call:incoming', { dmId: dm.id, from: uid }));
     ok(cb);
   });
@@ -635,7 +696,7 @@ function makeIo(server) {
   io.use((socket, next) => {
     const uid = db.sessions[socket.handshake.auth && socket.handshake.auth.token];
     if (!uid || !db.users[uid]) return next(new Error('auth'));
-    socket.data.uid = uid; next();
+    socket.data.uid = uid; socket.data.token = socket.handshake.auth.token; next();
   });
   io.on('connection', onConnection);
   return io;
