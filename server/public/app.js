@@ -198,7 +198,8 @@ const PERM_INFO = [
   ['kick', 'Expulsar membros', 'Remover pessoas do grupo. Elas podem voltar com um convite.'],
   ['ban', 'Banir membros', 'Remover pessoas e impedir que elas voltem.'],
   ['manageMessages', 'Gerenciar mensagens', 'Apagar mensagens de outras pessoas. Também ignora o modo lento.'],
-  ['manageMedia', 'Gerenciar Central de Áudio e figurinhas', 'Adicionar e apagar os sons da Central de Áudio e as figurinhas do grupo.']
+  ['manageMedia', 'Gerenciar Central de Áudio e figurinhas', 'Adicionar e apagar os sons da Central de Áudio e as figurinhas do grupo.'],
+  ['mentionEveryone', 'Mencionar @todos', 'Escrever @todos para avisar todo mundo do grupo de uma vez.']
 ];
 const gRoles = (g, uid) => { const mine = g?.memberRoles?.[uid] || []; return (g?.roles || []).filter(r => mine.includes(r.id)); };
 function gCan(g, perm, uid = S.me?.id) {
@@ -264,7 +265,8 @@ const SOUNDS = {
   leave: () => prefs.joinSounds && tone([[784, .1], [523, .18]], 'triangle'),
   mute: () => tone([[440, .07]], 'square', .05),
   unmute: () => tone([[660, .07]], 'square', .05),
-  req: () => tone([[660, .1], [880, .1], [1100, .2]], 'triangle')
+  req: () => tone([[660, .1], [880, .1], [1100, .2]], 'triangle'),
+  mention: () => tone([[988, .08], [1319, .08], [1760, .18]], 'sine', .16)
 };
 let ringTimer = null;
 function ring(start, outgoing) {
@@ -576,14 +578,22 @@ function onMessage(m) {
   if (viewingCid() === m.cid) { renderMessages(); renderTyping(); }
   if (mine || viewing || m.system) return;
   const isDm = !!S.dms[m.cid];
-  const mention = new RegExp('@' + S.me.username + '\\b', 'i').test(m.content || '');
+  if ((S.me.blocked || []).includes(m.authorId)) return; // de quem você bloqueou: nada de aviso
+  const mention = mentionsMe(m);
   S.unread[m.cid] = (S.unread[m.cid] || 0) + 1;
   if (mention || isDm) S.mentions[m.cid] = (S.mentions[m.cid] || 0) + 1;
   const quiet = S.me.status === 'ocupado' || (!isDm && prefs.mentionsOnly && !mention);
   if (!quiet) {
-    SOUNDS.msg();
+    (mention ? SOUNDS.mention : SOUNDS.msg)();
     const g = groupOfChannel(m.cid);
-    notifyDesktop(isDm ? nameOf(m.authorId) : `${nameOf(m.authorId)} em #${g?.channels.find(c => c.id === m.cid)?.name}`, prefs.hidePreview ? 'Nova mensagem' : m.sticker ? 'Enviou uma figurinha' : m.gif ? 'Enviou um GIF' : m.content || 'Enviou uma imagem', user(m.authorId).avatar);
+    // te mencionaram e o app está aberto em outro lugar: aviso clicável que leva até a mensagem
+    if (mention && !document.hidden && document.hasFocus()) {
+      const el = document.createElement('div'); el.className = 'toast mention-toast'; el.setAttribute('role', 'button');
+      el.innerHTML = `${av(m.authorId, 32, false)}<div><b>${esc(nameOf(m.authorId))}</b> te mencionou${g ? ` em <b>#${esc(g.channels.find(c => c.id === m.cid)?.name || '')}</b>` : ''}<span>${esc((m.content || '').slice(0, 90))}</span></div>`;
+      el.onclick = () => { el.remove(); if (g) go({ kind: 'group', gid: g.id, cid: m.cid }); else go({ kind: 'dm', id: m.cid }); setTimeout(() => A.jump({ dataset: { id: m.id } }), 400); };
+      $('#toasts').appendChild(el); setTimeout(() => el.remove(), 9000);
+    }
+    notifyDesktop(mention && !isDm ? `${nameOf(m.authorId)} te mencionou em #${g?.channels.find(c => c.id === m.cid)?.name}` : isDm ? nameOf(m.authorId) : `${nameOf(m.authorId)} em #${g?.channels.find(c => c.id === m.cid)?.name}`, prefs.hidePreview ? 'Nova mensagem' : m.sticker ? 'Enviou uma figurinha' : m.gif ? 'Enviou um GIF' : m.content || 'Enviou uma imagem', user(m.authorId).avatar);
   }
   updateTitle(); renderRail(); renderSide();
 }
@@ -848,7 +858,7 @@ function md(text) {
     .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
     .replace(/\|\|([^|\n]+)\|\|/g, '<span class="spoiler" title="Spoiler: clique para ver">$1</span>')
     .replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')
-    .replace(/@([a-z0-9_.]{3,20})/gi, (m, n) => Object.values(S.users).some(u => u.username === n.toLowerCase()) ? `<span class="mention">@${n}</span>` : m);
+    .replace(/@([a-z0-9_.]{3,20})/gi, (m, n) => { const l = n.toLowerCase(); return l === 'todos' || l === 'everyone' ? `<span class="mention all">@${n}</span>` : Object.values(S.users).some(u => u.username === l) ? `<span class="mention ${l === S.me.username ? 'me' : ''}">@${n}</span>` : m; });
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[i]);
 }
 const JOIN_LINES = ['{n} entrou no grupo. Dá um oi!', '{n} chegou chegando. 🎉', 'Bem-vindo, {n}! Pega uma cadeira.', '{n} apareceu do nada.', 'Um {n} selvagem apareceu!', '{n} pousou no grupo. 🛬', 'Todo mundo dá as boas-vindas para {n}!', '{n} acabou de chegar. Alguém faz um café.'];
@@ -867,7 +877,6 @@ function renderMessages(forceBottom) {
   }
   let prev = null, lastDay = '';
   const g = S.view.kind === 'group' ? S.groups[S.view.gid] : null;
-  const mentionRe = new RegExp('@' + S.me.username + '\\b', 'i');
   for (const m of list) {
     const day = new Date(m.ts).toDateString();
     if (day !== lastDay) { html += `<div class="day-sep">${fmtDay(m.ts)}</div>`; lastDay = day; prev = null; }
@@ -888,7 +897,7 @@ function renderMessages(forceBottom) {
     const reacts = Object.entries(m.reactions || {});
     const editing = S.editing === m.id;
     const big = onlyEmoji(m.content);
-    html += `<div class="msg ${m.pinned ? 'pinned' : ''} ${head ? 'head' : ''} ${mine ? 'mine' : ''} ${!mine && mentionRe.test(m.content) ? 'mentioned' : ''}" data-mid="${m.id}" id="m-${m.id}">
+    html += `<div class="msg ${m.pinned ? 'pinned' : ''} ${head ? 'head' : ''} ${mine ? 'mine' : ''} ${mentionsMe(m) ? 'mentioned' : ''}" data-mid="${m.id}" id="m-${m.id}">
       ${head ? av(m.authorId, 40, false) : `<div class="gutter">${fmtTime(m.ts)}</div>`}
       <div class="mc" style="min-width:0">
         ${m.replyTo ? `<div class="reply-ref" data-act="jump" data-id="${m.replyTo}">${ic('reply').replace('<svg', '<svg style="width:14px;height:14px;transform:scaleX(-1)"')}${ref ? `<b>${esc(nameOf(ref.authorId))}</b> ${esc((ref.content || (ref.sticker ? '🗂️ figurinha' : ref.gif ? '🎞️ GIF' : '🖼️ imagem')).slice(0, 90))}` : '<i>mensagem apagada</i>'}</div>` : ''}
@@ -945,6 +954,7 @@ function buildComposer() {
   const ta = $('#composer'); ta.value = S.drafts[cid] || '';
   const fit = () => { ta.style.height = 'auto'; ta.style.height = Math.min(220, ta.scrollHeight) + 'px'; };
   fit();
+  mentionAC(ta); // antes do Enter de enviar: com a lista de @ aberta, Enter escolhe a pessoa
   let lastTyping = 0;
   ta.addEventListener('input', () => { fit(); if (Date.now() - lastTyping > 2500 && ta.value.trim()) { lastTyping = Date.now(); socket.emit('typing', { cid: viewingCid() }); } });
   ta.addEventListener('keydown', e => {
@@ -2607,11 +2617,26 @@ function gifPicker(anchor) {
 }
 
 /* ---- configurações do grupo: Central de Áudio e figurinhas ---- */
+const SOUND_IN_MAX = 25 * 1024 * 1024; // arquivo de entrada (o trecho cortado é que precisa caber em 1 MB)
 function gsSons(g, b) {
   const can = gCan(g, 'manageMedia'); const list = g.sounds || [];
   b.innerHTML = `<h2>Central de Áudio</h2><p class="muted set-sub">Sons que qualquer pessoa na call pode tocar para todo mundo. ${list.length}/${SOUND_MAX} sons.</p>
     ${can ? `<div class="set-card"><h3>Adicionar som</h3>
-      <div class="pe-row"><div><b>Arquivo</b><span class="muted small">MP3, WAV, OGG, WEBM ou M4A · até 1 MB e ${SOUND_MS / 1000} segundos.</span></div><div class="pe-btns"><button class="btn sm" id="snFile">Escolher arquivo</button><span class="muted small" id="snInfo">nenhum arquivo</span><button class="btn sm ghost" id="snPrev" disabled>Ouvir</button></div></div>
+      <div class="sn-drop" id="snDrop" tabindex="0" role="button" aria-label="Escolher arquivo de áudio">${ic('voice')}<b>Solte um áudio aqui</b><span>ou clique para escolher · MP3, WAV, OGG, M4A, WEBM · até 25 MB</span><span class="muted small">Se for maior que ${SOUND_MS / 1000} segundos, você escolhe o trecho logo abaixo.</span></div>
+      <div class="sn-editor" id="snEd" hidden>
+        <div class="sn-file"><b id="snFname"></b><span class="muted small" id="snFdur"></span><button class="btn sm ghost" id="snSwap">Trocar arquivo</button></div>
+        <canvas class="sn-over" id="snOver" height="34" aria-label="Arquivo inteiro: clique para ir até um ponto"></canvas>
+        <div class="sn-wave" id="snWaveBox"><canvas id="snWave" height="110"></canvas>
+          <div class="sn-sel" id="snSel"><i class="sn-h l" data-h="l" aria-label="Início do trecho"></i><i class="sn-h r" data-h="r" aria-label="Fim do trecho"></i><span class="sn-len" id="snLen"></span></div>
+          <i class="sn-ph" id="snPh" hidden></i></div>
+        <div class="sn-ctl">
+          <button class="btn sm primary" id="snPlay">${ic('voice')}Ouvir trecho</button>
+          <label class="sn-t">Início <input type="number" id="snA" min="0" step="0.1"> s</label>
+          <label class="sn-t">Fim <input type="number" id="snB" min="0" step="0.1"> s</label>
+          <label class="sn-fade"><input type="checkbox" id="snFade" checked> Suavizar início e fim</label>
+        </div>
+        <p class="muted small" style="margin:0">Arraste as bordas para cortar, ou arraste o trecho inteiro. Máximo de ${SOUND_MS / 1000} segundos.</p>
+      </div>
       <div class="pe-2"><label class="field">Nome<input id="snName" maxlength="32" placeholder="ex.: buzina"></label><label class="field">Categoria<input id="snCat" maxlength="24" list="snCats" placeholder="Geral"><datalist id="snCats">${[...new Set(['Geral', 'Memes', 'Reações', 'Música', ...list.map(s => s.category)])].map(c => `<option value="${esc(c)}">`).join('')}</datalist></label></div>
       <div class="field">Ícone<div class="emoji-grid sn-emo" id="snEmo">${'🔊 📯 🥁 🎺 🎸 👏 😂 😱 💀 🔥 🚨 🐐 🦆 🐸 💥 🎉'.split(' ').map((e, i) => `<button type="button" data-e="${e}" class="${i ? '' : 'on'}">${e}</button>`).join('')}</div></div>
       <div class="field">Volume do som<div class="range-row"><input type="range" id="snVol" min="10" max="100" step="5" value="100"><output id="snVolO">100%</output></div></div>
@@ -2623,35 +2648,161 @@ function gsSons(g, b) {
     const del = e.target.closest('[data-snd-del]'); if (del) { const s = list.find(x => x.id === del.dataset.sndDel); if (s && await confirmBox('Apagar som', `Apagar "${s.name}" da Central de Áudio?`, 'Apagar')) act('sound:delete', { gid: g.id, id: s.id }, 'Som apagado.'); }
   };
   if (!can) return;
-  const draft = { file: null, data: null, duration: 0, emoji: '🔊' };
+  const ed = soundEditor();
+  const draft = { emoji: '🔊' };
   $('#snEmo').onclick = e => { const x = e.target.closest('[data-e]'); if (!x) return; draft.emoji = x.dataset.e; $$('#snEmo button').forEach(y => y.classList.toggle('on', y === x)); };
-  $('#snVol').oninput = e => { $('#snVolO').textContent = e.target.value + '%'; };
-  const ready = () => { $('#snAdd').disabled = !(draft.data && $('#snName').value.trim()); };
+  $('#snVol').oninput = e => { $('#snVolO').textContent = e.target.value + '%'; ed.setVolume(+e.target.value / 100); };
+  const ready = () => { $('#snAdd').disabled = !(ed.loaded() && $('#snName').value.trim()); };
   $('#snName').oninput = ready;
-  $('#snFile').onclick = async () => {
-    const f = await pickFile('audio/mpeg,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/mp4,audio/x-m4a,.mp3,.wav,.ogg,.webm,.m4a'); if (!f) return;
-    if (f.size > 1024 * 1024) return toast('O áudio passa de 1 MB. Corte ou comprima antes.', true);
-    try {
-      const data = await readFile(f);
-      const buf = await audioCtx().decodeAudioData(await f.arrayBuffer());
-      const ms = Math.round(buf.duration * 1000);
-      if (ms > SOUND_MS) return toast(`O som tem ${(ms / 1000).toFixed(1)} s. O máximo é ${SOUND_MS / 1000} s.`, true);
-      Object.assign(draft, { file: f, data: data.replace(/^data:[^;]*;/, 'data:audio/x;'), duration: ms, buf });
-      $('#snInfo').textContent = `${f.name.slice(0, 28)} · ${(ms / 1000).toFixed(1)} s`; $('#snPrev').disabled = false;
-      if (!$('#snName').value.trim()) $('#snName').value = f.name.replace(/\.[^.]+$/, '').slice(0, 32);
-      ready();
-    } catch { toast('Não consegui ler esse áudio. Tente MP3, WAV ou OGG.', true); }
-  };
-  $('#snPrev').onclick = () => { if (!draft.buf) return; const c = audioCtx(), s = c.createBufferSource(), gn = c.createGain(); s.buffer = draft.buf; gn.gain.value = prefs.sbVol / 100 * +$('#snVol').value / 100; s.connect(gn).connect(c.destination); s.start(); };
+  ed.onLoad = name => { if (!$('#snName').value.trim()) $('#snName').value = name.replace(/\.[^.]+$/, '').slice(0, 32); ready(); };
   $('#snAdd').onclick = async () => {
-    $('#snAdd').disabled = true; $('#snAdd').textContent = 'Enviando...';
+    $('#snAdd').disabled = true; $('#snAdd').textContent = 'Preparando...';
     try {
-      const up = await api('/api/upload-audio', { data: draft.data });
-      const r = await act('sound:add', { gid: g.id, name: $('#snName').value, category: $('#snCat').value, emoji: draft.emoji, url: up.url, duration: draft.duration, volume: +$('#snVol').value }, 'Som adicionado.');
-      if (r.ok) return; // o grupo atualiza e a tela redesenha sozinha
+      const out = await ed.export(); // trecho escolhido (ou o arquivo original, se não precisou cortar)
+      $('#snAdd').textContent = 'Enviando...';
+      const up = await api('/api/upload-audio', { data: out.data });
+      const r = await act('sound:add', { gid: g.id, name: $('#snName').value, category: $('#snCat').value, emoji: draft.emoji, url: up.url, duration: out.ms, volume: +$('#snVol').value }, 'Som adicionado.');
+      if (r.ok) { ed.stop(); return; } // o grupo atualiza e a tela redesenha sozinha
     } catch (e) { toast(e.message, true); }
     $('#snAdd').disabled = false; $('#snAdd').textContent = 'Adicionar à Central';
   };
+}
+
+/* Editor de corte: carrega o áudio, desenha a onda, deixa escolher um trecho de até 7 s, ouvir e exportar em WAV.
+   Em cima, a onda do arquivo inteiro (para músicas longas); embaixo, a parte em volta do trecho, maior. */
+function soundEditor() {
+  const S_ = { buf: null, file: null, name: '', a: 0, b: 0, view: [0, 0], vol: 1, src: null, raf: 0, overImg: null };
+  const MIN = .2, MAXL = SOUND_MS / 1000;
+  const drop = $('#snDrop'), edEl = $('#snEd'), wave = $('#snWave'), over = $('#snOver'), sel = $('#snSel'), ph = $('#snPh'), box = $('#snWaveBox');
+  const api_ = { onLoad: null, loaded: () => !!S_.buf, setVolume: v => { S_.vol = v; }, stop, export: exportClip };
+  const fmt = s => (Math.round(s * 10) / 10).toFixed(1);
+  const choose = async () => { const f = await pickFile('audio/*,.mp3,.wav,.ogg,.webm,.m4a,.aac,.flac,.opus'); if (f) load(f); };
+  drop.onclick = choose; drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(); } };
+  $('#snSwap').onclick = choose;
+  // soltar arquivo: tanto na caixa quanto no editor
+  [drop, edEl].forEach(z => {
+    z.addEventListener('dragover', e => { if ([...e.dataTransfer.items].some(i => i.kind === 'file')) { e.preventDefault(); z.classList.add('over'); } });
+    z.addEventListener('dragleave', () => z.classList.remove('over'));
+    z.addEventListener('drop', e => { e.preventDefault(); z.classList.remove('over'); const f = [...e.dataTransfer.files][0]; if (f) load(f); });
+  });
+  async function load(f) {
+    if (!/^audio\//.test(f.type) && !/\.(mp3|wav|ogg|webm|m4a|aac|flac|opus)$/i.test(f.name)) return toast('Esse arquivo não é de áudio.', true);
+    if (f.size > SOUND_IN_MAX) return toast('O arquivo passa de 25 MB.', true);
+    stop(); drop.classList.add('busy');
+    try {
+      const buf = await audioCtx().decodeAudioData(await f.arrayBuffer());
+      Object.assign(S_, { buf, file: f, name: f.name, a: 0, b: Math.min(buf.duration, MAXL), overImg: null });
+      if (buf.duration > MAXL) toast(`O áudio tem ${fmt(buf.duration)} s: escolha o trecho de até ${MAXL} s.`);
+      drop.hidden = true; edEl.hidden = false;
+      $('#snFname').textContent = f.name; $('#snFdur').textContent = `${fmt(buf.duration)} s`;
+      fitView(); draw(); api_.onLoad && api_.onLoad(f.name);
+    } catch { toast('Não consegui ler esse áudio. Tente MP3, WAV ou OGG.', true); }
+    finally { drop.classList.remove('busy'); }
+  }
+  // janela da onda de baixo: mostra o trecho com folga (no mínimo 10 s, ou o arquivo todo se for curto)
+  function fitView() {
+    const d = S_.buf.duration, len = Math.min(d, Math.max(10, (S_.b - S_.a) * 2.5)), mid = (S_.a + S_.b) / 2;
+    let v0 = clamp(mid - len / 2, 0, d - len); S_.view = [v0, v0 + len];
+  }
+  function peaks(cv, t0, t1) {
+    const w = cv.width = cv.clientWidth * devicePixelRatio || 600, h = cv.height = (cv.clientHeight || 110) * devicePixelRatio;
+    const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, w, h);
+    const b = S_.buf, sr = b.sampleRate, chs = [...Array(b.numberOfChannels)].map((_, i) => b.getChannelData(i));
+    const s0 = Math.floor(t0 * sr), s1 = Math.min(b.length, Math.ceil(t1 * sr)), per = Math.max(1, (s1 - s0) / w);
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#6c7cff';
+    for (let x = 0; x < w; x++) {
+      let mx = 0; const a = s0 + Math.floor(x * per), z = Math.min(s1, a + Math.ceil(per)), step = Math.max(1, Math.floor((z - a) / 400));
+      for (let i = a; i < z; i += step) for (const c of chs) { const v = Math.abs(c[i]); if (v > mx) mx = v; }
+      const bh = Math.max(1, mx * h * .92); ctx.fillRect(x, (h - bh) / 2, 1, bh);
+    }
+  }
+  function draw() {
+    if (!S_.buf) return;
+    const d = S_.buf.duration;
+    if (!S_.overImg) { peaks(over, 0, d); S_.overImg = over.getContext('2d').getImageData(0, 0, over.width, over.height); }
+    else over.getContext('2d').putImageData(S_.overImg, 0, 0);
+    // na onda de cima: retângulo da janela e o trecho escolhido
+    const oc = over.getContext('2d'), ow = over.width, oh = over.height;
+    oc.fillStyle = 'rgba(255,255,255,.10)'; oc.fillRect(S_.view[0] / d * ow, 0, (S_.view[1] - S_.view[0]) / d * ow, oh);
+    oc.fillStyle = 'rgba(62,207,145,.45)'; oc.fillRect(S_.a / d * ow, 0, Math.max(2, (S_.b - S_.a) / d * ow), oh);
+    peaks(wave, S_.view[0], S_.view[1]);
+    const vl = S_.view[1] - S_.view[0], pct = t => (t - S_.view[0]) / vl * 100;
+    sel.style.left = pct(S_.a) + '%'; sel.style.width = (pct(S_.b) - pct(S_.a)) + '%';
+    $('#snLen').textContent = fmt(S_.b - S_.a) + ' s';
+    if (document.activeElement !== $('#snA')) $('#snA').value = fmt(S_.a);
+    if (document.activeElement !== $('#snB')) $('#snB').value = fmt(S_.b);
+  }
+  // arrastar: bordas mudam início/fim; o meio move o trecho todo; clicar fora leva o trecho até ali
+  const tAt = (e, el, t0, t1) => { const r = el.getBoundingClientRect(); return t0 + clamp((e.clientX - r.left) / r.width, 0, 1) * (t1 - t0); };
+  box.addEventListener('pointerdown', e => {
+    if (!S_.buf) return; e.preventDefault(); box.setPointerCapture(e.pointerId);
+    const h = e.target.dataset.h, onSel = e.target.closest('#snSel') && !h, d = S_.buf.duration;
+    const t0 = tAt(e, box, ...S_.view), a0 = S_.a, b0 = S_.b;
+    if (!h && !onSel) { const len = b0 - a0; S_.a = clamp(t0 - len / 2, 0, d - len); S_.b = S_.a + len; draw(); }
+    const move = ev => {
+      const t = tAt(ev, box, ...S_.view);
+      if (h === 'l') S_.a = clamp(t, Math.max(0, S_.b - MAXL), S_.b - MIN);
+      else if (h === 'r') S_.b = clamp(t, S_.a + MIN, Math.min(d, S_.a + MAXL));
+      else { const len = S_.b - S_.a, dt = t - t0; S_.a = clamp((onSel ? a0 : S_.a) + (onSel ? dt : 0), 0, d - len); if (!onSel) S_.a = clamp(t - len / 2, 0, d - len); S_.b = S_.a + len; }
+      draw();
+    };
+    const up = () => { box.removeEventListener('pointermove', move); box.removeEventListener('pointerup', up); box.removeEventListener('pointercancel', up); if (S_.a < S_.view[0] || S_.b > S_.view[1]) { fitView(); draw(); } };
+    box.addEventListener('pointermove', move); box.addEventListener('pointerup', up); box.addEventListener('pointercancel', up);
+  });
+  // onda de cima: clicar/arrastar leva o trecho para aquele ponto do arquivo
+  over.addEventListener('pointerdown', e => {
+    if (!S_.buf) return; over.setPointerCapture(e.pointerId);
+    const go_ = ev => { const d = S_.buf.duration, len = S_.b - S_.a, t = tAt(ev, over, 0, d); S_.a = clamp(t - len / 2, 0, d - len); S_.b = S_.a + len; fitView(); draw(); };
+    go_(e); const up = () => { over.removeEventListener('pointermove', go_); over.removeEventListener('pointerup', up); };
+    over.addEventListener('pointermove', go_); over.addEventListener('pointerup', up);
+  });
+  // digitar o início/fim: se passar do outro lado, o trecho anda junto mantendo o tamanho (e nunca passa de 7 s)
+  $('#snA').onchange = e => {
+    const d = S_.buf.duration, len = S_.b - S_.a; S_.a = clamp(+e.target.value || 0, 0, d - MIN);
+    if (S_.b < S_.a + MIN || S_.b - S_.a > MAXL) S_.b = Math.min(d, S_.a + Math.min(len, MAXL));
+    if (S_.b - S_.a < MIN) S_.a = S_.b - MIN; fitView(); draw();
+  };
+  $('#snB').onchange = e => {
+    const d = S_.buf.duration, len = S_.b - S_.a; S_.b = clamp(+e.target.value || 0, MIN, d);
+    if (S_.b < S_.a + MIN) S_.a = Math.max(0, S_.b - len);
+    if (S_.b - S_.a > MAXL) S_.a = S_.b - MAXL; fitView(); draw();
+  };
+  $('#snPlay').onclick = () => (S_.src ? stop() : play());
+  const onResize = () => { if (!edEl.isConnected) { stop(); return removeEventListener('resize', onResize); } if (S_.buf) { S_.overImg = null; draw(); } };
+  addEventListener('resize', onResize);
+  const fadeS = () => ($('#snFade').checked ? Math.min(.25, (S_.b - S_.a) / 4) : .006); // sempre um fade mínimo: evita "estalo"
+  function play() {
+    const c = audioCtx(), len = S_.b - S_.a, f = fadeS(), src = c.createBufferSource(), gn = c.createGain(), t = c.currentTime + .03, v = S_.vol * prefs.sbVol / 100;
+    src.buffer = S_.buf; src.connect(gn).connect(c.destination);
+    gn.gain.setValueAtTime(0, t); gn.gain.linearRampToValueAtTime(v, t + f); gn.gain.setValueAtTime(v, t + len - f); gn.gain.linearRampToValueAtTime(0, t + len);
+    src.start(t, S_.a, len); S_.src = src; $('#snPlay').innerHTML = `${ic('x')}Parar`;
+    ph.hidden = false;
+    const tick = () => { const p = c.currentTime - t; if (!S_.src || p > len) return stop(); ph.style.left = ((S_.a + Math.max(0, p) - S_.view[0]) / (S_.view[1] - S_.view[0]) * 100) + '%'; S_.raf = requestAnimationFrame(tick); };
+    tick(); src.onended = () => stop();
+  }
+  function stop() {
+    if (S_.src) { try { S_.src.stop(); } catch {} S_.src = null; }
+    cancelAnimationFrame(S_.raf); if (ph) ph.hidden = true; const pb = $('#snPlay'); if (pb) pb.innerHTML = `${ic('voice')}Ouvir trecho`;
+  }
+  // exporta: sem corte (arquivo inteiro, até 7 s e 1 MB) manda o original; senão gera WAV mono 44,1 kHz do trecho
+  async function exportClip() {
+    const b = S_.buf, len = S_.b - S_.a;
+    const whole = S_.a < .05 && S_.b > b.duration - .05 && b.duration <= MAXL && S_.file.size <= 1024 * 1024 && !$('#snFade').checked;
+    if (whole) return { data: (await readFile(S_.file)).replace(/^data:[^;]*;/, 'data:audio/x;'), ms: Math.round(b.duration * 1000) };
+    const sr = 44100, n = Math.ceil(len * sr), oc = new OfflineAudioContext(1, n, sr), src = oc.createBufferSource(), gn = oc.createGain(), f = fadeS();
+    src.buffer = b; src.connect(gn).connect(oc.destination);
+    gn.gain.setValueAtTime(0, 0); gn.gain.linearRampToValueAtTime(1, f); gn.gain.setValueAtTime(1, len - f); gn.gain.linearRampToValueAtTime(0, len);
+    src.start(0, S_.a, len);
+    const out = await oc.startRendering(), pcm = out.getChannelData(0);
+    const wav = new DataView(new ArrayBuffer(44 + pcm.length * 2)), w = (o, s) => [...s].forEach((ch, i) => wav.setUint8(o + i, ch.charCodeAt(0)));
+    w(0, 'RIFF'); wav.setUint32(4, 36 + pcm.length * 2, true); w(8, 'WAVE'); w(12, 'fmt '); wav.setUint32(16, 16, true); wav.setUint16(20, 1, true); wav.setUint16(22, 1, true);
+    wav.setUint32(24, sr, true); wav.setUint32(28, sr * 2, true); wav.setUint16(32, 2, true); wav.setUint16(34, 16, true); w(36, 'data'); wav.setUint32(40, pcm.length * 2, true);
+    for (let i = 0; i < pcm.length; i++) wav.setInt16(44 + i * 2, clamp(pcm[i], -1, 1) * 32767, true);
+    const blob = new Blob([wav.buffer], { type: 'audio/wav' });
+    const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+    return { data, ms: Math.round(len * 1000) };
+  }
+  return api_;
 }
 function gsFigurinhas(g, b) {
   const can = gCan(g, 'manageMedia'); const list = g.stickers || [];
@@ -2837,6 +2988,56 @@ async function pinsPanel(anchor) {
     if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1500); }
     else toast('Essa mensagem é antiga: role o chat para cima para carregar.');
   };
+}
+
+/* =============== menções (@usuario e @todos) ===============
+   O servidor diz quem foi mencionado (m.mentions, m.everyone). Mensagens antigas, sem essa lista, usam o texto. */
+function mentionsMe(m) {
+  if (!m || m.authorId === S.me.id) return false;
+  if (Array.isArray(m.mentions) || m.everyone) return !!(m.everyone || m.mentions.includes(S.me.id));
+  return new RegExp('@' + S.me.username.replace(/\./g, '\\.') + '\\b', 'i').test(m.content || '');
+}
+// lista de sugestões ao digitar @ no campo de mensagem
+function mentionAC(ta) {
+  let box = null, items = [], sel = 0, start = -1;
+  const close = () => { box?.remove(); box = null; items = []; };
+  const people = () => {
+    const cid = viewingCid(); const dm = S.dms[cid]; const g = curGroup();
+    return (dm ? dm.members : g ? g.members : []).filter(id => id !== S.me.id && S.users[id]);
+  };
+  const pick = i => {
+    const it = items[i]; if (!it) return;
+    const v = ta.value, end = ta.selectionStart, txt = '@' + it.insert + ' ';
+    ta.value = v.slice(0, start) + txt + v.slice(end); ta.selectionStart = ta.selectionEnd = start + txt.length;
+    close(); ta.dispatchEvent(new Event('input')); ta.focus();
+  };
+  const draw = () => {
+    if (!items.length) return close();
+    if (!box) { box = document.createElement('div'); box.className = 'mention-pop'; box.setAttribute('role', 'listbox'); ta.closest('.composer-wrap').prepend(box);
+      box.addEventListener('mousedown', e => { e.preventDefault(); const b = e.target.closest('[data-i]'); if (b) pick(+b.dataset.i); }); }
+    box.innerHTML = `<div class="mp-h">Mencionar</div>${items.map((it, i) => `<button type="button" role="option" data-i="${i}" class="${i === sel ? 'on' : ''}">${it.id ? av(it.id, 24, true) : '<span class="mp-all">@</span>'}<b>${esc(it.label)}</b><span>${esc(it.sub)}</span></button>`).join('')}`;
+  };
+  const update = () => {
+    const before = ta.value.slice(0, ta.selectionStart);
+    const m = /(^|\s)@([\p{L}\p{N}_.]{0,20})$/u.exec(before);
+    if (!m) return close();
+    start = before.length - m[2].length - 1;
+    const q = m[2].toLowerCase(), g = curGroup();
+    const list = people().map(id => { const u = user(id); return { id, insert: u.username, label: u.displayName || u.username, sub: '@' + u.username, score: u.username.startsWith(q) || (u.displayName || '').toLowerCase().startsWith(q) ? 0 : (u.username.includes(q) || (u.displayName || '').toLowerCase().includes(q)) ? 1 : 9 }; })
+      .filter(x => x.score < 9).sort((a, b) => a.score - b.score || a.label.localeCompare(b.label)).slice(0, 8);
+    if (g && gCan(g, 'mentionEveryone') && 'todos'.startsWith(q)) list.push({ id: null, insert: 'todos', label: '@todos', sub: 'avisa todo mundo do grupo' });
+    items = list; sel = Math.min(sel, Math.max(0, items.length - 1)); draw();
+  };
+  ta.addEventListener('input', update);
+  ta.addEventListener('click', update);
+  ta.addEventListener('blur', () => setTimeout(close, 120));
+  // registrado antes do Enter de enviar: com a lista aberta, Enter/Tab escolhe em vez de mandar
+  ta.addEventListener('keydown', e => {
+    if (!box) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; draw(); }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); pick(sel); }
+    else if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); }
+  });
 }
 
 /* =============== navegação =============== */

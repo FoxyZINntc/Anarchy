@@ -795,6 +795,13 @@ function onConnection(socket) {
     }
     const msg = { id: newId(), cid: d.cid, authorId: uid, content: sticker || gif ? '' : content, image: sticker || gif ? null : image, ts: now(), edited: null, reactions: {}, replyTo: str(d.replyTo, 20) || null };
     if (sticker) msg.sticker = sticker; if (gif) msg.gif = gif;
+    // menções: quem foi citado com @usuario (só membros da conversa) e @todos (precisa da permissão)
+    if (msg.content) {
+      const names = new Set([...msg.content.matchAll(/@([a-z0-9_.]{3,20})/gi)].map(x => x[1].toLowerCase()));
+      const ids = info.members.filter(m => m !== uid && db.users[m] && names.has(db.users[m].username));
+      if (ids.length) msg.mentions = ids.slice(0, 50);
+      if (info.kind === 'group' && /(^|\s)@(todos|everyone)\b/i.test(msg.content) && can(info.group, uid, 'mentionEveryone')) msg.everyone = true;
+    }
     // nome original do arquivo enviado (para baixar com o mesmo nome)
     if (msg.image && d.imageName) { const n = str(d.imageName, 120).replace(/[^\w.\- ()À-ÿ]/g, '').trim(); if (n) msg.imageName = n; }
     const list = db.messages[d.cid] || (db.messages[d.cid] = []);
