@@ -1431,9 +1431,10 @@ function drawSettings() {
         <div class="field">Teste do microfone<div style="display:flex;gap:10px;align-items:center"><button class="btn sm" id="mTest">Testar</button><div class="meter" style="flex:1"><i id="mMeter"></i></div></div></div>
       </div>
       <div class="set-card"><h3>Processamento de voz</h3>
-        ${setRow('Supressão de ruído', 'Corta ventilador, teclado e barulho de fundo.', sw('vNs', prefs.ns))}
-        ${setRow('Cancelamento de eco', 'Evita que seus amigos se ouçam pelo seu alto-falante.', sw('vEc', prefs.ec))}
-        ${setRow('Ganho automático', 'Ajusta o volume da sua voz sozinho.', sw('vAgc', prefs.agc))}
+        ${setRow('Supressão de ruído', 'Corta ventilador, teclado e barulho de fundo. Se sua voz ficar abafada ou cortando, tente desligar.', sw('vNs', prefs.ns))}
+        ${setRow('Cancelamento de eco', 'Evita que seus amigos se ouçam pelo seu alto-falante. <b>Deixe ligado se não usar fone de ouvido.</b>', sw('vEc', prefs.ec))}
+        ${setRow('Ganho automático', 'Ajusta o volume da sua voz sozinho. Se sua voz ficar subindo e descendo, desligue.', sw('vAgc', prefs.agc))}
+        <div class="set-row"><span class="muted small" id="vFx">${V.room ? 'As mudanças valem na hora para a call atual.' : 'Valem a partir da próxima call.'}</span><button class="btn sm ghost" id="vFxReset">Voltar ao padrão</button></div>
       </div>
       <div class="set-card"><h3>Modo de entrada</h3>
         ${setRow('Aperte para falar', 'O microfone só abre enquanto você segura a tecla.', sw('vPtt', prefs.ptt))}
@@ -1449,6 +1450,8 @@ function drawSettings() {
     $('#vNs').onchange = e => { prefs.ns = e.target.checked; savePrefs(); restart(); };
     $('#vEc').onchange = e => { prefs.ec = e.target.checked; savePrefs(); restart(); };
     $('#vAgc').onchange = e => { prefs.agc = e.target.checked; savePrefs(); restart(); };
+    $('#vFxReset').onclick = () => { prefs.ns = prefs.ec = prefs.agc = true; savePrefs(); ['vNs', 'vEc', 'vAgc'].forEach(id => $('#' + id).checked = true); restart(); toast('Efeitos de voz no padrão.'); };
+    $('#vEc').addEventListener('change', e => { if (!e.target.checked) toast('Sem cancelamento de eco, use fone de ouvido ou seus amigos vão ouvir eco.', true); });
     $('#vPtt').onchange = e => { prefs.ptt = e.target.checked; savePrefs(); applyMicGate(); renderUserBar(); };
     $('#vJs').onchange = e => { prefs.joinSounds = e.target.checked; savePrefs(); };
     bindSeg('vQ', v => { prefs.quality = v; savePrefs(); });
@@ -1562,7 +1565,8 @@ function tuneSdp(sdp) {
     const line = 'a=fmtp:' + pt + ' ' + Object.entries(cur).map(([k, v]) => (v === null ? k : k + '=' + v)).join(';');
     if (i >= 0) lines[i] = line; else { const r = lines.findIndex(l => l.startsWith('a=rtpmap:' + pt + ' ')); if (r >= 0) lines.splice(r + 1, 0, line); }
   };
-  pts('opus').forEach(pt => fmtp(pt, { useinbandfec: 1, usedtx: 0, maxaveragebitrate: 128000, maxplaybackrate: 48000, stereo: 1, 'sprop-stereo': 1 }));
+  // voz em mono (o padrão seguro: estéreo dobra o tráfego e pode atrapalhar o processamento de voz) com correção de perda
+  pts('opus').forEach(pt => fmtp(pt, { useinbandfec: 1, usedtx: 0, maxaveragebitrate: 96000, maxplaybackrate: 48000, stereo: 0, 'sprop-stereo': 0 }));
   ['VP8', 'VP9', 'H264', 'AV1'].forEach(c => pts(c).forEach(pt => fmtp(pt, { 'x-google-start-bitrate': 1500, 'x-google-max-bitrate': 8000 })));
   return lines.join('\r\n');
 }
@@ -1573,7 +1577,7 @@ function tuneSenders(pc) {
     const t = snd.track; if (!t) return;
     const prm = snd.getParameters(); if (!prm.encodings || !prm.encodings.length) return;
     const e = prm.encodings[0];
-    if (t.kind === 'audio') { e.maxBitrate = 128000; e.priority = 'high'; e.networkPriority = 'high'; }
+    if (t.kind === 'audio') { e.maxBitrate = 96000; e.priority = 'high'; e.networkPriority = 'high'; }
     else if (V.screen && V.screen.getTracks().includes(t)) { e.maxBitrate = q[0] * 1000; e.maxFramerate = q[1]; e.priority = 'medium'; prm.degradationPreference = q[1] >= 60 ? 'maintain-framerate' : 'maintain-resolution'; }
     else { e.maxBitrate = 2500000; e.maxFramerate = 30; prm.degradationPreference = 'balanced'; }
     snd.setParameters(prm).catch(() => {});
@@ -1588,14 +1592,17 @@ async function joinVoice(roomId, opts = {}) {
   if (!secureOk()) { modal(`<div class="modal-h"><h2>Conexão não segura</h2><p>O navegador só libera microfone e tela em endereços <b>https://</b> ou em <b>localhost</b>. Abra o Discordia pelo link https que aparece na janela do servidor, ou pelo link público.</p></div><div class="modal-f"><button class="btn primary" data-close>Entendi</button></div>`); return false; }
   if (V.room === roomId) { openStage(); return true; }
   if (V.room) leaveVoice();
+  V.jt = Date.now() * 1000 + Math.floor(Math.random() * 1000); // sessão nova desta entrada na call
   audioCtx();
   try { V.mic = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints() }); }
   catch (e) { V.mic = null; toast('Sem acesso ao microfone. Você entra só ouvindo.', true); }
-  const r = await emit('voice:join', { roomId, muted: V.muted || !V.mic, deafened: V.deaf });
-  if (!r.ok) { V.mic && V.mic.getTracks().forEach(t => t.stop()); V.mic = null; toast(r.erro, true); return false; }
-  V.room = roomId; V.ice = r.iceServers || V.ice; V.calling = !!opts.calling;
   if (!V.mic) V.muted = true;
-  applyMicGate();
+  applyMicGate(); // antes de conectar: quem entra silenciado não vaza nenhum pedaço de áudio
+  // já marca a sala antes da resposta: os sinais de conexão que chegam nesse meio-tempo não se perdem
+  V.room = roomId;
+  const r = await emit('voice:join', { roomId, muted: V.muted || !V.mic, deafened: V.deaf });
+  if (!r.ok) { V.room = null; V.mic && V.mic.getTracks().forEach(t => t.stop()); V.mic = null; toast(r.erro, true); return false; }
+  V.ice = r.iceServers || V.ice; V.calling = !!opts.calling;
   if (V.mic) watchLevel(S.mySid, V.mic);
   r.peers.forEach(p => getPeer(p.sid));
   SOUNDS.join();
@@ -1607,7 +1614,7 @@ function cleanupVoice() {
   V.peers.clear();
   [V.mic, V.screen, V.cam].forEach(s => s && s.getTracks().forEach(t => t.stop()));
   V.mic = V.screen = V.cam = null; V.room = null; V.calling = false; S.focusTile = null;
-  V.levels.clear(); V.videoCache.clear(); dropAudio(() => true); $('#audioSink').innerHTML = '';
+  [...V.levels.keys()].forEach(dropLevel); V.videoCache.clear(); dropAudio(() => true); $('#audioSink').innerHTML = '';
   ring(false); render();
 }
 function leaveVoice() {
@@ -1628,10 +1635,19 @@ async function restartMic() {
   } catch { toast('Não consegui trocar o microfone.', true); }
 }
 
+/* Cada entrada na call ganha uma "sessão" (V.jt). Os sinais levam a sessão de quem mandou (jt) e a que ele
+   acha que é a nossa (rjt). Assim, quando alguém sai e entra de novo, sinais atrasados da call anterior
+   são descartados em vez de bagunçar a conexão nova (era isso que deixava as vozes picotadas/robóticas). */
+function sendSig(p, data) { socket.emit('rtc:signal', { to: p.sid, data: { ...data, jt: V.jt, rjt: p.rjt || undefined } }); }
+function resetPeer(sid) {
+  const p = V.peers.get(sid); if (!p) return;
+  try { p.pc.close(); } catch {}
+  V.peers.delete(sid); dropAudio(a => a.sid === sid); dropLevel(sid);
+}
 function getPeer(sid) {
   let p = V.peers.get(sid); if (p) return p;
   const pc = new RTCPeerConnection({ iceServers: V.ice });
-  p = { sid, pc, polite: S.mySid > sid, makingOffer: false, ignoreOffer: false, streams: new Map() };
+  p = { sid, pc, polite: S.mySid > sid, makingOffer: false, ignoreOffer: false, streams: new Map(), rjt: null, joinedAt: (peerInfo(sid) || {}).joinedAt || null };
   V.peers.set(sid, p);
   [V.mic, V.screen, V.cam].forEach(s => s && s.getTracks().forEach(t => pc.addTrack(t, s)));
   pc.onnegotiationneeded = async () => {
@@ -1640,12 +1656,12 @@ function getPeer(sid) {
       const offer = await pc.createOffer();
       if (pc.signalingState !== 'stable') return;
       await pc.setLocalDescription({ type: 'offer', sdp: tuneSdp(offer.sdp) });
-      socket.emit('rtc:signal', { to: sid, data: { description: pc.localDescription } });
+      sendSig(p, { description: pc.localDescription });
       tuneSenders(pc);
     }
     catch (e) { console.warn(e); } finally { p.makingOffer = false; }
   };
-  pc.onicecandidate = ({ candidate }) => { if (candidate) socket.emit('rtc:signal', { to: sid, data: { candidate } }); };
+  pc.onicecandidate = ({ candidate }) => { if (candidate) sendSig(p, { candidate }); };
   pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') pc.restartIce(); if (pc.iceConnectionState === 'connected') tuneSenders(pc); };
   pc.ontrack = ({ track, streams }) => {
     const st = streams[0] || new MediaStream([track]);
@@ -1659,7 +1675,16 @@ function getPeer(sid) {
 }
 async function onSignal({ from, data }) {
   if (!V.room) return;
-  const p = getPeer(from), pc = p.pc;
+  // mandado para uma entrada nossa que já acabou: ignora
+  if (data.rjt && data.rjt !== V.jt) return;
+  let p = V.peers.get(from);
+  if (p && data.jt && p.rjt) {
+    if (data.jt < p.rjt) return;                       // sinal velho da sessão anterior dessa pessoa
+    if (data.jt > p.rjt) { resetPeer(from); p = null; } // a pessoa saiu e entrou de novo: começa do zero
+  }
+  p = p || getPeer(from);
+  if (data.jt && !p.rjt) p.rjt = data.jt;
+  const pc = p.pc;
   try {
     if (data.description) {
       const offerCollision = data.description.type === 'offer' && (p.makingOffer || pc.signalingState !== 'stable');
@@ -1669,7 +1694,7 @@ async function onSignal({ from, data }) {
       if (data.description.type === 'offer') {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription({ type: 'answer', sdp: tuneSdp(answer.sdp) });
-        socket.emit('rtc:signal', { to: from, data: { description: pc.localDescription } });
+        sendSig(p, { description: pc.localDescription });
         tuneSenders(pc);
       }
     } else if (data.candidate) {
@@ -1751,8 +1776,12 @@ function onVoiceRoom({ roomId, peers }) {
   if (peers.length) S.voice[roomId] = peers; else delete S.voice[roomId];
   if (roomId === V.room) {
     const now = peers.map(p => p.sid);
+    // quem saiu, ou saiu e voltou rápido (a hora de entrada mudou): fecha a conexão velha
+    V.peers.forEach((p, sid) => {
+      const info = peers.find(x => x.sid === sid);
+      if (!info || (p.joinedAt && info.joinedAt && info.joinedAt !== p.joinedAt)) resetPeer(sid);
+    });
     now.forEach(sid => { if (sid !== S.mySid) getPeer(sid); });
-    V.peers.forEach((p, sid) => { if (!now.includes(sid)) { try { p.pc.close(); } catch {} V.peers.delete(sid); dropAudio(a => a.sid === sid); V.levels.delete(sid); } });
     applyVolumes(); // quem começou ou parou de compartilhar a tela muda qual volume vale
     const joined = now.filter(s => !before.includes(s) && s !== S.mySid), left = before.filter(s => !now.includes(s) && s !== S.mySid);
     if (joined.length) { SOUNDS.join(); if (V.calling) { V.calling = false; ring(false); } }
@@ -1815,8 +1844,10 @@ function stopStream(kind) {
 }
 
 /* níveis de voz (quem está falando) */
+function dropLevel(sid) { const l = V.levels.get(sid); if (l) { try { l.src.disconnect(); } catch {} V.levels.delete(sid); } }
 function watchLevel(sid, stream) {
-  try { const c = audioCtx(); const src = c.createMediaStreamSource(stream); const an = c.createAnalyser(); an.fftSize = 256; src.connect(an); V.levels.set(sid, { an, buf: new Uint8Array(an.fftSize) }); } catch {}
+  dropLevel(sid); // sem isso, cada entrada na call deixava um medidor velho ligado
+  try { const c = audioCtx(); const src = c.createMediaStreamSource(stream); const an = c.createAnalyser(); an.fftSize = 256; src.connect(an); V.levels.set(sid, { an, src, buf: new Uint8Array(an.fftSize) }); } catch {}
 }
 setInterval(() => {
   if (!V.room) return;
