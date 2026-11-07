@@ -1938,6 +1938,7 @@ async function joinVoice(roomId, opts = {}) {
   r.peers.forEach(p => getPeer(p.sid));
   SOUNDS.join();
   if (opts.video) toggleCam();
+  if (prefs.mixerOpen) mixerOpen();
   render(); return true;
 }
 function cleanupVoice() {
@@ -1946,7 +1947,7 @@ function cleanupVoice() {
   [V.screen, V.cam].forEach(s => s && s.getTracks().forEach(t => t.stop())); stopMic();
   V.screen = V.cam = null; V.room = null; SB.playing.forEach(x => { try { x.src.stop(); } catch {} }); SB.playing.clear(); V.calling = false; S.focusTile = null;
   [...V.levels.keys()].forEach(dropLevel); V.videoCache.clear(); dropAudio(() => true); $('#audioSink').innerHTML = '';
-  ring(false); render();
+  ring(false); mixerSync(); render();
 }
 function leaveVoice() {
   if (!V.room) return;
@@ -2061,6 +2062,7 @@ function applyVolumes() {
     if (v > 1 && boost(a, true)) { a.el.muted = true; a.gain.gain.value = v; }
     else { boost(a, false); a.el.muted = v === 0; a.el.volume = Math.min(1, v); }
   });
+  mixerSync();
 }
 function attachAudio(sid, stream) {
   if (AUD.has(stream.id)) return;
@@ -2116,6 +2118,7 @@ function onVoiceRoom({ roomId, peers }) {
     if (joined.length) { SOUNDS.join(); if (V.calling) { V.calling = false; ring(false); } }
     if (left.length) SOUNDS.leave();
     if (S.focusTile && !peers.some(p => S.focusTile.endsWith(p.sid))) S.focusTile = null;
+    mixerSync();
   }
   render();
 }
@@ -2126,11 +2129,11 @@ function toggleMute() {
   if (!V.mic && V.room) return toast('Sem microfone nesta call.', true);
   if (V.deaf) { V.deaf = false; V.muted = false; } else V.muted = !V.muted;
   applyVolumes();
-  (V.muted ? SOUNDS.mute : SOUNDS.unmute)(); applyMicGate(); sendState(); render();
+  (V.muted ? SOUNDS.mute : SOUNDS.unmute)(); applyMicGate(); sendState(); mixerSync(); render();
 }
 function toggleDeaf() {
   V.deaf = !V.deaf; applyVolumes();
-  (V.deaf ? SOUNDS.mute : SOUNDS.unmute)(); applyMicGate(); sendState(); render();
+  (V.deaf ? SOUNDS.mute : SOUNDS.unmute)(); applyMicGate(); sendState(); mixerSync(); render();
 }
 async function toggleScreen() {
   if (!V.room) return;
@@ -2358,48 +2361,106 @@ function soundboardPanel(anchor) {
   if ($('#sbMng', p)) $('#sbMng', p).onclick = () => { closePops(); openGroupSettings(g.id, 'sons'); };
 }
 
-/* ---- mixer da call: volume local de cada pessoa, do seu microfone e da Central de Áudio ---- */
-function mixerPanel(anchor) {
-  const peers = (S.voice[V.room] || []).filter(p => p.sid !== S.mySid);
-  const row = p => {
-    const muted = prefs.umute && prefs.umute[p.uid];
-    return `<div class="mx-row" data-mx="${p.uid}"><div class="mx-who">${av(p.uid, 32, false).replace('class="av', `data-speak="${p.sid}" class="av`)}<div><b>${esc(nameOf(p.uid))}</b><span class="mx-st">${p.deafened ? ic('headOff') + 'sem áudio' : p.muted ? ic('micOff') + 'microfone mudo' : '<i class="mx-live"></i>recebendo áudio'}</span></div>
-      <button class="icon-btn ${muted ? 'on' : ''}" data-mxm="${p.uid}" data-tip="${muted ? 'Voltar a ouvir' : 'Silenciar para mim'}">${ic(muted ? 'micOff' : 'voice')}</button></div>
-      <label class="mx-sl">Voz<input type="range" min="0" max="200" step="5" value="${volOf(p.uid, 'voice')}" data-mxv="${p.uid}"><output>${volOf(p.uid, 'voice')}%</output></label>
-      ${p.screen ? `<label class="mx-sl">Tela<input type="range" min="0" max="200" step="5" value="${volOf(p.uid, 'screen')}" data-mxs="${p.uid}"><output>${volOf(p.uid, 'screen')}%</output></label>` : ''}</div>`;
-  };
-  const p = pop(`<div class="mx-h"><b>Mixer</b><span class="muted small">Os volumes de saída e de cada pessoa mudam só o que <b>você</b> escuta.</span></div>
-    <div class="mx-sec"><div class="mx-t">Você · muda o que os outros escutam</div>
-      <label class="mx-sl">Meu microfone<input type="range" min="0" max="200" step="5" value="${prefs.micGain}" id="mxMic"><output>${prefs.micGain}%</output></label>
-      <div class="mx-meter"><i id="mxLvl"></i></div></div>
-    <div class="mx-sec"><div class="mx-t">Geral</div>
-      <label class="mx-sl">Saída da call<input type="range" min="0" max="200" step="5" value="${prefs.outVol}" id="mxOut"><output>${prefs.outVol}%</output></label>
-      <label class="mx-sl">Central de Áudio<input type="range" min="0" max="100" step="5" value="${prefs.sbVol}" id="mxSb"><output>${prefs.sbVol}%</output></label></div>
-    <div class="mx-sec"><div class="mx-t">Pessoas na call · ${peers.length}</div>${peers.length ? peers.map(row).join('') : '<p class="muted small" style="margin:4px 0">Ninguém além de você.</p>'}</div>
-    <div class="mx-f"><button class="btn sm ghost" id="mxReset">Voltar tudo a 100%</button><button class="btn sm" data-act="voiceSettings">Mais opções</button></div>`, anchor, 'mixer', 'above');
-  const setV = (key, uid, v) => { prefs[key] = { ...(prefs[key] || {}) }; if (v === null || v === 100) delete prefs[key][uid]; else prefs[key][uid] = v; savePrefs(); applyVolumes(); };
-  p.oninput = e => {
-    const t = e.target; const o = t.nextElementSibling; if (o && o.tagName === 'OUTPUT') o.textContent = t.value + '%';
-    if (t.dataset.mxv) setV('vol', t.dataset.mxv, +t.value);
-    if (t.dataset.mxs) setV('svol', t.dataset.mxs, +t.value);
-    if (t.id === 'mxMic') { prefs.micGain = +t.value; savePrefs(); setMicGain(); }
-    if (t.id === 'mxOut') { prefs.outVol = +t.value; savePrefs(); applyVolumes(); }
-    if (t.id === 'mxSb') { prefs.sbVol = +t.value; savePrefs(); }
-  };
-  p.onchange = () => { renderSide(); };
-  p.onclick = e => {
-    const m = e.target.closest('[data-mxm]');
-    if (m) { const uid = m.dataset.mxm; prefs.umute = { ...(prefs.umute || {}) }; if (prefs.umute[uid]) delete prefs.umute[uid]; else prefs.umute[uid] = true; savePrefs(); applyVolumes(); renderSide(); renderStageSlot(); closePops(); mixerPanel(anchor); }
-    if (e.target.id === 'mxReset') { prefs.vol = {}; prefs.svol = {}; prefs.umute = {}; prefs.outVol = 100; savePrefs(); applyVolumes(); renderSide(); renderStageSlot(); closePops(); mixerPanel(anchor); }
-  };
-  // medidor do seu microfone dentro do mixer
-  const iv = setInterval(() => {
-    const el = $('#mxLvl', p); if (!el || !p.isConnected) return clearInterval(iv);
-    const l = V.levels.get(S.mySid); if (!l) return;
-    const on = V.mic && V.mic.getAudioTracks().some(t => t.enabled);
-    el.style.width = on ? levelOf(l.an, l.buf) + '%' : '0%';
-  }, 80);
+/* ---- mixer da call ----
+   Painel fixo (não some ao clicar fora) que acompanha a call: quem entra ganha uma linha, quem sai some.
+   Cada linha é criada uma vez e só atualizada (nome, mudo, tela) — os controles não são recriados enquanto
+   você arrasta. Volumes de pessoas, da saída e da Central de Áudio mudam só o que VOCÊ escuta (são aplicados
+   no <audio>/ganho de cada fluxo recebido, em applyVolumes). O volume do seu microfone muda o que os outros
+   escutam e fica separado. */
+const MX = { el: null, iv: 0 };
+const mxPct = v => `${Math.round(v)}%`;
+function mixerToggle() {
+  if (!V.room) return toast('Entre numa call para usar o mixer.', true);
+  if (MX.el) { mixerClose(); return; }
+  prefs.mixerOpen = true; savePrefs(); mixerOpen();
 }
+function mixerOpen() {
+  if (MX.el || !V.room) return;
+  const el = document.createElement('section'); el.className = 'mixer' + (prefs.mixerMin ? ' min' : ''); el.setAttribute('aria-label', 'Mixer de áudio');
+  el.innerHTML = `<header class="mx-hd"><b>${ic('sliders')}Mixer</b><span class="mx-n"></span>
+      <button class="icon-btn" data-mx="min" aria-label="Recolher ou expandir">${ic('down')}</button><button class="icon-btn" data-mx="close" aria-label="Fechar mixer">${ic('x')}</button></header>
+    <div class="mx-body">
+      <div class="mx-grp"><div class="mx-t">Só para você</div>
+        <div class="mx-ctl"><span>Saída da call</span><input type="range" min="0" max="200" step="5" data-k="out" aria-label="Volume geral da call"><output></output></div>
+        <div class="mx-ctl"><span>Central de Áudio</span><input type="range" min="0" max="100" step="5" data-k="sb" aria-label="Volume da Central de Áudio"><output></output></div></div>
+      <div class="mx-grp"><div class="mx-t">Seu microfone · o que os outros escutam</div>
+        <div class="mx-me"><button class="icon-btn" data-mx="mute" aria-label="Silenciar meu microfone"></button><div class="mx-bar"><i data-lvl="me"></i></div></div>
+        <div class="mx-ctl"><span>Volume</span><input type="range" min="0" max="200" step="5" data-k="mic" aria-label="Volume do meu microfone"><output></output></div></div>
+      <div class="mx-grp"><div class="mx-t">Pessoas <span class="mx-cnt"></span></div><div class="mx-list"></div><p class="mx-empty muted small">Ninguém além de você por enquanto.</p></div>
+      <div class="mx-foot"><button class="btn sm ghost" data-mx="reset">Voltar tudo a 100%</button><button class="btn sm ghost" data-act="voiceSettings">Mais opções</button></div>
+    </div>`;
+  document.body.appendChild(el); MX.el = el;
+  // um ouvinte de cada tipo, no painel inteiro (as linhas novas não ganham ouvintes próprios)
+  el.addEventListener('input', e => {
+    const t = e.target; if (t.type !== 'range') return;
+    const v = +t.value; const out = t.nextElementSibling; if (out) out.textContent = mxPct(v);
+    const k = t.dataset.k, uid = t.closest('[data-uid]')?.dataset.uid;
+    if (k === 'out') { prefs.outVol = v; applyVolumes(); }
+    else if (k === 'sb') prefs.sbVol = v;
+    else if (k === 'mic') { prefs.micGain = v; setMicGain(); }
+    else if ((k === 'vol' || k === 'svol') && uid) { prefs[k] = { ...(prefs[k] || {}) }; if (v === 100) delete prefs[k][uid]; else prefs[k][uid] = v; applyVolumes(); }
+    savePrefs();
+  });
+  el.addEventListener('change', () => renderSide());
+  el.addEventListener('click', e => {
+    const b = e.target.closest('[data-mx]'); if (!b) return;
+    const a = b.dataset.mx, uid = b.closest('[data-uid]')?.dataset.uid;
+    if (a === 'close') mixerClose();
+    if (a === 'min') { prefs.mixerMin = !prefs.mixerMin; savePrefs(); el.classList.toggle('min', prefs.mixerMin); }
+    if (a === 'mute') toggleMute();
+    if (a === 'umute' && uid) { prefs.umute = { ...(prefs.umute || {}) }; if (prefs.umute[uid]) delete prefs.umute[uid]; else prefs.umute[uid] = true; savePrefs(); applyVolumes(); renderSide(); renderStageSoon(); }
+    if (a === 'reset') { prefs.vol = {}; prefs.svol = {}; prefs.umute = {}; prefs.outVol = 100; prefs.sbVol = 70; savePrefs(); applyVolumes(); renderSide(); renderStageSoon(); $$('input[type=range]', el).forEach(r => r.dataset.set = ''); }
+    mixerSync();
+  });
+  mixerSync();
+  // medidores de nível: um só intervalo, só enquanto o painel está aberto e expandido
+  MX.iv = setInterval(() => {
+    if (!MX.el || prefs.mixerMin) return;
+    const room = S.voice[V.room] || [];
+    $$('[data-lvl]', MX.el).forEach(bar => {
+      const sid = bar.dataset.lvl === 'me' ? S.mySid : bar.dataset.lvl, l = V.levels.get(sid), p = room.find(x => x.sid === sid);
+      const quiet = !l || (sid === S.mySid ? !(V.mic && V.mic.getAudioTracks().some(t => t.enabled)) : (p && (p.muted || p.deafened)));
+      bar.style.width = quiet ? '0%' : levelOf(l.an, l.buf) + '%';
+    });
+  }, 90);
+}
+function mixerClose() {
+  clearInterval(MX.iv); MX.iv = 0; MX.el?.remove(); MX.el = null;
+  if (V.room) { prefs.mixerOpen = false; savePrefs(); }
+}
+// deixa o painel igual ao estado atual da call, mexendo só no que mudou
+function mixerSync() {
+  const el = MX.el; if (!el) return;
+  if (!V.room) { clearInterval(MX.iv); MX.iv = 0; el.remove(); MX.el = null; return; }
+  const setR = (r, v) => { if (document.activeElement === r) return; if (r.value !== String(v)) r.value = v; const o = r.nextElementSibling; if (o) o.textContent = mxPct(v); };
+  setR($('[data-k="out"]', el), prefs.outVol); setR($('[data-k="sb"]', el), prefs.sbVol); setR($('[data-k="mic"]', el), prefs.micGain);
+  const mb = $('[data-mx="mute"]', el); const off = V.muted || V.deaf || !V.mic;
+  mb.innerHTML = ic(off ? 'micOff' : 'mic'); mb.classList.toggle('on', off); mb.dataset.tip = off ? 'Ativar microfone' : 'Silenciar microfone';
+  const peers = (S.voice[V.room] || []).filter(p => p.sid !== S.mySid);
+  $('.mx-n', el).textContent = `${peers.length + 1} na call`; $('.mx-cnt', el).textContent = `· ${peers.length}`;
+  $('.mx-empty', el).hidden = peers.length > 0;
+  const list = $('.mx-list', el);
+  // quem saiu
+  $$('[data-uid]', list).forEach(row => { if (!peers.some(p => p.sid === row.dataset.sid)) row.remove(); });
+  for (const p of peers) {
+    let row = $(`[data-sid="${CSS.escape(p.sid)}"]`, list);
+    if (!row) {
+      row = document.createElement('div'); row.className = 'mx-row'; row.dataset.uid = p.uid; row.dataset.sid = p.sid;
+      row.innerHTML = `<div class="mx-who">${av(p.uid, 32, false, 'calm').replace('class="av', `data-speak="${p.sid}" class="av`)}<div class="mx-id"><b></b><span class="mx-st"></span><div class="mx-bar"><i data-lvl="${p.sid}"></i></div></div><button class="icon-btn" data-mx="umute"></button></div>
+        <div class="mx-ctl"><span>Voz</span><input type="range" min="0" max="200" step="5" data-k="vol" aria-label="Volume da voz de ${esc(nameOf(p.uid))}"><output></output></div>
+        <div class="mx-ctl mx-scr"><span>Tela</span><input type="range" min="0" max="200" step="5" data-k="svol" aria-label="Volume da tela de ${esc(nameOf(p.uid))}"><output></output></div>`;
+      list.appendChild(row);
+    }
+    const um = !!(prefs.umute && prefs.umute[p.uid]);
+    $('.mx-id b', row).textContent = nameOf(p.uid);
+    $('.mx-st', row).innerHTML = p.deafened ? `${ic('headOff')}sem áudio` : p.muted ? `${ic('micOff')}microfone mudo` : um ? `${ic('micOff')}silenciado para você` : '<i class="mx-live"></i>conectado';
+    const ub = $('[data-mx="umute"]', row); ub.innerHTML = ic(um ? 'micOff' : 'voice'); ub.classList.toggle('on', um); ub.dataset.tip = um ? 'Voltar a ouvir' : 'Silenciar para mim';
+    row.classList.toggle('muted', um);
+    setR($('[data-k="vol"]', row), volOf(p.uid, 'voice'));
+    const scr = $('.mx-scr', row); scr.hidden = !p.screen; if (p.screen) setR($('[data-k="svol"]', row), volOf(p.uid, 'screen'));
+  }
+}
+
 
 /* =============== figurinhas e GIFs =============== */
 const favs = () => ({ stickers: [], gifs: [], recentStickers: [], recentGifs: [], ...(S.me.favs || {}) });
@@ -2651,7 +2712,7 @@ const A = {
   settings: el => { closePops(); openSettings(el.dataset.tab); },
   voiceSettings: () => { closePops(); openSettings('voz'); },
   soundboard: el => soundboardPanel(el),
-  mixer: el => { if (!V.room) return toast('Entre numa call para usar o mixer.', true); mixerPanel(el); },
+  mixer: () => mixerToggle(),
   stickerPick: el => stickerPicker(el),
   gifPick: el => gifPicker(el),
   stickerInfo: el => {
