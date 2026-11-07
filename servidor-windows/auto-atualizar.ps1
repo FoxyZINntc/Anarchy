@@ -1,5 +1,5 @@
 # Atualiza o servidor do Discordia sozinho a partir do GitHub.
-# A tarefa "Discordia Auto Atualizar" roda este arquivo a cada 5 minutos: se tiver commit novo,
+# A tarefa "Discordia Auto Atualizar" roda este arquivo a cada 1 minuto: se tiver commit novo,
 # baixa (git pull), instala dependencias se mudaram e reinicia o servidor.
 #
 # Para ligar (uma vez, no PowerShell como Administrador, dentro de C:\Discordia):
@@ -21,11 +21,11 @@ if ($Instalar) {
   $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
   if (-not $admin) { Write-Host "Abra o PowerShell como Administrador e rode de novo." -ForegroundColor Red; exit 1 }
   $acao = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`"" -WorkingDirectory $Raiz
-  $gatilho = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
+  $gatilho = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
   $quem = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
   $ajustes = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 15) -MultipleInstances IgnoreNew
   Register-ScheduledTask -TaskName $Tarefa -Action $acao -Trigger $gatilho -Principal $quem -Settings $ajustes -Force | Out-Null
-  Write-Host "Atualizacao automatica ligada: o servidor confere o GitHub a cada 5 minutos." -ForegroundColor Green
+  Write-Host "Atualizacao automatica ligada: o servidor confere o GitHub a cada 1 minuto." -ForegroundColor Green
   Write-Host "O que ela faz fica anotado em $Raiz\logs\atualizacao.log" -ForegroundColor Green
   exit 0
 }
@@ -34,12 +34,23 @@ if ($Instalar) {
 New-Item -ItemType Directory -Force (Join-Path $Raiz 'logs') | Out-Null
 $logFile = Join-Path $Raiz 'logs\atualizacao.log'
 function Log($t) { Add-Content -Path $logFile -Value ("[{0}] {1}" -f (Get-Date -Format 'dd/MM/yyyy HH:mm:ss'), $t) -Encoding UTF8 }
+
+# servidores instalados com a versao antiga conferiam a cada 5 minutos: ajusta a propria tarefa para 1 minuto
+try {
+  $t = Get-ScheduledTask -TaskName $Tarefa -ErrorAction Stop
+  $rep = $t.Triggers[0].Repetition.Interval
+  if ($rep -and $rep -ne 'PT1M') {
+    $novo = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
+    Set-ScheduledTask -TaskName $Tarefa -Trigger $novo | Out-Null
+    Log "Tarefa ajustada: agora confere o GitHub a cada 1 minuto (antes: $rep)."
+  }
+} catch {}
 # a tarefa roda como SYSTEM, que nao e dono da pasta: libera so esta pasta para o git
 $safe = $Raiz.Replace('\', '/')
 function G { & git -c "safe.directory=$safe" @args }
 
 G fetch origin main --quiet 2>$null
-if ($LASTEXITCODE -ne 0) { Log "Nao consegui falar com o GitHub (git fetch falhou). Tento de novo em 5 minutos."; exit 0 }
+if ($LASTEXITCODE -ne 0) { Log "Nao consegui falar com o GitHub (git fetch falhou). Tento de novo em 1 minuto."; exit 0 }
 $local = (G rev-parse HEAD).Trim()
 $remoto = (G rev-parse origin/main).Trim()
 if ($local -eq $remoto) { exit 0 }

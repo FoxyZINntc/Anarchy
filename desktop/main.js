@@ -140,16 +140,20 @@ async function checkUpdate() {
   lastCheck = Date.now();
   try {
     upd.state = 'procurando';
-    const r = await net.fetch(`https://api.github.com/repos/${UPD_REPO}/releases/latest`, { headers: { 'User-Agent': 'Discordia', Accept: 'application/vnd.github+json' } });
-    if (!r.ok) throw new Error('o GitHub respondeu ' + r.status);
-    const rel = await r.json();
-    if (!newer(rel.tag_name, app.getVersion())) { upd.state = 'em-dia'; return upd; }
-    const asset = (rel.assets || []).find(a => /\.exe$/i.test(a.name));
-    if (!asset) throw new Error('a versão nova não tem instalador');
-    const ver = String(rel.tag_name).replace(/^v/, '');
+    // "github.com/<repo>/releases/latest" redireciona para a página da versão mais nova (ex.: .../tag/v1.1.4).
+    // Diferente da API, esse endereço não tem limite de 60 consultas por hora, então dá para olhar a cada minuto.
+    const loc = await new Promise((resolve, reject) => {
+      const q = https.request(`https://github.com/${UPD_REPO}/releases/latest`, { method: 'HEAD', headers: { 'User-Agent': 'Discordia' }, timeout: 15000 }, res => { res.resume(); resolve({ status: res.statusCode, location: res.headers.location || '' }); });
+      q.on('timeout', () => q.destroy(new Error('tempo esgotado'))); q.on('error', reject); q.end();
+    });
+    const m = /\/releases\/tag\/v?([\d.]+)\s*$/.exec(loc.location);
+    if (!m) throw new Error('não achei a versão mais nova (GitHub respondeu ' + loc.status + ')');
+    const ver = m[1];
+    if (!newer(ver, app.getVersion())) { upd.state = 'em-dia'; return upd; }
     const file = path.join(app.getPath('temp'), `Discordia-Setup-${ver}.exe`);
     upd.state = 'baixando';
-    if (!fs.existsSync(file) || fs.statSync(file).size !== asset.size) await download(asset.browser_download_url, file);
+    // baixa para um arquivo temporário e só troca no fim: um download pela metade nunca é usado
+    if (!fs.existsSync(file) || fs.statSync(file).size < 5 * 1024 * 1024) await download(`https://github.com/${UPD_REPO}/releases/download/v${ver}/Discordia-Setup.exe`, file);
     upd = { state: 'pronto', version: ver, file, ready: true, error: '' };
     announceUpdate();
   } catch (e) { upd.state = 'erro'; upd.error = e.message; }
@@ -371,10 +375,10 @@ app.whenReady().then(() => {
   });
   buildTray();
   createWindow();
-  // procura atualização 8 s depois de abrir, a cada 10 minutos e quando a pessoa volta para a janela
-  setTimeout(checkUpdate, 8000);
-  setInterval(checkUpdate, 10 * 60e3);
-  app.on('browser-window-focus', () => { if (Date.now() - lastCheck > 2 * 60e3) checkUpdate(); });
+  // procura atualização 5 s depois de abrir, a cada 1 minuto e quando a pessoa volta para a janela
+  setTimeout(checkUpdate, 5000);
+  setInterval(checkUpdate, 60e3);
+  app.on('browser-window-focus', () => { if (Date.now() - lastCheck > 20e3) checkUpdate(); });
 });
 app.on('window-all-closed', () => { if (quitting || !cfg.minimizeToTray) app.quit(); });
 app.on('before-quit', async e => {
