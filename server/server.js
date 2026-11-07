@@ -95,7 +95,10 @@ async function refreshSupabaseTurn() {
   } catch (e) { log('   TURN via Supabase falhou (' + e.message + ').'); }
 }
 await refreshSupabaseTurn();
-setInterval(refreshSupabaseTurn, 30 * 60e3).unref();
+// sem TURN ainda: tenta de 5 em 5 min (pega logo quando as chaves forem colocadas); com TURN: renova a cada 30 min
+const turnOn = () => cfg.iceServers.some(s => [].concat(s.urls).some(u => /^turns?:/.test(u)));
+let turnLast = Date.now();
+setInterval(() => { if (!turnOn() || Date.now() - turnLast > 30 * 60e3) { turnLast = Date.now(); refreshSupabaseTurn(); } }, 5 * 60e3).unref();
 // subiu sem as tabelas da Central de Áudio? confere de 5 em 5 min e reinicia quando elas existirem
 // (só no servidor dedicado: o rodar.cmd liga de novo sozinho)
 if (opts.standalone && !store.mediaReady && store.recheck) setInterval(async () => {
