@@ -44,7 +44,42 @@ try {
     Set-ScheduledTask -TaskName $Tarefa -Trigger $novo | Out-Null
     Log "Tarefa ajustada: agora confere o GitHub a cada 1 minuto (antes: $rep)."
   }
+  # tambem roda quando o Windows liga (depois de faltar energia, por exemplo)
+  if (-not ($t.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' })) {
+    $rep1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
+    $boot = New-ScheduledTaskTrigger -AtStartup; $boot.Delay = 'PT1M'
+    Set-ScheduledTask -TaskName $Tarefa -Trigger $rep1, $boot | Out-Null
+    Log "Tarefa ajustada: agora tambem roda quando o Windows liga."
+  }
 } catch {}
+
+# ---- vigia: se o servidor nao esta rodando (ex.: voltou a energia e ele nao ligou), liga ----
+try {
+  $srv = Get-ScheduledTask -TaskName 'Discordia Servidor' -ErrorAction Stop
+  if ($srv.State -ne 'Running') {
+    Start-ScheduledTask -TaskName 'Discordia Servidor'
+    Log "O servidor estava desligado (tarefa: $($srv.State)). Liguei de novo."
+  }
+} catch {}
+$tsSvc = Get-Service Tailscale -ErrorAction SilentlyContinue
+if ($tsSvc -and $tsSvc.Status -ne 'Running') { try { Start-Service Tailscale; Log "O Tailscale estava parado. Liguei de novo." } catch {} }
+
+# atalho "Ligar Discordia" na area de trabalho de todos os usuarios deste PC
+$lnk = Join-Path $env:PUBLIC 'Desktop\Ligar Discordia.lnk'
+if (-not (Test-Path $lnk)) {
+  try {
+    $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+    $s.TargetPath = 'powershell.exe'
+    $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'ligar.ps1')`""
+    $s.WorkingDirectory = $Raiz
+    $ico = Join-Path $Raiz 'desktop\build\icon.ico'
+    $s.IconLocation = if (Test-Path $ico) { "$ico,0" } else { 'shell32.dll,137' }
+    $s.Description = 'Liga o servidor do Discordia'
+    $s.Save()
+    Log "Criei o atalho 'Ligar Discordia' na area de trabalho."
+  } catch {}
+}
+
 # a tarefa roda como SYSTEM, que nao e dono da pasta: libera so esta pasta para o git
 $safe = $Raiz.Replace('\', '/')
 function G { & git -c "safe.directory=$safe" @args }
