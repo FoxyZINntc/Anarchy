@@ -65,18 +65,23 @@ $tsSvc = Get-Service Tailscale -ErrorAction SilentlyContinue
 if ($tsSvc -and $tsSvc.Status -ne 'Running') { try { Start-Service Tailscale; Log "O Tailscale estava parado. Liguei de novo." } catch {} }
 
 # atalho "Ligar Discordia" na area de trabalho de todos os usuarios deste PC
+# o script fica so neste PC (C:\ProgramData\Discordia), fora da pasta do GitHub
 $lnk = Join-Path $env:PUBLIC 'Desktop\Ligar Discordia.lnk'
-if (-not (Test-Path $lnk)) {
+$orig = Join-Path $PSScriptRoot 'ligar.ps1'
+$dest = Join-Path $env:ProgramData 'Discordia\ligar.ps1'
+if (Test-Path $orig) {
   try {
+    New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+    [IO.File]::WriteAllText($dest, [IO.File]::ReadAllText($orig).Replace('__RAIZ__', $Raiz))
     $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
     $s.TargetPath = 'powershell.exe'
-    $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'ligar.ps1')`""
+    $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$dest`""
     $s.WorkingDirectory = $Raiz
     $ico = Join-Path $Raiz 'desktop\build\icon.ico'
     $s.IconLocation = if (Test-Path $ico) { "$ico,0" } else { 'shell32.dll,137' }
     $s.Description = 'Liga o servidor do Discordia'
     $s.Save()
-    Log "Criei o atalho 'Ligar Discordia' na area de trabalho."
+    Log "Atalho 'Ligar Discordia' na area de trabalho (script em $dest)."
   } catch {}
 }
 

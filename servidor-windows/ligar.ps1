@@ -1,6 +1,7 @@
 # Liga o servidor do Discordia na mao (o atalho "Ligar Discordia" na area de trabalho chama este arquivo).
 # Use quando o servidor nao voltou sozinho, por exemplo depois de faltar energia.
-$Raiz = Split-Path -Parent $PSScriptRoot
+$Raiz = '__RAIZ__'
+$Pasta = Join-Path $Raiz 'servidor-windows'
 Set-Location $Raiz
 
 # precisa de administrador para mexer na tarefa: pede e abre de novo
@@ -28,7 +29,7 @@ if (Responde) {
 } else {
   $t = Get-ScheduledTask -TaskName $Tarefa -ErrorAction SilentlyContinue
   if (-not $t) { Write-Host "A tarefa '$Tarefa' nao existe. Rode o instalar.ps1 como administrador." -ForegroundColor Red; Read-Host "Enter para fechar"; exit 1 }
-  & (Join-Path $PSScriptRoot 'reiniciar.ps1') | Out-Null
+  & (Join-Path $Pasta 'reiniciar.ps1') | Out-Null
   Write-Host "Esperando o servidor responder" -NoNewline
   $ok = $false
   for ($i = 0; $i -lt 40; $i++) { Start-Sleep 1; Write-Host "." -NoNewline; if (Responde) { $ok = $true; break } }
@@ -45,6 +46,6 @@ if (Test-Path $ts) {
 }
 
 Write-Host ""
-& (Join-Path $PSScriptRoot 'status.ps1')
+& (Join-Path $Pasta 'status.ps1')
 Write-Host ""
 Read-Host "Pronto. Enter para fechar"
