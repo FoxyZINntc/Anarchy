@@ -209,7 +209,17 @@ function gCan(g, perm, uid = S.me?.id) {
 function gRank(g, uid) { if (g.ownerId === uid) return -1; const i = gRoles(g, uid).map(r => g.roles.indexOf(r)); return i.length ? Math.min(...i) : (g.roles || []).length; }
 const gAbove = (g, target) => gRank(g, S.me.id) < gRank(g, target);
 const gEditRole = (g, r) => g.ownerId === S.me.id || (gCan(g, 'manageRoles') && g.roles.indexOf(r) > gRank(g, S.me.id));
-const nameColor = (uid, g) => (g && gRoles(g, uid).find(r => r.color)?.color) || user(uid).color || 'var(--text)';
+const nameColor = (uid, g) => readable((g && gRoles(g, uid).find(r => r.color)?.color) || user(uid).color) || 'var(--text)';
+// cor de nome sempre legível: muito escura no tema escuro (ou muito clara no claro) é clareada/escurecida
+function readable(c) {
+  if (!/^#[0-9a-f]{6}$/i.test(c || '')) return null;
+  const n = parseInt(c.slice(1), 16), ch = v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; };
+  const lum = .2126 * ch(n >> 16) + .7152 * ch((n >> 8) & 255) + .0722 * ch(n & 255);
+  const dark = (THEMES[prefs.theme] || THEMES['meia-noite']).dark;
+  if (dark && lum < .12) return `color-mix(in srgb, ${c} 35%, #ffffff)`;
+  if (!dark && lum > .7) return `color-mix(in srgb, ${c} 45%, #000000)`;
+  return c;
+}
 const gManager = g => ['manageServer', 'manageChannels', 'manageRoles', 'kick', 'ban'].some(p => gCan(g, p));
 const curGroup = () => (S.view.kind === 'group' ? S.groups[S.view.gid] : null);
 const SLOW_OPTS = [[0, 'Desligado'], [5, '5 segundos'], [10, '10 segundos'], [15, '15 segundos'], [30, '30 segundos'], [60, '1 minuto'], [120, '2 minutos'], [300, '5 minutos'], [600, '10 minutos'], [3600, '1 hora']];
@@ -791,7 +801,13 @@ function renderMembers() {
   m.hidden = false;
   const ord = { online: 0, ocupado: 1, ausente: 2, offline: 3 };
   const list = g.members.slice().sort((a, b) => (ord[user(a).status] ?? 3) - (ord[user(b).status] ?? 3) || nameOf(a).localeCompare(nameOf(b)));
-  const r = id => { const u = user(id); return `<div class="mem ${u.status === 'offline' ? 'off' : ''}" data-act="profile" data-id="${id}">${av(id, 32)}<div class="info"><b style="color:${esc(nameColor(id, g))}">${esc(u.displayName)} ${g.ownerId === id ? '<span class="crown" title="Dono do grupo">👑</span>' : ''}</b>${u.customStatus ? `<span>${esc(u.customStatus)}</span>` : ''}</div></div>`; };
+  // quem está numa sala de voz deste grupo
+  const inCall = new Set(g.channels.flatMap(c => (S.voice[c.id] || []).map(p => p.uid)));
+  const r = id => {
+    const u = user(id), call = inCall.has(id);
+    const sub = call ? `<span class="mem-s call">${ic('voice')}Em call</span>` : u.customStatus ? `<span class="mem-s">${esc(u.customStatus)}</span>` : '';
+    return `<div class="mem ${u.status === 'offline' ? 'off' : ''}" data-act="profile" data-id="${id}">${av(id, 32, true, 'calm')}<div class="info"><div class="mem-n"><b style="color:${esc(nameColor(id, g))}">${esc(u.displayName)}</b>${g.ownerId === id ? '<span class="crown" title="Dono do grupo">👑</span>' : ''}</div>${sub}</div></div>`;
+  };
   // como no Discord: quem está online aparece no primeiro cargo "separado" que tiver; offline fica no fim
   const placed = new Set(); let html = '';
   for (const role of (g.roles || []).filter(x => x.hoist)) {
@@ -1080,7 +1096,7 @@ async function openFullProfile(id, tab = 'sobre', uo = null) {
       ${fxLayer(u)}<div class="pf-banner" style="${bannerStyle(u)}"><button class="icon-btn pf-x" data-close aria-label="Fechar">${ic('x')}</button></div>
       <div class="pf-main">
         <div class="pf-head">${av(id, 120, true, '', u)}<div class="pf-acts">${uo ? '<span class="pf-tag">Prévia: ainda não salvo</span>' : profileActs(id, true)}</div></div>
-        <div class="pf-names"><h2>${esc(u.displayName)}</h2><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}<span class="pf-st"><i class="dot ${esc(u.status || 'offline')}"></i>${esc(STATUS[u.status] || 'Offline')}</span></div>
+        <div class="pf-names"><h2>${esc(u.displayName)}</h2><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}<span class="pf-st"><i class="st-dot ${esc(u.status || 'offline')}"></i>${esc(STATUS[u.status] || 'Offline')}</span></div>
           ${badgeRow(u) ? `<div class="pf-badges big">${badgeRow(u)}</div>` : ''}
           ${u.customStatus ? `<div class="pf-status">${esc(u.customStatus)}</div>` : ''}</div>
         <nav class="pf-tabs">${tabs.map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" data-pft="${k}">${l}</button>`).join('')}</nav>
@@ -2869,7 +2885,7 @@ const A = {
   copyMe: () => copy(S.me.username, 'Seu nome de usuário foi copiado.'),
   meMenu: el => {
     const cur = S.me.realStatus || S.me.status;
-    const p = pop(`${Object.entries(STATUS).filter(([k]) => k !== 'offline').map(([k, l]) => `<button data-s="${k}"><span style="display:flex;gap:10px;align-items:center"><i class="dot ${k}" style="position:static;border:0"></i>${l}</span>${cur === k ? ic('check').replace('<svg', '<svg style="width:16px;height:16px"') : ''}</button>`).join('')}
+    const p = pop(`${Object.entries(STATUS).filter(([k]) => k !== 'offline').map(([k, l]) => `<button data-s="${k}"><span style="display:flex;gap:10px;align-items:center"><i class="st-dot ${k}"></i>${l}</span>${cur === k ? ic('check').replace('<svg', '<svg style="width:16px;height:16px"') : ''}</button>`).join('')}
       <hr><button data-m="cs">${S.me.customStatus ? 'Editar status personalizado' : 'Definir status personalizado'}</button><button data-m="vp">Ver meu perfil ${ic('user').replace('<svg', '<svg style="width:16px;height:16px"')}</button><button data-m="pf">Editar perfil ${ic('edit').replace('<svg', '<svg style="width:16px;height:16px"')}</button><button data-m="cp">Copiar meu usuário</button>`, el, 'menu', 'above');
     p.onclick = e => {
       const s = e.target.closest('[data-s]'); const m = e.target.closest('[data-m]')?.dataset.m; closePops();

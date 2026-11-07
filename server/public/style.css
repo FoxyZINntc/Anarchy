@@ -263,12 +263,12 @@ a { color: var(--accent); }
 .av.s40 { width: 40px; height: 40px; font-size: 16px; }
 .av.s80 { width: 80px; height: 80px; font-size: 30px; }
 .av.speaking { box-shadow: 0 0 0 2px var(--main), 0 0 0 4px var(--ok); }
-.dot { position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; border: 3px solid var(--side); box-sizing: content-box; }
-.av.s80 .dot { width: 18px; height: 18px; border-width: 5px; right: 0; bottom: 0; }
-.dot.online { background: var(--ok); }
-.dot.ausente { background: var(--warn); }
-.dot.ocupado { background: var(--busy); }
-.dot.offline, .dot.invisivel { background: var(--muted); }
+/* posição e tamanho da bolinha dentro do avatar: v2.css (.av .dot). Fora do avatar: .st-dot */
+.dot, .st-dot { border-radius: 50%; }
+.dot.online, .st-dot.online { background: var(--ok); }
+.dot.ausente, .st-dot.ausente { background: var(--warn); }
+.dot.ocupado, .st-dot.ocupado { background: var(--busy); }
+.dot.offline, .dot.invisivel, .st-dot.offline, .st-dot.invisivel { background: var(--muted); }
 
 /* barra do usuário */
 #userBar { display: flex; align-items: center; gap: 6px; padding: 8px; background: color-mix(in srgb, var(--rail) 60%, var(--side)); }
