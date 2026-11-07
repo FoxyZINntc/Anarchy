@@ -14,9 +14,9 @@
     "dist:cliente": "electron-builder --win --config electron-builder.cliente.json"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.4",
+    "@supabase/supabase-js": "^2.119.0",
     "compression": "^1.8.1",
-    "express": "^4.21.2",
+    "express": "^4.22.3",
     "selfsigned": "^2.4.1",
     "socket.io": "^4.8.1"
   },

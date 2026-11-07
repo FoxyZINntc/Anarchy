@@ -57,6 +57,8 @@ if ($local -eq $remoto) { exit 0 }
 
 $mudou = @(G diff --name-only $local $remoto)
 Log ("Versao nova no GitHub: {0} -> {1} ({2} arquivos)" -f $local.Substring(0, 7), $remoto.Substring(0, 7), $mudou.Count)
+# o npm install deste PC pode reescrever o package-lock.json: essa copia local nao vale nada e travava a atualizacao
+G checkout -- package-lock.json 2>$null
 G merge --ff-only origin/main --quiet 2>$null
 if ($LASTEXITCODE -ne 0) { Log "Nao deu para atualizar: tem mudancas feitas a mao nesta pasta. Rode 'git status' em $Raiz para ver."; exit 1 }
 
@@ -64,6 +66,7 @@ if ($mudou -match '^package(-lock)?\.json$') {
   Log "Dependencias mudaram: rodando npm install"
   & npm install --omit=dev --no-fund --no-audit 2>&1 | Out-Null
   if ($LASTEXITCODE -ne 0) { Log "npm install falhou (codigo $LASTEXITCODE)" }
+  G checkout -- package-lock.json 2>$null  # deixa a pasta igual ao GitHub para a proxima atualizacao
 }
 
 # so reinicia se mudou algo que o servidor usa (servidor, telas, scripts do servidor ou dependencias)

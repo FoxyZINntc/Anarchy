@@ -275,7 +275,8 @@ function leaveVoice(socket) {
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 'loopback'); // o Tailscale Funnel entrega pelo próprio PC: confia no IP que ele informa
-app.use(require('compression')()); // textos (app.js, css, json) vão comprimidos: carrega bem mais rápido
+// textos (app.js, css, json) vão comprimidos: carrega bem mais rápido. Se o pacote ainda não foi instalado, segue sem.
+try { app.use(require('compression')()); } catch { log('   Aviso: pacote "compression" não instalado; rode npm install. Seguindo sem compressão.'); }
 
 // cabeçalhos de segurança: o navegador só roda scripts deste servidor, não deixa outro site embutir o app
 // e só carrega imagens/sons de lugares conhecidos (este servidor, Supabase, GIPHY, Tenor)
