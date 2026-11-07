@@ -45,3 +45,10 @@ Camadas dentro do próprio avatar, com `isolation: isolate`, para que nada vaze 
 - Evento `message:pin`: no grupo, exige "Gerenciar mensagens"; na conversa direta, qualquer um dos dois pode fixar. O limite é de 50 por canal.
 - O botão de alfinete no cabeçalho lista as mensagens fixadas.
 - Banco: os campos `pinned` e `imageName` ficam na coluna `extra` (jsonb) da tabela `mensagens`, então não houve mudança de tabela.
+
+## TURN (calls entre redes diferentes)
+
+- Sem TURN, quem está em 4G, CGNAT ou atrás de alguns roteadores entra na call mas não ouve nem é ouvido.
+- O servidor pede credenciais TURN da Cloudflare à função discordia-db (op `turn`), que usa os segredos `CF_TURN_KEY_ID` e `CF_TURN_API_TOKEN` do Supabase. Renova a cada 30 minutos. Se o .env do servidor tiver TURN próprio, ele tem prioridade.
+- O app avisa quando o áudio com alguém não conecta em 15 segundos, e o mixer mostra conectando / sem conexão.
+

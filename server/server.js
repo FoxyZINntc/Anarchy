@@ -84,6 +84,18 @@ if (process.env.CF_TURN_KEY_ID) { await refreshCloudflareTurn(); turnTimer = set
 /* ---------- banco de dados (Supabase ou arquivo local) ---------- */
 const store = await createStore({ dataDir: DATA, supabaseUrl: cfg.supabaseUrl, supabaseKey: cfg.supabaseKey, supabaseToken: cfg.supabaseToken, log });
 const db = store.db;
+// TURN pelo Supabase: se o .env deste PC não tem TURN, pede credenciais à função discordia-db (as chaves da
+// Cloudflare ficam nos segredos do Supabase). Renova a cada 30 min; sem TURN, quem está em 4G/CGNAT não ouve a call.
+async function refreshSupabaseTurn() {
+  if (process.env.CF_TURN_KEY_ID || process.env.TURN_URLS || !store.turn) return;
+  try {
+    const r = await store.turn();
+    if (r && r.configured && r.iceServers.length) { const first = !cfg.iceServers.some(s => [].concat(s.urls).some(u => /^turns?:/.test(u))); cfg.iceServers = [...STUN, ...r.iceServers]; if (first) log('   TURN via Supabase: ativo (calls funcionam em qualquer rede)'); }
+    else if (r && !r.configured) log('   TURN: não configurado. Calls entre redes diferentes (4G, CGNAT) podem ficar sem áudio. Veja o SERVIDOR.md.');
+  } catch (e) { log('   TURN via Supabase falhou (' + e.message + ').'); }
+}
+await refreshSupabaseTurn();
+setInterval(refreshSupabaseTurn, 30 * 60e3).unref();
 // subiu sem as tabelas da Central de Áudio? confere de 5 em 5 min e reinicia quando elas existirem
 // (só no servidor dedicado: o rodar.cmd liga de novo sozinho)
 if (opts.standalone && !store.mediaReady && store.recheck) setInterval(async () => {

@@ -94,6 +94,17 @@ Deno.serve(async (req) => {
         if (error) throw error;
         return json({ ok: true });
       }
+      case "turn": {
+        // TURN da Cloudflare: segredos CF_TURN_KEY_ID e CF_TURN_API_TOKEN (Supabase > Edge Functions > Secrets)
+        const id = Deno.env.get("CF_TURN_KEY_ID"), tok = Deno.env.get("CF_TURN_API_TOKEN");
+        if (!id || !tok) return json({ configured: false, iceServers: [] });
+        const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(id)}/credentials/generate-ice-servers`, {
+          method: "POST", headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" }, body: JSON.stringify({ ttl: 86400 }),
+        });
+        if (!r.ok) throw new Error("Cloudflare TURN respondeu " + r.status);
+        const j: any = await r.json();
+        return json({ configured: true, iceServers: [].concat(j.iceServers || []).filter((s: any) => s && s.urls) });
+      }
       case "gifs": {
         const q = String(b.q || "").slice(0, 60), pos = Math.max(0, Math.min(500, b.pos | 0)), limit = Math.max(1, Math.min(48, b.limit | 0 || 24));
         return json(await gifs(q, pos, limit));

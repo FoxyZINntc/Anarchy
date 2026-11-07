@@ -63,9 +63,9 @@ const GROUP_EMOJIS = '🎮 🏍️ 🎧 🍕 🔥 ⚡ 🌙 🚀 🐉 🎵 📚 �
 const COLORS = ['#6c7cff', '#ff6b8b', '#3ee0c5', '#f5b83d', '#b07cff', '#4fc3f7', '#7bd88f', '#ff8a4c', '#e0517f', '#f2545b'];
 const STATUS = { online: 'Disponível', ausente: 'Ausente', ocupado: 'Não perturbe', invisivel: 'Invisível', offline: 'Offline' };
 
-function toast(msg, err) {
+function toast(msg, err, ms = 4200) {
   const t = document.createElement('div'); t.className = 'toast' + (err ? ' err' : ''); t.textContent = msg;
-  $('#toasts').appendChild(t); setTimeout(() => t.remove(), 4200);
+  $('#toasts').appendChild(t); setTimeout(() => t.remove(), ms);
 }
 const fmtTime = ts => new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: !prefs.clock24 });
 function fmtDay(ts) {
@@ -2009,8 +2009,22 @@ async function restartMic() {
    acha que é a nossa (rjt). Assim, quando alguém sai e entra de novo, sinais atrasados da call anterior
    são descartados em vez de bagunçar a conexão nova (era isso que deixava as vozes picotadas/robóticas). */
 function sendSig(p, data) { socket.emit('rtc:signal', { to: p.sid, data: { ...data, jt: V.jt, rjt: p.rjt || undefined } }); }
+const hasTurn = () => (V.ice || []).some(s => [].concat(s.urls || []).some(u => /^turns?:/i.test(u)));
+function connWarn(p) {
+  if (p.warned || !V.room) return;
+  const info = peerInfo(p.sid);
+  // ninguém dos dois tem microfone/tela/câmera: não há o que conectar, não é erro
+  if (!V.mic && !V.screen && !V.cam && info && info.muted && !info.screen && !info.cam) return;
+  p.warned = true;
+  const who = nameOf(info?.uid);
+  toast(hasTurn()
+    ? `Não consegui ligar o áudio com ${who}. Tentando de novo... Se continuar, peça para a pessoa sair e entrar na call.`
+    : `Não consegui ligar o áudio com ${who}: a internet de um de vocês bloqueia a conexão direta (comum em 4G e alguns provedores) e o servidor ainda não tem TURN.`, true, 12000);
+  mixerSync();
+}
 function resetPeer(sid) {
   const p = V.peers.get(sid); if (!p) return;
+  clearTimeout(p.connT);
   try { p.pc.close(); } catch {}
   V.peers.delete(sid); dropAudio(a => a.sid === sid); dropLevel(sid);
 }
@@ -2033,6 +2047,14 @@ function getPeer(sid) {
   };
   pc.onicecandidate = ({ candidate }) => { if (candidate) sendSig(p, { candidate }); };
   pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') pc.restartIce(); if (pc.iceConnectionState === 'connected') tuneSenders(pc); };
+  // estado da conexão de áudio com essa pessoa (aparece no mixer); se não conectar, avisa o motivo
+  pc.onconnectionstatechange = () => {
+    p.state = pc.connectionState; mixerSync();
+    if (pc.connectionState === 'connected') { p.warned = false; clearTimeout(p.connT); }
+    if (pc.connectionState === 'failed') connWarn(p);
+  };
+  p.state = pc.connectionState;
+  p.connT = setTimeout(() => { if (V.peers.get(sid) === p && pc.connectionState !== 'connected') connWarn(p); }, 15000);
   pc.ontrack = ({ track, streams }) => {
     const st = streams[0] || new MediaStream([track]);
     p.streams.set(st.id, st);
@@ -2489,7 +2511,8 @@ function mixerSync() {
     }
     const um = !!(prefs.umute && prefs.umute[p.uid]);
     $('.mx-id b', row).textContent = nameOf(p.uid);
-    $('.mx-st', row).innerHTML = p.deafened ? `${ic('headOff')}sem áudio` : p.muted ? `${ic('micOff')}microfone mudo` : um ? `${ic('micOff')}silenciado para você` : '<i class="mx-live"></i>conectado';
+    const vp = V.peers.get(p.sid), conn = vp?.state;
+    $('.mx-st', row).innerHTML = conn === 'failed' || (vp?.warned && conn !== 'connected') ? '<i class="mx-live bad"></i>sem conexão de áudio' : conn && conn !== 'connected' ? '<i class="mx-live wait"></i>conectando...' : p.deafened ? `${ic('headOff')}sem áudio` : p.muted ? `${ic('micOff')}microfone mudo` : um ? `${ic('micOff')}silenciado para você` : '<i class="mx-live"></i>conectado';
     const ub = $('[data-mx="umute"]', row); ub.innerHTML = ic(um ? 'micOff' : 'voice'); ub.classList.toggle('on', um); ub.dataset.tip = um ? 'Voltar a ouvir' : 'Silenciar para mim';
     row.classList.toggle('muted', um);
     setR($('[data-k="vol"]', row), volOf(p.uid, 'voice'));

@@ -138,7 +138,8 @@ function edgeClient(url, token) {
     deleteIn: (t, col, values) => call({ op: 'deleteIn', table: t, values }),
     deleteMatch: (t, match) => call({ op: 'deleteMatch', table: t, match }),
     upload: async (name, buf, type) => (await call({ op: 'upload', name, type, data: buf.toString('base64') })).url,
-    gifs: q => call({ op: 'gifs', ...q })
+    gifs: q => call({ op: 'gifs', ...q }),
+    turn: () => call({ op: 'turn' })
   };
 }
 
@@ -226,6 +227,7 @@ async function supabaseStore({ url, key, token, dataDir, log }) {
     uploadsDir: null,
     isUpload: u => typeof u === 'string' && (u.startsWith(prefix) || u.startsWith(sonsPrefix) || /^\/uploads\/[\w-]+\.\w+$/.test(u)),
     gifs: client.gifs,
+    turn: client.turn,
     mediaReady: !TABLES.some(t => t.off),
     // as tabelas novas já existem no Supabase? (para o servidor se reiniciar e ligar a Central de Áudio)
     recheck: async () => { try { for (const t of TABLES.filter(x => x.off)) await client.select(t.name, 0, 0); return true; } catch { return false; } },
