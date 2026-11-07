@@ -30,6 +30,8 @@ try {
   FIXED = originOf(String(sj.url || '').trim());
   if (/^[\w.-]+\/[\w.-]+$/.test(String(sj.updates || ''))) UPD_REPO = sj.updates;
 } catch {}
+// só para testes: aponta o app para outro servidor (ex.: um servidor local) sem mexer no servidor.json
+if (process.env.DISCORDIA_SERVIDOR_TESTE) FIXED = originOf(process.env.DISCORDIA_SERVIDOR_TESTE.trim());
 if (FIXED) { cfg.mode = 'client'; cfg.server = FIXED; }
 
 // um servidor em http:// na rede local precisa ser tratado como seguro para liberar microfone e tela
