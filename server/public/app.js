@@ -47,6 +47,13 @@ const P = {
   ban: '<circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/>',
   sticker: '<path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9.5L21 14.5V5a2 2 0 0 0-2-2z"/><path d="M14 21v-5a2 2 0 0 1 2-2h5M8.5 10h.01M14.5 10h.01M8.5 14.5s1.2 1.5 3.5 1.5"/>',
   board: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M15.5 15.5v4l3.5-2z"/>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+  external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
+  pin: '<path d="M12 17v5M9 10.76V6h6v4.76a2 2 0 0 0 1.11 1.79l1.78.9A2 2 0 0 1 19 15.24V17H5v-1.76a2 2 0 0 1 1.11-1.79l1.78-.9A2 2 0 0 0 9 10.76zM8 3h8"/>',
+  star: '<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>',
+  more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
   sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>'
 };
 const ic = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -732,12 +739,14 @@ function renderHead() {
     const inCall = V.room === v.id;
     h.innerHTML = `${tog}<span class="ttl" style="cursor:pointer" data-act="profile" data-id="${o}">${av(o, 24)}${esc(u.displayName)}</span><span class="sub">${esc(u.customStatus || STATUS[u.status])}</span><span class="spacer"></span>
       ${inCall ? '' : `<button class="icon-btn" data-act="call" data-id="${v.id}" data-tip="Ligar">${ic('phone')}</button><button class="icon-btn" data-act="call" data-video="1" data-id="${v.id}" data-tip="Chamada de vídeo">${ic('cam')}</button>`}
+      <button class="icon-btn" data-act="pins" data-tip="Mensagens fixadas">${ic('pin')}</button>
       <button class="icon-btn" data-act="profile" data-id="${o}" data-tip="Perfil">${ic('user')}</button>`;
   } else {
     const g = S.groups[v.gid], c = chan(v.gid, v.cid); if (!g || !c) return;
     h.innerHTML = `${tog}<span class="ttl">${ic(c.type === 'voice' ? 'voice' : 'hash')}${esc(c.name)}</span><span class="sub" ${c.topic ? `title="${esc(c.topic)}"` : ''}>${esc(c.topic || g.name)}</span>${c.slowmode ? `<span class="slow-pill" data-tip="Modo lento: uma mensagem a cada ${esc(slowLabel(c.slowmode))}">🐢 ${esc(slowLabel(c.slowmode))}</span>` : ''}<span class="spacer"></span>
       ${gManager(g) ? `<button class="icon-btn" data-act="groupSettings" data-tip="Configurações do grupo">${ic('gear')}</button>` : ''}
       <button class="icon-btn" data-act="invite" data-tip="Convidar">${ic('link')}</button>
+      ${c.type === 'text' ? `<button class="icon-btn" data-act="pins" data-tip="Mensagens fixadas">${ic('pin')}</button>` : ''}
       ${c.type === 'text' ? `<button class="icon-btn ${prefs.showMembers ? 'active' : ''}" data-act="toggleMembers" data-tip="${prefs.showMembers ? 'Esconder membros' : 'Mostrar membros'}">${ic('users')}</button>` : ''}`;
   }
 }
@@ -863,7 +872,7 @@ function renderMessages(forceBottom) {
     const reacts = Object.entries(m.reactions || {});
     const editing = S.editing === m.id;
     const big = onlyEmoji(m.content);
-    html += `<div class="msg ${head ? 'head' : ''} ${mine ? 'mine' : ''} ${!mine && mentionRe.test(m.content) ? 'mentioned' : ''}" data-mid="${m.id}" id="m-${m.id}">
+    html += `<div class="msg ${m.pinned ? 'pinned' : ''} ${head ? 'head' : ''} ${mine ? 'mine' : ''} ${!mine && mentionRe.test(m.content) ? 'mentioned' : ''}" data-mid="${m.id}" id="m-${m.id}">
       ${head ? av(m.authorId, 40, false) : `<div class="gutter">${fmtTime(m.ts)}</div>`}
       <div class="mc" style="min-width:0">
         ${m.replyTo ? `<div class="reply-ref" data-act="jump" data-id="${m.replyTo}">${ic('reply').replace('<svg', '<svg style="width:14px;height:14px;transform:scaleX(-1)"')}${ref ? `<b>${esc(nameOf(ref.authorId))}</b> ${esc((ref.content || (ref.sticker ? '🗂️ figurinha' : ref.gif ? '🎞️ GIF' : '🖼️ imagem')).slice(0, 90))}` : '<i>mensagem apagada</i>'}</div>` : ''}
@@ -879,6 +888,7 @@ function renderMessages(forceBottom) {
         ${QUICK.slice(0, 3).map(e => `<button data-act="react" data-id="${m.id}" data-emoji="${e}" title="Reagir com ${e}">${e}</button>`).join('')}
         <button data-act="reactPick" data-id="${m.id}" title="Mais reações">${ic('smile')}</button>
         <button data-act="reply" data-id="${m.id}" title="Responder">${ic('reply')}</button>
+        <button data-act="msgMore" data-id="${m.id}" title="Mais opções" aria-label="Mais opções da mensagem">${ic('more')}</button>
         ${mine ? `<button data-act="edit" data-id="${m.id}" title="Editar">${ic('edit')}</button>` : ''}
         ${canDel ? `<button data-act="delMsg" data-id="${m.id}" title="Apagar" style="color:var(--danger)">${ic('trash')}</button>` : ''}
       </div>
@@ -942,19 +952,24 @@ function renderReplyBar() {
   const m = S.reply && (S.msgs[viewingCid()] || []).find(x => x.id === S.reply);
   rb.innerHTML = m ? `<div class="reply-bar"><span>Respondendo a <b style="color:var(--text)">${esc(nameOf(m.authorId))}</b></span><button class="icon-btn" style="width:24px;height:24px" data-act="cancelReply">${ic('x')}</button></div>` : '';
 }
-async function sendMessage(image) {
+async function sendMessage(image, imageName) {
   const ta = $('#composer'); const cid = viewingCid(); if (!ta || !cid) return;
   const content = image ? '' : ta.value.trim();
   if (!content && !image) { const c = ta.closest('.composer'); c.classList.remove('nudge'); void c.offsetWidth; c.classList.add('nudge'); ta.focus(); return; }
   if (content === '/limpar') { ta.value = ''; return; }
-  const r = await emit('message:send', { cid, content, image, replyTo: S.reply });
+  const r = await emit('message:send', { cid, content, image, imageName: image ? imageName : undefined, replyTo: S.reply });
   if (!r.ok) return toast(r.erro, true);
   if (!image) { ta.value = ''; ta.style.height = 'auto'; S.drafts[cid] = ''; }
   S.reply = null; renderReplyBar();
 }
+// a imagem vai do jeito que está (mesma qualidade, resolução e formato); só é reduzida se passar de 8 MB
 async function sendImage(file) {
+  if (!file || !/^image\//.test(file.type)) return toast('Escolha um arquivo de imagem.', true);
   toast('Enviando imagem...');
-  const url = await uploadImage(file); if (url) sendMessage(url);
+  let url = null;
+  if (/^image\/(png|jpeg|gif|webp)$/.test(file.type) && file.size <= 8 * 1024 * 1024) { try { url = (await api('/api/upload', { data: await readFile(file) })).url; } catch (e) { return toast(e.message, true); } }
+  else url = await uploadImage(file);
+  if (url) sendMessage(url, file.name);
 }
 
 /* =============== modais e menus =============== */
@@ -1146,7 +1161,12 @@ async function toggleBlock(uid) {
 document.addEventListener('contextmenu', e => {
   if (e.target.closest('input, textarea, .settings, .modal')) return;
   const t = e.target.closest('[data-vuid], .av[data-user], .mem[data-id], .person[data-id], [data-act="profile"][data-id], .voice-person[data-vuid]');
-  if (!t) return;
+  if (!t) {
+    // mensagem (texto, imagem, GIF, figurinha): menu da mensagem; seleção de texto e campos de edição continuam normais
+    const mm = e.target.closest('.msg[data-mid]');
+    if (mm && !e.target.closest('.edit-box')) { const m = findMsgLocal(mm.dataset.mid); if (m) { e.preventDefault(); msgMenu(m, e.clientX, e.clientY, e.target); } }
+    return;
+  }
   const uid = t.dataset.vuid || t.dataset.user || t.dataset.id; if (!uid || !S.users[uid] && uid !== S.me?.id) return;
   e.preventDefault(); userMenu(uid, e.clientX, e.clientY, t);
 });
@@ -2628,6 +2648,154 @@ async function shrinkAlpha(dataUrl, max) {
   const webp = c.toDataURL('image/webp', .9); return /^data:image\/webp/.test(webp) ? webp : c.toDataURL('image/png');
 }
 
+/* =============== menus de contexto e visualizador ===============
+   menuAt: um menu só para o app inteiro. Abre no cursor, nunca passa da janela, fecha ao clicar fora,
+   com Esc ou ao escolher; só existe um aberto por vez (usa o mesmo #popRoot dos outros menus).
+   Itens: { label, icon, run, danger, hint } | 'sep' | { html } */
+function menuAt(x, y, items, header = '') {
+  const I = n => (n ? ic(n).replace('<svg', '<svg class="cm-ic"') : '<span class="cm-ic"></span>');
+  const list = items.filter(Boolean).filter((it, i, a) => it !== 'sep' || (i > 0 && a[i - 1] !== 'sep' && i < a.length - 1));
+  const p = popAt(`${header}${list.map((it, i) => it === 'sep' ? '<hr>' : it.html ? it.html : `<button type="button" data-i="${i}" class="${it.danger ? 'danger' : ''}" role="menuitem">${I(it.icon)}<span class="cm-l">${esc(it.label)}</span>${it.hint ? `<span class="cm-h">${esc(it.hint)}</span>` : ''}</button>`).join('')}`, x, y, 'menu cmenu');
+  p.setAttribute('role', 'menu');
+  p.addEventListener('click', e => { const b = e.target.closest('button[data-i]'); if (!b) return; const it = list[+b.dataset.i]; closePops(); it.run && it.run(); });
+  // teclado: setas andam, Enter escolhe
+  p.addEventListener('keydown', e => {
+    const bs = $$('button[data-i]', p), i = bs.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); bs[(i + (e.key === 'ArrowDown' ? 1 : -1) + bs.length) % bs.length]?.focus(); }
+  });
+  return p;
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#popRoot').children.length) { closePops(); e.stopPropagation(); } }, true);
+
+/* baixar o arquivo original (o mesmo que está no Storage / no GIPHY/Tenor), sem recomprimir nada */
+const extOf = type => ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' }[type] || '');
+function fileNameFor(url, name, type) {
+  let n = (name || decodeURIComponent((url.split('?')[0].split('/').pop() || 'arquivo'))).replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'arquivo';
+  const ext = extOf(type);
+  if (ext && !new RegExp('\\.' + ext + '$', 'i').test(n) && !(ext === 'jpg' && /\.jpe?g$/i.test(n))) n = n.replace(/\.(png|jpe?g|gif|webp)$/i, '') + '.' + ext;
+  return n;
+}
+async function downloadOriginal(url, name) {
+  try {
+    const r = await fetch(url, { mode: 'cors', cache: 'force-cache' }); if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fileNameFor(url, name, blob.type);
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30e3);
+  } catch {
+    // o servidor do arquivo não deixou baixar daqui: abre o original no navegador para salvar de lá
+    window.open(url, '_blank', 'noopener'); toast('Abri o arquivo original no navegador para você salvar.');
+  }
+}
+async function copyImage(url) {
+  try {
+    const blob = await (await fetch(url, { mode: 'cors' })).blob();
+    let png = blob;
+    if (blob.type !== 'image/png') { // a área de transferência só aceita PNG
+      const bmp = await createImageBitmap(blob); const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+      c.getContext('2d').drawImage(bmp, 0, 0); png = await new Promise(r => c.toBlob(r, 'image/png'));
+    }
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]); toast('Imagem copiada.');
+  } catch { toast('Este navegador não deixou copiar a imagem. Use "Copiar endereço".', true); }
+}
+
+/* visualizador: abre a imagem/GIF/figurinha por cima de tudo, com tamanho real, baixar e copiar endereço */
+function openViewer(media) {
+  $('.viewer')?.remove();
+  const v = document.createElement('div'); v.className = 'viewer'; v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', 'Visualizar ' + (media.label || 'imagem'));
+  v.innerHTML = `<div class="vw-bar"><span class="vw-n">${esc(media.name || media.label || '')}</span>
+      <button class="icon-btn" data-vw="real" data-tip="Tamanho real">${ic('max')}</button>
+      <button class="icon-btn" data-vw="dl" data-tip="${media.kind === 'gif' ? 'Baixar GIF' : 'Baixar original'}">${ic('download')}</button>
+      <button class="icon-btn" data-vw="cp" data-tip="Copiar endereço">${ic('link')}</button>
+      <button class="icon-btn" data-vw="open" data-tip="Abrir no navegador">${ic('external')}</button>
+      <button class="icon-btn" data-vw="x" data-tip="Fechar (Esc)">${ic('x')}</button></div>
+    <div class="vw-stage"><img src="${esc(media.url)}" alt="${esc(media.name || '')}" draggable="false"></div>`;
+  document.body.appendChild(v);
+  const close = () => { v.remove(); document.removeEventListener('keydown', key, true); };
+  const key = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', key, true);
+  if (media.real) v.classList.add('real');
+  v.addEventListener('click', e => {
+    const b = e.target.closest('[data-vw]');
+    if (!b) { if (e.target.classList.contains('vw-stage')) close(); else if (e.target.tagName === 'IMG') v.classList.toggle('real'); return; }
+    const a = b.dataset.vw;
+    if (a === 'x') close(); if (a === 'real') v.classList.toggle('real');
+    if (a === 'dl') downloadOriginal(media.url, media.name);
+    if (a === 'cp') copy(absUrl(media.url), 'Endereço copiado.');
+    if (a === 'open') window.open(absUrl(media.url), '_blank', 'noopener');
+  });
+}
+const absUrl = u => new URL(u, location.href).href;
+
+/* o que foi clicado dentro de uma mensagem */
+function mediaOf(m, target) {
+  const t = target.closest('img.img, img.gifmsg, img.sticker');
+  if (!t) return null;
+  if (t.classList.contains('sticker') && m.sticker) return { kind: 'sticker', url: m.sticker.url, name: m.sticker.name, label: 'figurinha' };
+  if (t.classList.contains('gifmsg') && m.gif) return { kind: 'gif', url: m.gif.url, name: (m.gif.title || 'gif').replace(/\s+GIF$/i, '').slice(0, 60) + '.gif', label: 'GIF' };
+  if (m.image) return { kind: /\.gif(\?|$)/i.test(m.image) ? 'gif' : 'image', url: m.image, name: m.imageName || '', label: 'imagem' };
+  return null;
+}
+const findMsgLocal = id => { const cid = viewingCid(); return cid && (S.msgs[cid] || []).find(x => x.id === id); };
+function canDelMsg(m) { const g = curGroup(); return m.authorId === S.me.id || !!(g && gCan(g, 'manageMessages')); }
+function canPinMsg() { const g = curGroup(); return S.view.kind === 'dm' || !!(g && gCan(g, 'manageMessages')); }
+async function deleteMsg(m, skipAsk) {
+  const mine = m.authorId === S.me.id;
+  if (!skipAsk && !await confirmBox('Apagar mensagem', mine ? 'Apagar esta mensagem para todo mundo? Não dá para desfazer.' : `Apagar a mensagem de ${nameOf(m.authorId)} para todo mundo? Não dá para desfazer.`, 'Apagar')) return;
+  act('message:delete', { cid: viewingCid(), id: m.id }, 'Mensagem apagada.');
+}
+function pinMsg(m) { act('message:pin', { cid: viewingCid(), id: m.id, pin: !m.pinned }, m.pinned ? 'Mensagem desafixada.' : 'Mensagem fixada.'); }
+function msgMenu(m, x, y, target) {
+  const media = target ? mediaOf(m, target) : null;
+  const link = target && target.closest('.body a[href]');
+  const sel = String(window.getSelection() || '').trim();
+  const selIn = sel && target && window.getSelection().anchorNode && $('#m-' + m.id)?.contains(window.getSelection().anchorNode);
+  const mine = m.authorId === S.me.id;
+  const react = `<div class="cm-react">${QUICK.map(e => `<button type="button" data-re="${e}" title="Reagir com ${e}">${e}</button>`).join('')}<button type="button" data-re="+" title="Mais reações">${ic('smile')}</button></div>`;
+  const items = [
+    { html: react },
+    selIn && { label: 'Copiar seleção', icon: 'copy', run: () => copy(sel, 'Seleção copiada.') },
+    { label: 'Responder', icon: 'reply', run: () => { S.reply = m.id; renderReplyBar(); $('#composer')?.focus(); } },
+    mine && m.content && !m.sticker && !m.gif && { label: 'Editar mensagem', icon: 'edit', run: () => { S.editing = m.id; renderMessages(); } },
+    canPinMsg() && { label: m.pinned ? 'Desafixar mensagem' : 'Fixar mensagem', icon: 'pin', run: () => pinMsg(m) },
+    m.content && { label: 'Copiar texto', icon: 'copy', run: () => copy(m.content, 'Texto copiado.') },
+    ...(media ? ['sep',
+      { label: media.kind === 'sticker' ? 'Ver figurinha' : media.kind === 'gif' ? 'Abrir GIF' : 'Abrir imagem', icon: 'image', run: () => openViewer(media) },
+      media.kind !== 'sticker' && { label: 'Ver em tamanho real', icon: 'max', run: () => openViewer({ ...media, real: true }) },
+      { label: media.kind === 'gif' ? 'Baixar GIF' : media.kind === 'sticker' ? 'Salvar figurinha' : 'Baixar imagem original', icon: 'download', run: () => downloadOriginal(media.url, media.name) },
+      media.kind === 'image' && window.ClipboardItem && { label: 'Copiar imagem', icon: 'copy', run: () => copyImage(media.url) },
+      { label: 'Copiar endereço', icon: 'link', run: () => copy(absUrl(media.url), 'Endereço copiado.') },
+      media.kind === 'sticker' && { label: favs().stickers.includes(m.sticker.id) ? 'Tirar dos favoritos' : 'Favoritar figurinha', icon: 'star', run: () => { const f = favs(), id = m.sticker.id; saveFavs({ stickers: f.stickers.includes(id) ? f.stickers.filter(x => x !== id) : [id, ...f.stickers].slice(0, 60) }); toast('Favoritos atualizados.'); } },
+      media.kind === 'gif' && m.gif && { label: favs().gifs.some(x => x.url === m.gif.url) ? 'Tirar GIF dos favoritos' : 'Favoritar GIF', icon: 'star', run: () => { const f = favs(), g = m.gif; saveFavs({ gifs: f.gifs.some(x => x.url === g.url) ? f.gifs.filter(x => x.url !== g.url) : [{ url: g.url, preview: g.url, w: g.w, h: g.h, title: g.title }, ...f.gifs].slice(0, 60) }); toast('Favoritos atualizados.'); } }] : []),
+    ...(link ? ['sep', { label: 'Abrir link', icon: 'external', run: () => window.open(link.href, '_blank', 'noopener') }, { label: 'Copiar link', icon: 'link', run: () => copy(link.href, 'Link copiado.') }] : []),
+    'sep',
+    { label: 'Copiar ID da mensagem', icon: 'hash', run: () => copy(m.id, 'ID copiado.') },
+    canDelMsg(m) && { label: 'Apagar mensagem', icon: 'trash', danger: true, run: () => deleteMsg(m) }
+  ];
+  const p = menuAt(x, y, items);
+  $('.cm-react', p).addEventListener('click', e => {
+    const b = e.target.closest('[data-re]'); if (!b) return; e.stopPropagation();
+    if (b.dataset.re === '+') { const r = p.getBoundingClientRect(); closePops(); emojiPicker({ getBoundingClientRect: () => r, closest: () => null }, em => emit('message:react', { cid: viewingCid(), id: m.id, emoji: em })); }
+    else { closePops(); emit('message:react', { cid: viewingCid(), id: m.id, emoji: b.dataset.re }); }
+  });
+}
+/* mensagens fixadas do canal/conversa */
+async function pinsPanel(anchor) {
+  const cid = viewingCid(); if (!cid) return;
+  const p = pop(`<div class="pins-h"><b>${ic('pin')}Mensagens fixadas</b></div><div class="pins-l"><p class="muted small" style="margin:8px">Carregando...</p></div>`, anchor, 'pins', 'below');
+  const r = await emit('messages:pins', { cid }); if (!p.isConnected) return;
+  const l = $('.pins-l', p);
+  l.innerHTML = !r.ok ? `<p class="muted small" style="margin:8px">${esc(r.erro || 'Não consegui carregar.')}</p>` : r.messages.length ? r.messages.map(m => `<div class="pin-it" data-pin="${m.id}">${av(m.authorId, 32, false)}<div><b>${esc(nameOf(m.authorId))}</b> <span class="muted small">${fmtDay(m.ts)} ${fmtTime(m.ts)}</span><div class="pin-t">${m.content ? esc(m.content.slice(0, 200)) : m.sticker ? '🗂️ figurinha' : m.gif ? '🎞️ GIF' : '🖼️ imagem'}</div></div>${canPinMsg() ? `<button class="icon-btn" data-unpin="${m.id}" data-tip="Desafixar">${ic('x')}</button>` : ''}</div>`).join('')
+    : `<div class="sb-empty"><div style="font-size:30px">📌</div><p>Nenhuma mensagem fixada aqui ainda.</p><span class="muted small">Clique com o botão direito numa mensagem e escolha Fixar.</span></div>`;
+  reposPop(p);
+  p.onclick = e => {
+    const u = e.target.closest('[data-unpin]'); if (u) { e.stopPropagation(); act('message:pin', { cid, id: u.dataset.unpin, pin: false }, 'Mensagem desafixada.'); u.closest('.pin-it').remove(); return; }
+    const it = e.target.closest('[data-pin]'); if (!it) return;
+    const el = $('#m-' + it.dataset.pin); closePops();
+    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1500); }
+    else toast('Essa mensagem é antiga: role o chat para cima para carregar.');
+  };
+}
+
 /* =============== navegação =============== */
 function go(view) {
   S.view = view;
@@ -2744,7 +2912,9 @@ const A = {
   edit: el => { S.editing = el.dataset.id; renderMessages(); },
   delMsg: async (el, e) => { if (e.shiftKey || await confirmBox('Apagar mensagem', 'Tem certeza? Dica: segure Shift para apagar sem perguntar.', 'Apagar')) act('message:delete', { cid: viewingCid(), id: el.dataset.id }); },
   jump: el => { const m = $('#m-' + el.dataset.id); if (m) { m.scrollIntoView({ block: 'center', behavior: 'smooth' }); m.style.background = 'color-mix(in srgb, var(--accent) 20%, transparent)'; setTimeout(() => m.style.background = '', 1400); } },
-  zoom: el => { const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${esc(el.src)}" alt="">`; lb.onclick = () => lb.remove(); document.body.appendChild(lb); }
+  zoom: el => { const mm = el.closest('.msg[data-mid]'), m = mm && findMsgLocal(mm.dataset.mid); openViewer((m && mediaOf(m, el)) || { kind: 'image', url: el.src }); },
+  msgMore: (el, e) => { e.stopPropagation(); const m = findMsgLocal(el.dataset.id); if (!m) return; const r = el.getBoundingClientRect(); msgMenu(m, r.left, r.bottom + 4, null); },
+  pins: el => pinsPanel(el)
 };
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');

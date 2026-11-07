@@ -693,6 +693,8 @@ function onConnection(socket) {
     }
     const msg = { id: newId(), cid: d.cid, authorId: uid, content: sticker || gif ? '' : content, image: sticker || gif ? null : image, ts: now(), edited: null, reactions: {}, replyTo: str(d.replyTo, 20) || null };
     if (sticker) msg.sticker = sticker; if (gif) msg.gif = gif;
+    // nome original do arquivo enviado (para baixar com o mesmo nome)
+    if (msg.image && d.imageName) { const n = str(d.imageName, 120).replace(/[^\w.\- ()À-ÿ]/g, '').trim(); if (n) msg.imageName = n; }
     const list = db.messages[d.cid] || (db.messages[d.cid] = []);
     list.push(msg); if (list.length > 3000) list.splice(0, list.length - 3000);
     save(); toUsers(info.members, 'message:new', msg);
@@ -711,6 +713,21 @@ function onConnection(socket) {
     if (!m || (m.authorId !== uid && !(info.kind === 'group' && can(info.group, uid, 'manageMessages')))) return fail(cb, 'Sem permissão.');
     db.messages[d.cid] = db.messages[d.cid].filter(x => x !== m); save();
     toUsers(info.members, 'message:delete', { cid: d.cid, id: d.id }); ok(cb);
+  });
+  // fixar: no grupo precisa de "Gerenciar mensagens"; na conversa direta, qualquer um dos dois
+  on('message:pin', (d, cb) => {
+    const info = canAccess(uid, d.cid); const m = info && findMsg(d.cid, d.id);
+    if (!m || m.system) return fail(cb, 'Mensagem não encontrada.');
+    if (info.kind === 'group' && !can(info.group, uid, 'manageMessages')) return fail(cb, 'Você não pode fixar mensagens aqui.');
+    if (d.pin) {
+      if ((db.messages[d.cid] || []).filter(x => x.pinned).length >= 50) return fail(cb, 'Limite de 50 mensagens fixadas por canal.');
+      m.pinned = { by: uid, at: now() };
+    } else delete m.pinned;
+    save(); toUsers(info.members, 'message:update', m); ok(cb);
+  });
+  on('messages:pins', (d, cb) => {
+    if (!canAccess(uid, d.cid)) return fail(cb, 'Sem acesso.');
+    ok(cb, { messages: (db.messages[d.cid] || []).filter(m => m.pinned).sort((a, b) => b.pinned.at - a.pinned.at) });
   });
   on('message:react', (d, cb) => {
     const info = canAccess(uid, d.cid); const m = info && findMsg(d.cid, d.id);

@@ -10,7 +10,7 @@ const EMPTY = () => ({ users: {}, sessions: {}, friends: {}, requests: [], group
 const USER_X = ['pronouns', 'theme', 'accent', 'frame', 'effect', 'favs', 'blocked', 'privacy'];
 const GROUP_X = ['description', 'banner', 'roles', 'memberRoles', 'bans', 'welcomeCid', 'systemJoin'];
 const CHAN_X = ['topic', 'slowmode'];
-const MSG_X = ['system', 'sticker', 'gif'];
+const MSG_X = ['system', 'sticker', 'gif', 'imageName', 'pinned'];
 const pack = (o, keys) => { const x = {}; for (const k of keys) if (o[k] !== undefined && o[k] !== null) x[k] = o[k]; return x; };
 const unpack = (x, keys) => { const o = {}; if (x && typeof x === 'object') for (const k of keys) if (x[k] !== undefined) o[k] = x[k]; return o; };
 
