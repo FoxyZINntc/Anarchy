@@ -3,7 +3,6 @@
 <head>
 <meta charset="utf-8">
 <title>Discordia</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <style>
 :root { --rail: #0b0d10; --side: #14171c; --main: #191c22; --panel: #20242c; --elev: #262b34; --hover: #2a2f39; --line: #2c313b; --text: #e8eaf0; --muted: #8b93a3; --accent: #6c7cff; --ok: #3ccf91; --danger: #f2545b; --warn: #f5b83d; color-scheme: dark; }
 * { box-sizing: border-box; }
@@ -165,7 +164,7 @@ input[type=text]:focus { border-color: var(--accent); }
   <h2>O que você quer compartilhar?</h2>
   <div class="tabs"><button class="tab on" data-k="screen">Telas inteiras</button><button class="tab" data-k="window">Janelas</button></div>
   <div class="grid" id="srcs"></div>
-  <p class="hint" id="audioHint">Em "Telas inteiras", o som do computador também é compartilhado.</p>
+  <p class="hint" id="audioHint">Em "Telas inteiras", o som do computador também vai junto (quando o Windows deixa).</p>
   <div class="foot"><button class="btn" id="pCancel">Cancelar</button><button class="btn primary" id="pGo" disabled>Compartilhar</button></div>
 </section>
 
@@ -245,6 +244,7 @@ if (page === 'picker') {
     $('#srcs').innerHTML = items.map(s => `<button class="src ${sel === s.id ? 'on' : ''}" data-id="${esc(s.id)}"><img class="t" src="${s.thumb}" alt=""><span class="n">${s.icon ? `<img src="${s.icon}" alt="">` : ''}<span>${esc(s.name)}</span></span></button>`).join('') || '<p class="hint">Nada encontrado.</p>';
     $('#pGo').disabled = !sel; $('#audioHint').hidden = kind !== 'screen';
   };
+  $('#srcs').innerHTML = '<p class="hint">Procurando telas e janelas...</p>';
   D.pickerSources().then(l => { list = l; sel = (l.find(s => s.screen) || {}).id || null; draw(); });
   document.querySelector('.tabs').onclick = e => { const b = e.target.closest('[data-k]'); if (!b) return; kind = b.dataset.k; document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t === b)); draw(); };
   $('#srcs').onclick = e => { const b = e.target.closest('[data-id]'); if (!b) return; sel = b.dataset.id; draw(); };

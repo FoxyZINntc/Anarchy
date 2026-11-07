@@ -1650,8 +1650,17 @@ async function toggleScreen() {
   if (V.screen) return stopStream('screen');
   if (!navigator.mediaDevices.getDisplayMedia) return toast('Este navegador não consegue compartilhar a tela.', true);
   const q = { '720p30': [1280, 720, 30], '1080p30': [1920, 1080, 30], '1080p60': [1920, 1080, 60] }[prefs.quality] || [1920, 1080, 30];
-  try { V.screen = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: q[0] }, height: { ideal: q[1] }, frameRate: { ideal: q[2] } }, audio: true }); }
-  catch { return; }
+  const ask = audio => navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: q[0] }, height: { ideal: q[1] }, frameRate: { ideal: q[2] } }, audio });
+  const fail = e => { if (e && e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast('Não consegui compartilhar a tela: ' + (e.message || e.name), true); };
+  try { V.screen = await ask(true); }
+  catch (e) {
+    // tela inteira: às vezes o Windows não deixa capturar o som do PC. Aí compartilha só a imagem.
+    if (e && (e.name === 'NotReadableError' || /audio/i.test(e.message || ''))) {
+      try { V.screen = await ask(false); toast('Compartilhando sem o som do PC: o Windows não deixou capturar o áudio.'); }
+      catch (e2) { return fail(e2); }
+    } else return fail(e);
+  }
+  if (!V.room) { V.screen.getTracks().forEach(t => t.stop()); V.screen = null; return; }
   const vt = V.screen.getVideoTracks()[0]; if (vt) { vt.contentHint = prefs.quality === '1080p60' ? 'motion' : 'detail'; vt.onended = () => stopStream('screen'); }
   V.peers.forEach(p => V.screen.getTracks().forEach(t => p.pc.addTrack(t, V.screen)));
   S.focusTile = 'screen:' + S.mySid;

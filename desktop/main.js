@@ -291,16 +291,24 @@ ipcMain.handle('choose', async (e, d) => {
 });
 
 /* seletor de tela */
-let pickResolve = null, pickSources = [];
-ipcMain.handle('picker:sources', () => pickSources.map(s => ({ id: s.id, name: s.name, thumb: s.thumbnail.toDataURL(), icon: s.appIcon ? s.appIcon.toDataURL() : null, screen: s.id.startsWith('screen') })));
+// A janela abre na hora; a lista de telas e janelas (que pode demorar com muitas janelas abertas) carrega em paralelo.
+let pickResolve = null, pickSources = [], pickReady = Promise.resolve([]);
+let lastPick = null; // última tela escolhida: reusada se o app pedir de novo sem som (quando o Windows não deixa capturar o áudio)
+ipcMain.handle('picker:sources', async () => {
+  await pickReady;
+  return pickSources.map(s => ({ id: s.id, name: s.name, thumb: s.thumbnail.toDataURL(), icon: s.appIcon ? s.appIcon.toDataURL() : null, screen: s.id.startsWith('screen') }));
+});
 ipcMain.handle('picker:choose', (e, id) => { if (pickResolve) pickResolve(id); pickResolve = null; if (picker && !picker.isDestroyed()) picker.close(); });
 function askSource() {
-  return new Promise(async resolve => {
-    try { pickSources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 400, height: 225 }, fetchWindowIcons: true }); }
-    catch { return resolve(null); }
-    pickResolve = resolve;
-    picker = new BrowserWindow({ width: 860, height: 620, minWidth: 520, minHeight: 420, parent: win, modal: true, title: 'Compartilhar tela', icon: asset('icon.png'), backgroundColor: '#14171c', autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false } });
+  return new Promise(resolve => {
+    if (picker && !picker.isDestroyed()) { picker.focus(); return resolve(null); }
+    pickResolve = resolve; pickSources = [];
+    pickReady = desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: true })
+      .then(l => { pickSources = l; return l; })
+      .catch(() => { pickSources = []; return []; });
+    picker = new BrowserWindow({ width: 860, height: 620, minWidth: 520, minHeight: 420, parent: win, modal: true, show: false, title: 'Compartilhar tela', icon: asset('icon.png'), backgroundColor: '#14171c', autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false } });
     picker.setMenu(null);
+    picker.once('ready-to-show', () => { if (picker && !picker.isDestroyed()) picker.show(); });
     showLocal(picker, 'picker');
     picker.on('closed', () => { if (pickResolve) { pickResolve(null); pickResolve = null; } picker = null; });
   });
@@ -318,11 +326,18 @@ app.whenReady().then(() => {
   ses.setPermissionRequestHandler((wc, perm, cb) => cb(allowed.includes(perm)));
   ses.setPermissionCheckHandler((wc, perm) => allowed.includes(perm));
   ses.setDisplayMediaRequestHandler(async (req, cb) => {
-    const id = await askSource();
-    const src = id && pickSources.find(s => s.id === id);
+    let src = null;
+    // segunda tentativa, sem som, logo depois da primeira: usa a mesma tela sem abrir o seletor de novo
+    if (!req.audioRequested && lastPick && Date.now() - lastPick.at < 15000) { src = lastPick.src; lastPick = null; }
+    else {
+      const id = await askSource();
+      src = id && pickSources.find(s => s.id === id);
+      lastPick = src ? { src, at: Date.now() } : null;
+    }
     if (!src) return cb({});
     const grant = { video: src };
-    if (process.platform === 'win32' && src.id.startsWith('screen')) grant.audio = 'loopback';
+    // tela inteira no Windows: manda o som do computador junto (se o Windows deixar)
+    if (req.audioRequested && process.platform === 'win32' && src.id.startsWith('screen')) grant.audio = 'loopback';
     cb(grant);
   });
   buildTray();
