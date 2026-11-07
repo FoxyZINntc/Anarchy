@@ -118,7 +118,10 @@ const BUILD = (() => {
 })();
 
 const newId = () => crypto.randomBytes(9).toString('base64url');
-const code = () => crypto.randomBytes(4).toString('hex').toUpperCase();
+const code = () => crypto.randomBytes(5).toString('hex').toUpperCase();
+// ícone de grupo: só imagem enviada para este servidor ou até 8 caracteres (emoji/iniciais). Nada de link de fora
+// (um link externo funcionaria como "pixel espião": revelaria o IP de quem abre o grupo)
+const cleanIcon = (v, isUp) => { const s = str(v, 400).trim(); return !s ? null : isUp(s) ? s : /^https?:|url\(|[<>"']/i.test(s) ? null : [...s].slice(0, 8).join(''); };
 const hashPw = (pw, salt) => crypto.scryptSync(pw, salt, 64).toString('hex');
 const now = () => Date.now();
 const str = (v, max) => (typeof v === 'string' ? v : '').slice(0, max);
@@ -270,23 +273,88 @@ function leaveVoice(socket) {
 
 /* ---------- HTTP ---------- */
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 'loopback'); // o Tailscale Funnel entrega pelo próprio PC: confia no IP que ele informa
+app.use(require('compression')()); // textos (app.js, css, json) vão comprimidos: carrega bem mais rápido
+
+// cabeçalhos de segurança: o navegador só roda scripts deste servidor, não deixa outro site embutir o app
+// e só carrega imagens/sons de lugares conhecidos (este servidor, Supabase, GIPHY, Tenor)
+const CSP = [
+  "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' data: blob: https://*.supabase.co https://*.giphy.com https://media.tenor.com",
+  "media-src 'self' blob: https://*.supabase.co",
+  "connect-src 'self' https://*.supabase.co https://*.giphy.com https://media.tenor.com",
+  "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"
+].join('; ');
+const isHttps = req => req.secure || req.headers['x-forwarded-proto'] === 'https' || /\.ts\.net$/i.test((req.headers.host || '').split(':')[0]);
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  next();
+});
 app.use(express.json({ limit: '12mb' }));
-app.use(express.static(PUBLIC));
-app.use('/uploads', express.static(UPLOADS, { maxAge: '30d' }));
+
+// página inicial com os arquivos marcados pela versão (?v=...): o navegador guarda app.js/css por 1 ano
+// e só baixa de novo quando a versão muda. A página em si nunca fica guardada (pega sempre a versão nova).
+let indexHtml = null;
+const sendIndex = (req, res) => {
+  if (!indexHtml) indexHtml = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8').replace(/(href|src)="([\w.-]+\.(?:css|js))"/g, `$1="$2?v=${BUILD}"`);
+  res.setHeader('Cache-Control', 'no-cache'); res.type('html').send(indexHtml);
+};
+app.get(['/', '/index.html'], sendIndex);
+app.use(express.static(PUBLIC, { index: false, setHeaders: (res, file) => res.setHeader('Cache-Control', /\.(js|css)$/.test(file) ? 'public, max-age=31536000, immutable' : 'public, max-age=3600') }));
+// arquivos enviados têm nome aleatório e nunca mudam
+app.use('/uploads', express.static(UPLOADS, { maxAge: '365d', immutable: true, dotfiles: 'deny' }));
+
+/* sessão: cookie HttpOnly (o JavaScript da página não consegue ler, então um script malicioso não rouba o login).
+   Também aceita o token no cabeçalho x-token, para apps antigos durante a transição. */
+const COOKIE = 'dsess';
+function cookieOf(header, name) {
+  for (const part of String(header || '').split(';')) { const i = part.indexOf('='); if (i > 0 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim()); }
+  return null;
+}
+const tokenOf = req => req.headers['x-token'] || cookieOf(req.headers.cookie, COOKIE) || null;
+function setSession(req, res, token) {
+  res.setHeader('Set-Cookie', `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${isHttps(req) ? '; Secure' : ''}`);
+}
+const clearSession = (req, res) => res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${isHttps(req) ? '; Secure' : ''}`);
+function newSession(uid) { const token = crypto.randomBytes(32).toString('hex'); db.sessions[token] = uid; save(); return token; }
 
 function auth(req, res, next) {
-  const uid = db.sessions[req.headers['x-token']];
+  const uid = db.sessions[tokenOf(req)];
   if (!uid || !db.users[uid]) return res.status(401).json({ erro: 'Sessão expirada. Entre de novo.' });
   req.uid = uid; next();
 }
+
+// limite de tentativas (contra adivinhar senha, criar contas em massa, flood)
+const hits = new Map();
+function limited(key, max, ms) {
+  const t = now(), l = (hits.get(key) || []).filter(x => t - x < ms);
+  if (l.length >= max) { hits.set(key, l); return true; }
+  l.push(t); hits.set(key, l); return false;
+}
+setInterval(() => { const t = now(); for (const [k, l] of hits) if (!l.length || t - l[l.length - 1] > 3600e3) hits.delete(k); }, 600e3).unref();
+const ipOf = req => req.ip || req.socket.remoteAddress || '?';
+// compara a senha em tempo constante (não dá para descobrir pelo tempo de resposta)
+const pwOk = (u, pw) => { const a = Buffer.from(hashPw(pw, u.salt), 'hex'), b = Buffer.from(u.passHash || '', 'hex'); return a.length === b.length && crypto.timingSafeEqual(a, b); };
+const DUMMY = { salt: crypto.randomBytes(16).toString('hex'), passHash: crypto.randomBytes(64).toString('hex') };
 const USER_RE = /^[a-z0-9_.]{3,20}$/;
 const COLORS = ['#6c7cff', '#ff6b8b', '#3ee0c5', '#f5b83d', '#b07cff', '#4fc3f7', '#7bd88f', '#ff8a4c'];
+const MIN_PW = 8;
 
 app.post('/api/register', (req, res) => {
+  if (limited('reg:' + ipOf(req), 5, 3600e3)) return res.status(429).json({ erro: 'Muitas contas criadas daqui. Tente de novo mais tarde.' });
   const username = str(req.body.username, 40).trim().toLowerCase();
   const password = str(req.body.password, 200);
   if (!USER_RE.test(username)) return res.status(400).json({ erro: 'O usuário precisa ter de 3 a 20 caracteres: letras minúsculas, números, ponto ou _.' });
-  if (password.length < 6) return res.status(400).json({ erro: 'A senha precisa ter pelo menos 6 caracteres.' });
+  if (password.length < MIN_PW) return res.status(400).json({ erro: `A senha precisa ter pelo menos ${MIN_PW} caracteres.` });
+  if (password.toLowerCase().includes(username)) return res.status(400).json({ erro: 'A senha não pode conter o nome de usuário.' });
   if (Object.values(db.users).some(u => u.username === username)) return res.status(400).json({ erro: 'Esse nome de usuário já existe.' });
   const salt = crypto.randomBytes(16).toString('hex');
   const id = newId();
@@ -295,26 +363,34 @@ app.post('/api/register', (req, res) => {
     color: COLORS[Object.keys(db.users).length % COLORS.length], banner: null, avatar: null, bio: '', status: 'online', customStatus: '', createdAt: now()
   };
   pioneers = null;
-  const token = crypto.randomBytes(32).toString('hex');
-  db.sessions[token] = id; save();
+  const token = newSession(id); setSession(req, res, token);
   res.json({ token });
 });
 app.post('/api/login', (req, res) => {
   const username = str(req.body.username, 40).trim().toLowerCase();
+  if (limited('login-ip:' + ipOf(req), 30, 15 * 60e3) || limited('login-user:' + username, 8, 15 * 60e3)) return res.status(429).json({ erro: 'Muitas tentativas. Espere 15 minutos e tente de novo.' });
   const u = Object.values(db.users).find(x => x.username === username);
-  if (!u || hashPw(str(req.body.password, 200), u.salt) !== u.passHash) return res.status(400).json({ erro: 'Usuário ou senha incorretos.' });
-  const token = crypto.randomBytes(32).toString('hex');
-  db.sessions[token] = u.id; save();
+  const ok = pwOk(u || DUMMY, str(req.body.password, 200)); // mesmo sem usuário faz a conta (tempo igual)
+  if (!u || !ok) return res.status(400).json({ erro: 'Usuário ou senha incorretos.' });
+  hits.delete('login-user:' + username);
+  const token = newSession(u.id); setSession(req, res, token);
   res.json({ token });
 });
-app.post('/api/logout', auth, (req, res) => { delete db.sessions[req.headers['x-token']]; save(); res.json({ ok: true }); });
+// apps antigos guardavam o token no navegador: troca por cookie e o app apaga a cópia antiga
+app.post('/api/session', auth, (req, res) => { setSession(req, res, tokenOf(req)); res.json({ ok: true }); });
+app.post('/api/logout', (req, res) => { const t = tokenOf(req); if (t) { delete db.sessions[t]; save(); } clearSession(req, res); res.json({ ok: true }); });
 app.post('/api/password', auth, (req, res) => {
+  if (limited('pw:' + req.uid, 6, 15 * 60e3)) return res.status(429).json({ erro: 'Muitas tentativas. Espere 15 minutos.' });
   const u = db.users[req.uid];
-  if (hashPw(str(req.body.atual, 200), u.salt) !== u.passHash) return res.status(400).json({ erro: 'A senha atual está errada.' });
+  if (!pwOk(u, str(req.body.atual, 200))) return res.status(400).json({ erro: 'A senha atual está errada.' });
   const nova = str(req.body.nova, 200);
-  if (nova.length < 6) return res.status(400).json({ erro: 'A nova senha precisa ter pelo menos 6 caracteres.' });
-  u.salt = crypto.randomBytes(16).toString('hex'); u.passHash = hashPw(nova, u.salt); save();
-  res.json({ ok: true });
+  if (nova.length < MIN_PW) return res.status(400).json({ erro: `A nova senha precisa ter pelo menos ${MIN_PW} caracteres.` });
+  u.salt = crypto.randomBytes(16).toString('hex'); u.passHash = hashPw(nova, u.salt);
+  // trocou a senha: os outros aparelhos saem (se alguém tinha seu login, perde o acesso)
+  const keep = tokenOf(req);
+  for (const [t, id] of Object.entries(db.sessions)) if (id === u.id && t !== keep) delete db.sessions[t];
+  (online.get(u.id) || new Set()).forEach(sid => { const s = sockets.get(sid); if (s && s.data.token !== keep) s.disconnect(true); });
+  save(); res.json({ ok: true });
 });
 app.post('/api/upload', auth, (req, res) => {
   const m = /^data:image\/(png|jpe?g|gif|webp);base64,(.+)$/.exec(str(req.body.data, 12 * 1024 * 1024));
@@ -432,6 +508,7 @@ function onConnection(socket) {
   on('privacy:update', (d, cb) => {
     const u = me(); const p = { ...(u.privacy || {}) };
     if (['todos', 'grupos', 'ninguem'].includes(d.requests)) p.requests = d.requests;
+    if (['todos', 'grupos', 'amigos'].includes(d.dms)) p.dms = d.dms;
     u.privacy = p; save(); toUser(uid, 'me:update', selfUser(u)); ok(cb);
   });
   // o que você tem em comum com alguém: grupos e amigos (só a interseção com os seus)
@@ -443,6 +520,7 @@ function onConnection(socket) {
 
   /* amigos */
   on('friend:request', (d, cb) => {
+    if (limited('freq:' + uid, 20, 10 * 60e3)) return fail(cb, 'Muitos pedidos de amizade seguidos. Espere alguns minutos.');
     const name = str(d.username, 40).trim().toLowerCase().replace(/^@/, '');
     const target = Object.values(db.users).find(u => u.username === name);
     if (!target) return fail(cb, 'Não achei ninguém com esse nome de usuário.');
@@ -482,11 +560,17 @@ function onConnection(socket) {
 
   /* conversas diretas */
   on('dm:open', (d, cb) => {
+    if (limited('dm:' + uid, 30, 10 * 60e3)) return fail(cb, 'Muitas conversas novas seguidas. Espere alguns minutos.');
     const other = db.users[d.userId];
     if (!other || other.id === uid) return fail(cb, 'Usuário inválido.');
     if (blockedBetween(uid, other.id)) return fail(cb, 'Você não pode conversar com essa pessoa.');
     let dm = Object.values(db.dms).find(x => x.members.includes(uid) && x.members.includes(other.id));
     if (!dm) {
+      // privacidade de quem recebe: todos / amigos e grupos em comum (padrão) / só amigos
+      const pv = (other.privacy && other.privacy.dms) || 'grupos', friend = friendsOf(other.id).includes(uid);
+      const shared = groupsOf(uid).some(g => g.members.includes(other.id));
+      if (pv === 'amigos' && !friend) return fail(cb, 'Essa pessoa só recebe mensagens diretas de amigos.');
+      if (pv === 'grupos' && !friend && !shared) return fail(cb, 'Essa pessoa só recebe mensagens diretas de amigos ou de quem está num grupo com ela.');
       dm = { id: newId(), members: [uid, other.id], createdAt: now() };
       db.dms[dm.id] = dm; save();
       toUsers(dm.members, 'dm:update', { ...dm, last: dm.createdAt });
@@ -512,7 +596,7 @@ function onConnection(socket) {
     if (!name) return fail(cb, 'Dê um nome ao grupo.');
     const members = [uid, ...(Array.isArray(d.members) ? d.members : []).filter(m => friendsOf(uid).includes(m))];
     const g = {
-      id: newId(), name, icon: str(d.icon, 400) || null, color: /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : '#6c7cff',
+      id: newId(), name, icon: cleanIcon(d.icon, store.isUpload), color: /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : '#6c7cff',
       ownerId: uid, members: [...new Set(members)], invite: code(), createdAt: now(),
       channels: [
         { id: newId(), name: 'geral', type: 'text' },
@@ -529,7 +613,7 @@ function onConnection(socket) {
   on('group:update', (d, cb) => {
     const g = withPerm(d.gid, 'manageServer'); if (!g) return fail(cb, 'Você não tem permissão para mudar o grupo.');
     if ('name' in d && str(d.name, 40).trim()) g.name = str(d.name, 40).trim();
-    if ('icon' in d) g.icon = str(d.icon, 400) || null;
+    if ('icon' in d) g.icon = cleanIcon(d.icon, store.isUpload);
     if ('color' in d && HEX.test(d.color)) g.color = d.color;
     if ('description' in d) g.description = str(d.description, 300).trim();
     if ('banner' in d) g.banner = d.banner === null || HEX.test(d.banner) || store.isUpload(d.banner) ? d.banner : g.banner;
@@ -547,6 +631,7 @@ function onConnection(socket) {
     ok(cb, { added: add.length });
   });
   on('group:join', (d, cb) => {
+    if (limited('join:' + uid, 10, 10 * 60e3)) return fail(cb, 'Muitas tentativas de convite. Espere alguns minutos.');
     const c = str(d.code, 20).trim().toUpperCase().replace(/^.*\//, '');
     const g = Object.values(db.groups).find(x => x.invite === c);
     if (!g) return fail(cb, 'Convite inválido ou expirado.');
@@ -682,6 +767,7 @@ function onConnection(socket) {
     ok(cb, { messages: list.slice(Math.max(0, end - 60), end), more: end > 60 });
   });
   on('message:send', (d, cb) => {
+    if (limited('msg:' + uid, 12, 10e3)) return fail(cb, 'Calma! Você está mandando mensagens rápido demais.');
     const info = canAccess(uid, d.cid); if (!info) return fail(cb, 'Sem acesso.');
     if (info.kind === 'dm' && info.members.some(m => m !== uid && blockedBetween(uid, m))) return fail(cb, 'Você não pode mandar mensagens para essa pessoa.');
     const content = str(d.content, 4000).trim();
@@ -876,11 +962,13 @@ function onConnection(socket) {
 }
 
 function makeIo(server) {
-  const io = new Server(server, { maxHttpBufferSize: 2e6, serveClient: false, cors: { origin: true } });
+  const io = new Server(server, { maxHttpBufferSize: 2e6, serveClient: false });
   io.use((socket, next) => {
-    const uid = db.sessions[socket.handshake.auth && socket.handshake.auth.token];
+    // login pelo cookie de sessão (HttpOnly) ou pelo token antigo do app; o cookie é SameSite, então outro site não usa
+    const token = (socket.handshake.auth && socket.handshake.auth.token) || cookieOf(socket.handshake.headers.cookie, COOKIE);
+    const uid = db.sessions[token];
     if (!uid || !db.users[uid]) return next(new Error('auth'));
-    socket.data.uid = uid; socket.data.token = socket.handshake.auth.token; next();
+    socket.data.uid = uid; socket.data.token = token; next();
   });
   io.on('connection', onConnection);
   return io;

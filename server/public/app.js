@@ -135,7 +135,7 @@ applyPrefs();
 
 /* =============== estado =============== */
 const S = {
-  token: localStorage.getItem('discordia:token'), me: null, users: {}, friends: { friends: [], incoming: [], outgoing: [] },
+  token: null, me: null, // o login fica num cookie HttpOnly; o token só fica na memória nesta aba, como reserva users: {}, friends: { friends: [], incoming: [], outgoing: [] },
   groups: {}, dms: {}, voice: {}, view: { kind: 'friends', tab: 'online' }, lastCh: {}, msgs: {}, more: {}, loading: {},
   unread: {}, mentions: {}, typing: {}, drafts: {}, reply: null, editing: null, focusTile: null, mySid: null, connected: false, unhide: {}
 };
@@ -350,7 +350,7 @@ function ask(step) {
   const cfg = {
     user: ['Nome de usuário', 'seu nome de usuário', 'text', 'username'],
     name: ['Nome de exibição', 'como a galera vai te ver', 'text', 'nickname'],
-    pass: ['Senha', reg ? 'mínimo 6 caracteres' : 'sua senha', 'password', reg ? 'new-password' : 'current-password']
+    pass: ['Senha', reg ? 'mínimo 8 caracteres' : 'sua senha', 'password', reg ? 'new-password' : 'current-password']
   }[step];
   $('#authLabel').textContent = cfg[0]; inp.placeholder = cfg[1]; inp.type = cfg[2]; inp.autocomplete = cfg[3];
   inp.value = step === 'user' ? (AU.data.username || '') : step === 'name' ? (AU.data.displayName || '') : '';
@@ -404,7 +404,7 @@ $('#authForm').onsubmit = async e => {
   }
   if (AU.step === 'name') { AU.data.displayName = val; goPass(); return; }
   // senha
-  if (reg && val.length < 6) { await authBad('Curtinha demais! A senha precisa de pelo menos 6 caracteres.'); ask('pass'); return; }
+  if (reg && val.length < 8) { await authBad('Curtinha demais! A senha precisa de pelo menos 8 caracteres.'); ask('pass'); return; }
   AU.busy = true; $('#authBtn').disabled = true; $('#ptStatus').textContent = 'conferindo a lista...';
   const g = AU.gen;
   try {
@@ -422,7 +422,7 @@ $('#authForm').onsubmit = async e => {
 };
 async function goPass() {
   ask('pass');
-  await bot('Agora inventa uma senha (mínimo 6 caracteres). Juro que fecho os olhos 🙈');
+  await bot('Agora inventa uma senha (mínimo 8 caracteres). Juro que fecho os olhos 🙈');
 }
 async function authWin(token) {
   const name = AU.data.displayName || AU.data.username;
@@ -433,7 +433,7 @@ async function authWin(token) {
   tone([[523, .1], [659, .1], [784, .1], [1047, .25]], 'triangle', .08);
   confetti();
   await authWait(reduceMotion() ? 200 : 1300);
-  S.token = token; localStorage.setItem('discordia:token', token); connect();
+  S.token = token; connect(); // o servidor já gravou o cookie de sessão
 }
 function confetti() {
   if (reduceMotion()) return;
@@ -493,14 +493,14 @@ $('#ptBig').onclick = () => {
 };
 async function logout() {
   try { await api('/api/logout'); } catch {}
-  localStorage.removeItem('discordia:token'); S.token = null; if (V.room) leaveVoice();
+  try { localStorage.removeItem('discordia:token'); } catch {} S.token = null; if (V.room) leaveVoice();
   if (socket) socket.disconnect(); socket = null; closeSettings(); showAuth();
 }
 
 /* =============== conexão =============== */
 function connect() {
   if (socket) socket.disconnect();
-  socket = io({ auth: { token: S.token }, transports: ['websocket', 'polling'] });
+  socket = io({ auth: S.token ? { token: S.token } : {}, transports: ['websocket', 'polling'] });
   socket.on('connect', async () => {
     const r = await emit('init');
     if (!r.ok) return;
@@ -513,7 +513,7 @@ function connect() {
     // servidor reiniciou com uma interface nova? mostra a barra "Atualizar"
     if (r.build) { if (UPD.build && UPD.build !== r.build) { UPD.web = true; showUpd(); } if (!UPD.build) UPD.build = r.build; }
   });
-  socket.on('connect_error', e => { if (e.message === 'auth') { localStorage.removeItem('discordia:token'); S.token = null; showAuth(); } });
+  socket.on('connect_error', e => { if (e.message === 'auth') { socket.disconnect(); S.token = null; showAuth(); } });
   socket.on('disconnect', () => { S.connected = false; if (V.room) { cleanupVoice(); toast('A conexão caiu. Você saiu da call.', true); } render(); });
   socket.on('me:update', u => { S.me = u; S.users[u.id] = u; render(); });
   socket.on('user:update', u => { S.users[u.id] = u; render(); });
@@ -846,7 +846,7 @@ function md(text) {
     .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>')
     .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
-    .replace(/\|\|([^|\n]+)\|\|/g, '<span class="spoiler" style="background:var(--text);color:var(--text);border-radius:3px;cursor:pointer" onclick="this.style.color=\'var(--main)\'">$1</span>')
+    .replace(/\|\|([^|\n]+)\|\|/g, '<span class="spoiler" title="Spoiler: clique para ver">$1</span>')
     .replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')
     .replace(/@([a-z0-9_.]{3,20})/gi, (m, n) => Object.values(S.users).some(u => u.username === n.toLowerCase()) ? `<span class="mention">@${n}</span>` : m);
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[i]);
@@ -1614,7 +1614,7 @@ function drawSettings() {
       </div>
       <div class="set-card"><h3>Senha</h3>
         <div class="pe-2"><label class="field">Senha atual<input type="password" id="pwA" autocomplete="current-password"></label>
-        <label class="field">Nova senha<input type="password" id="pwN" autocomplete="new-password" placeholder="pelo menos 6 caracteres"></label></div>
+        <label class="field">Nova senha<input type="password" id="pwN" autocomplete="new-password" placeholder="pelo menos 8 caracteres"></label></div>
         <p class="form-err" id="pwE"></p>
         <div style="display:flex;justify-content:flex-end"><button class="btn primary" id="pwOk">Trocar senha</button></div></div>
       <div class="set-card"><h3>Dispositivos conectados</h3><div id="sesBox" class="muted">Carregando...</div></div>
@@ -1636,6 +1636,9 @@ function drawSettings() {
       <div class="set-card"><h3>Pedidos de amizade</h3>
         ${setRow('Quem pode te mandar pedido', 'O servidor recusa pedidos de quem não se encaixa.', seg('pvR', [['todos', 'Todo mundo'], ['grupos', 'Só de grupos em comum'], ['ninguem', 'Ninguém']], pv.requests || 'todos'))}
       </div>
+      <div class="set-card"><h3>Mensagens diretas</h3>
+        ${setRow('Quem pode começar uma conversa com você', 'Conversas que já existem continuam abertas. Para cortar alguém, bloqueie.', seg('pvD', [['todos', 'Todo mundo'], ['grupos', 'Amigos e grupos em comum'], ['amigos', 'Só amigos']], pv.dms || 'grupos'))}
+      </div>
       <div class="set-card"><h3>Bloqueados · ${bl.length}</h3>
         <p class="muted small" style="margin:0">Quem você bloqueia não pode te mandar mensagem direta, pedido de amizade nem ligar. As mensagens dessa pessoa nos grupos ficam escondidas para você.</p>
         ${bl.length ? `<div class="blk-list">${bl.map(id => `<div class="blk">${av(id, 32, false)}<span><b>${esc(nameOf(id))}</b><span class="muted small">@${esc(user(id).username)}</span></span><button class="btn sm" data-unblock="${id}">Desbloquear</button></div>`).join('')}</div>` : '<p class="muted" style="margin:0">Você não bloqueou ninguém. Para bloquear, clique com o botão direito numa pessoa.</p>'}
@@ -1645,6 +1648,7 @@ function drawSettings() {
         ${setRow('Esconder prévia nas notificações', 'A notificação do Windows mostra só quem mandou, sem o texto.', sw('pvP', prefs.hidePreview))}
       </div>`;
     bindSeg('pvR', v => act('privacy:update', { requests: v }, 'Preferência salva.'));
+    bindSeg('pvD', v => act('privacy:update', { dms: v }, 'Preferência salva.'));
     $('#pvM').onchange = e => { prefs.mentionsOnly = e.target.checked; savePrefs(); };
     $('#pvP').onchange = e => { prefs.hidePreview = e.target.checked; savePrefs(); };
     b.onclick = async e => { const x = e.target.closest('[data-unblock]'); if (!x) return; const r = await act('user:block', { id: x.dataset.unblock, block: false }, 'Desbloqueado.'); if (r.ok) setTimeout(drawSettings, 150); };
@@ -2956,6 +2960,7 @@ const A = {
   pins: el => pinsPanel(el)
 };
 document.addEventListener('click', e => {
+  const sp = e.target.closest('.spoiler'); if (sp) sp.classList.add('open');
   const el = e.target.closest('[data-act]');
   if (el && A[el.dataset.act]) { A[el.dataset.act](el, e); return; }
   const u = e.target.closest('.av[data-user]');
@@ -2990,5 +2995,15 @@ window.addEventListener('blur', () => { if (V.pttDown) { V.pttDown = false; appl
 window.addEventListener('beforeunload', () => { if (V.room) socket?.emit('voice:leave'); });
 
 /* =============== início =============== */
-if (S.token) connect(); else showAuth();
+// quem entrou numa versão antiga tem o token guardado no navegador: troca por cookie (sem precisar entrar de novo)
+(async () => {
+  let old = null; try { old = localStorage.getItem('discordia:token'); } catch {}
+  if (old) {
+    try {
+      const r = await fetch('/api/session', { method: 'POST', headers: { 'x-token': old } });
+      if (r.ok || r.status === 401) localStorage.removeItem('discordia:token'); else S.token = old;
+    } catch { S.token = old; }
+  }
+  connect();
+})();
 })();

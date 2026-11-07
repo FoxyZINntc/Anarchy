@@ -283,9 +283,11 @@ ipcMain.handle('settings', (e, s) => { setSettings(s || {}); return status(); })
 ipcMain.handle('reset', () => resetMode());
 ipcMain.handle('retry', () => route());
 ipcMain.handle('panel', () => { if (cfg.mode === 'host') openPanel(); });
-ipcMain.handle('tunnel', (e, on) => { on ? startTunnel() : stopTunnel(); return status(); });
-ipcMain.handle('db:get', () => ({ url: cfg.supabaseUrl, hasKey: !!(cfg.supabaseKey || cfg.supabaseToken) }));
+// só o painel local do app (arquivo do próprio programa) pode mexer no túnel e no banco; páginas da internet não
+ipcMain.handle('tunnel', (e, on) => { if (!isLocal(e)) return status(); on ? startTunnel() : stopTunnel(); return status(); });
+ipcMain.handle('db:get', e => (isLocal(e) ? { url: cfg.supabaseUrl, hasKey: !!(cfg.supabaseKey || cfg.supabaseToken) } : {}));
 ipcMain.handle('db:set', async (e, d) => {
+  if (!isLocal(e)) return { ok: false, erro: 'Não permitido.' };
   const prev = { url: cfg.supabaseUrl, key: cfg.supabaseKey, token: cfg.supabaseToken };
   cfg.supabaseUrl = String(d.url || '').trim(); if (d.key !== undefined) { cfg.supabaseKey = String(d.key || '').trim(); cfg.supabaseToken = ''; }
   if (d.clear) { cfg.supabaseUrl = ''; cfg.supabaseKey = ''; cfg.supabaseToken = ''; }

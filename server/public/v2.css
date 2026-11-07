@@ -390,6 +390,10 @@
 .skel-row b { height: 12px; margin: 6px 0; }
 @keyframes skel { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
+/* spoiler ||texto|| */
+.spoiler { background: var(--text); color: transparent; border-radius: 4px; padding: 0 2px; cursor: pointer; transition: background .2s, color .2s; }
+.spoiler.open { background: color-mix(in srgb, var(--text) 12%, transparent); color: inherit; cursor: text; }
+
 /* mensagens de quem você bloqueou */
 .msg.sys.blocked { opacity: .8; }
 

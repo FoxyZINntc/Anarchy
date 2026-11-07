@@ -52,3 +52,18 @@ Camadas dentro do próprio avatar, com `isolation: isolate`, para que nada vaze 
 - O servidor pede credenciais TURN da Cloudflare à função discordia-db (op `turn`), que usa os segredos `CF_TURN_KEY_ID` e `CF_TURN_API_TOKEN` do Supabase. Renova a cada 30 minutos. Se o .env do servidor tiver TURN próprio, ele tem prioridade.
 - O app avisa quando o áudio com alguém não conecta em 15 segundos, e o mixer mostra conectando / sem conexão.
 
+
+## Segurança (auditoria)
+
+- Login em cookie `HttpOnly; SameSite=Lax` (`Secure` em https): o JavaScript da página não lê o login, então um script malicioso não consegue roubá-lo. Quem tinha o token antigo no navegador é migrado sozinho (`POST /api/session`), sem precisar entrar de novo.
+- Cabeçalhos de segurança: CSP (só scripts do próprio servidor; imagens e sons só do servidor, Supabase, GIPHY e Tenor), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, HSTS em https. O spoiler deixou de usar `onclick` embutido.
+- Limites: login (8 erros por usuário e 30 por IP a cada 15 min), criação de contas (5 por IP por hora), troca de senha, mensagens (12 a cada 10 s), pedidos de amizade, conversas novas e tentativas de convite.
+- Senha: mínimo de 8 caracteres para contas novas, não pode conter o nome de usuário, comparação em tempo constante. Trocar a senha desconecta os outros aparelhos.
+- Ícone de grupo só aceita imagem enviada ao servidor ou emoji/texto curto. Link externo funcionaria como pixel espião, revelando o IP de quem abre o grupo.
+- Convites novos têm 10 caracteres (antes 8).
+- Privacidade: "Quem pode começar uma conversa com você" (todos, amigos e grupos em comum, ou só amigos). O padrão é amigos e grupos em comum.
+- CORS do Socket.IO removido: só o próprio site conecta.
+- App de computador: túnel e configuração do banco só aceitam pedidos do painel local do app.
+- Dependências do servidor sem vulnerabilidades conhecidas (`npm audit`). Electron e electron-builder precisam de atualização maior (ver pendências).
+- Supabase: RLS ligado em todas as tabelas, sem políticas (só o servidor acessa); Storage sem políticas (ninguém lista nem envia com a chave pública); buckets limitam tipo e tamanho.
+- Desempenho: respostas comprimidas (gzip) e app.js/css com versão no endereço, guardados por 1 ano no navegador e baixados de novo só quando mudam.
