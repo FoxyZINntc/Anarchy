@@ -1,5 +1,5 @@
 // Discordia — aplicativo de computador
-const { app, BrowserWindow, Tray, Menu, ipcMain, session, desktopCapturer, shell, nativeImage, net, clipboard, Notification } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, session, desktopCapturer, shell, nativeImage, net, clipboard, Notification, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -106,10 +106,38 @@ const newer = (a, b) => {
   return false;
 };
 function sendUpd() { if (win && !win.isDestroyed()) win.webContents.send('update', upd); }
+// O aviso não depende das telas do servidor: se a página não tiver a barra "Atualizar"
+// (servidor antigo ou fora do ar), o próprio app pergunta numa janela do Windows.
+let updAsked = null, lastCheck = 0;
+async function announceUpdate() {
+  if (!upd.ready || updAsked === upd.version) return;
+  sendUpd(); buildTray();
+  let pageHasBar = false;
+  try { if (win && !win.isDestroyed() && /^https?:/.test(win.webContents.getURL())) pageHasBar = await win.webContents.executeJavaScript("!!document.getElementById('updBar')"); } catch {}
+  if (pageHasBar) { updAsked = upd.version; return; }
+  if (!win || win.isDestroyed() || !win.isVisible()) {
+    // janela escondida perto do relógio: avisa por notificação; clicar abre a pergunta
+    try {
+      const n = new Notification({ title: 'Atualização do Discordia pronta', body: `A versão ${upd.version} já foi baixada. Clique para atualizar.`, icon: asset('icon.png') });
+      n.on('click', () => { showMain(); updAsked = null; announceUpdate(); });
+      n.show();
+    } catch {}
+    return;
+  }
+  updAsked = upd.version;
+  const r = await dialog.showMessageBox(win, {
+    type: 'info', title: 'Atualização do Discordia', message: `A versão ${upd.version} do Discordia está pronta.`,
+    detail: 'O Discordia fecha, atualiza e abre de novo sozinho. Leva poucos segundos.',
+    buttons: ['Reiniciar agora', 'Depois'], defaultId: 0, cancelId: 1, noLink: true
+  });
+  if (r.response === 0) installUpdate();
+}
 async function checkUpdate() {
   if (!UPD_REPO) { upd.state = 'desligado'; return upd; }
   if (!app.isPackaged) { upd.state = 'dev'; return upd; }
-  if (upd.ready || upd.state === 'baixando' || upd.state === 'procurando') return upd;
+  if (upd.ready) { announceUpdate(); return upd; }
+  if (upd.state === 'baixando' || upd.state === 'procurando') return upd;
+  lastCheck = Date.now();
   try {
     upd.state = 'procurando';
     const r = await net.fetch(`https://api.github.com/repos/${UPD_REPO}/releases/latest`, { headers: { 'User-Agent': 'Discordia', Accept: 'application/vnd.github+json' } });
@@ -123,8 +151,7 @@ async function checkUpdate() {
     upd.state = 'baixando';
     if (!fs.existsSync(file) || fs.statSync(file).size !== asset.size) await download(asset.browser_download_url, file);
     upd = { state: 'pronto', version: ver, file, ready: true, error: '' };
-    sendUpd();
-    notify('Atualização pronta', `A versão ${ver} do Discordia já foi baixada. Clique em "Atualizar e reiniciar" no topo do app.`);
+    announceUpdate();
   } catch (e) { upd.state = 'erro'; upd.error = e.message; }
   return upd;
 }
@@ -211,6 +238,7 @@ function buildTray() {
   const host = cfg.mode === 'host';
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Abrir o Discordia', click: showMain },
+    ...(upd.ready ? [{ label: `Atualizar e reiniciar (versão ${upd.version})`, click: installUpdate }] : []),
     { type: 'separator' },
     ...(host ? [
       { label: 'Painel do servidor', click: openPanel },
@@ -342,9 +370,10 @@ app.whenReady().then(() => {
   });
   buildTray();
   createWindow();
-  // procura atualização 10 s depois de abrir e depois a cada 30 minutos
-  setTimeout(checkUpdate, 10000);
-  setInterval(checkUpdate, 30 * 60e3);
+  // procura atualização 8 s depois de abrir, a cada 10 minutos e quando a pessoa volta para a janela
+  setTimeout(checkUpdate, 8000);
+  setInterval(checkUpdate, 10 * 60e3);
+  app.on('browser-window-focus', () => { if (Date.now() - lastCheck > 2 * 60e3) checkUpdate(); });
 });
 app.on('window-all-closed', () => { if (quitting || !cfg.minimizeToTray) app.quit(); });
 app.on('before-quit', async e => {
