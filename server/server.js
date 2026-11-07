@@ -84,6 +84,13 @@ if (process.env.CF_TURN_KEY_ID) { await refreshCloudflareTurn(); turnTimer = set
 /* ---------- banco de dados (Supabase ou arquivo local) ---------- */
 const store = await createStore({ dataDir: DATA, supabaseUrl: cfg.supabaseUrl, supabaseKey: cfg.supabaseKey, supabaseToken: cfg.supabaseToken, log });
 const db = store.db;
+// subiu sem as tabelas da Central de Áudio? confere de 5 em 5 min e reinicia quando elas existirem
+// (só no servidor dedicado: o rodar.cmd liga de novo sozinho)
+if (opts.standalone && !store.mediaReady && store.recheck) setInterval(async () => {
+  if (!(await store.recheck())) return;
+  log('Supabase: Central de Áudio e figurinhas disponíveis. Reiniciando para ligar.');
+  await store.flush().catch(() => {}); process.exit(0);
+}, 5 * 60e3).unref();
 const save = store.save, saveNow = store.saveNow;
 
 // "versão" da interface: muda quando app.js, style.css ou index.html mudam. Os apps abertos comparam

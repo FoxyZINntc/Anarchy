@@ -227,6 +227,8 @@ async function supabaseStore({ url, key, token, dataDir, log }) {
     isUpload: u => typeof u === 'string' && (u.startsWith(prefix) || u.startsWith(sonsPrefix) || /^\/uploads\/[\w-]+\.\w+$/.test(u)),
     gifs: client.gifs,
     mediaReady: !TABLES.some(t => t.off),
+    // as tabelas novas já existem no Supabase? (para o servidor se reiniciar e ligar a Central de Áudio)
+    recheck: async () => { try { for (const t of TABLES.filter(x => x.off)) await client.select(t.name, 0, 0); return true; } catch { return false; } },
     // mesma ordem do arquivo local e do server.js: (imagem, nome, tipo)
     upload: (buf, name, type) => client.upload(name, buf, type)
   };
