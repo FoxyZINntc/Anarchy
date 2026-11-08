@@ -370,7 +370,7 @@ function djAction(g, uid, room, action, arg) {
   if (action === 'volume') {
     if (!st) return 'Não tem nada tocando agora.';
     const v = parseInt(String(arg).replace('%', ''), 10);
-    if (!Number.isFinite(v)) return `Volume do DJ: **${st.vol}%**. Para mudar: \`/volume 80\` (0 a 150).`;
+    if (!Number.isFinite(v)) return `Volume do DJ: **${st.vol}%**. Para mudar: \`/volume 80\` (0 a 100).`;
     st.vol = Math.max(0, Math.min(100, v)); pushMusic(room); return `🔊 ${who} mudou o volume do DJ para **${st.vol}%**.`;
   }
   if (action === 'repetir') { if (need()) return need(); st.loop = !st.loop; pushMusic(room); return st.loop ? `🔁 Repetindo **${mdSafe(st.cur.title)}** até alguém usar \`/repetir\` de novo.` : '🔁 Repetição desligada.'; }
