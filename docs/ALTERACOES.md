@@ -75,3 +75,9 @@ Camadas dentro do próprio avatar, com `isolation: isolate`, para que nada vaze 
   - janela: so o som do programa daquela janela (janela do proprio Discordia vai sem som).
 - `main.js` (`somtela:start/stop`) roda o exe e manda o PCM (16 bits, 48 kHz, estereo) para a janela em pedacos de ~20 ms; o `preload.js` monta a faixa com `MediaStreamTrackGenerator` e coloca no stream da tela. Parar a tela fecha o exe.
 - Windows antigo (antes do 2004): compartilha sem som e mostra o aviso.
+## DJ: bot de música dos grupos
+- **Membro do grupo:** em Configurações do grupo > "DJ (bot de música)", quem gerencia o grupo adiciona, personaliza (nome, foto, cor, status, sobre) e remove o DJ. Ele é um usuário com `bot: true` (sem login: senha aleatória e login de bots recusado; não aceita amizade nem conversa direta).
+- **Comandos** (num canal de texto do grupo, estando numa sala de voz do grupo): `/music nome ou link`, `/pular`, `/pausar`, `/continuar`, `/parar`, `/fila`, `/agora`, `/volume 0-100`, `/repetir`, `/tirar N`, `/embaralhar`, `/ajuda`. Também em inglês (`/play`, `/skip`, `/stop`...). O app mostra a lista ao digitar `/`.
+- **Como toca:** o servidor guarda a fila de cada sala e manda a todos "o que tocar e desde quando". Cada app puxa o áudio de `/api/music/:id` (o servidor repassa do site de origem) e toca no mesmo ponto. Não passa pelo WebRTC nem pelo microfone de ninguém. Cada pessoa tem o próprio volume do DJ no cartão "Tocando agora".
+- **Busca:** `server/music.js` usa o **yt-dlp** (baixado sozinho do GitHub oficial para `server/bin`, atualizado 1x por dia; ou `YTDLP_PATH` no .env). Links diretos de áudio (mp3, ogg...) tocam sem o yt-dlp. Só endereços públicos são aceitos. `DJ_SEM_YTDLP=1` desliga o yt-dlp.
+- O DJ para quando todo mundo sai da sala e avisa no chat quando a fila acaba.

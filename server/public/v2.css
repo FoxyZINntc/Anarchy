@@ -468,3 +468,61 @@
 /* teste do microfone: mostra se a detecção de voz deixaria o microfone aberto */
 .mic-gate { display: block; font-size: .85em; font-weight: 600; color: var(--muted); min-height: 1.3em; }
 .mic-gate.on { color: var(--ok); }
+/* ===== DJ (bot de música) ===== */
+.bot-tag { display: inline-flex; align-items: center; font-size: 10px; font-weight: 800; letter-spacing: .04em; line-height: 1; padding: 3px 5px; border-radius: 4px; background: var(--accent); color: var(--accent-text); margin-left: 6px; vertical-align: middle; flex: 0 0 auto; }
+.voice-person .bot-tag { margin-left: 0; }
+.dj-person { cursor: pointer; }
+.dj-person:hover { background: var(--hover); color: var(--text); }
+.dj-eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; flex: 0 0 auto; }
+.dj-eq i { width: 3px; height: 100%; border-radius: 2px; background: var(--ok); animation: djEq .9s ease-in-out infinite; transform-origin: bottom; }
+.dj-eq i:nth-child(2) { animation-delay: -.3s; } .dj-eq i:nth-child(3) { animation-delay: -.6s; }
+.dj-eq.paused i { animation: none; transform: scaleY(.35); background: var(--muted); }
+@keyframes djEq { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .dj-eq i { animation: none; transform: scaleY(.6); } }
+.vb-dj { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 6px; padding: 5px 8px; border: 0; border-radius: 8px; background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--text); font: inherit; font-size: .82em; cursor: pointer; text-align: left; }
+.vb-dj span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dj-card { display: flex; gap: 14px; align-items: stretch; margin: 12px 12px 0; padding: 12px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--line) 80%, transparent); background: color-mix(in srgb, var(--panel) 92%, transparent); box-shadow: var(--shadow); text-align: left; max-width: 760px; align-self: center; width: calc(100% - 24px); box-sizing: border-box; }
+.stage-empty .dj-card { margin: 18px auto 0; }
+.dj-art { flex: 0 0 auto; width: 112px; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: var(--elev); display: grid; place-items: center; align-self: center; }
+.dj-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dj-noart { font-size: 28px; display: grid; place-items: center; width: 100%; height: 100%; }
+.dj-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.dj-top { display: flex; align-items: center; gap: 6px; font-size: .8em; color: var(--muted); }
+.dj-top .bot-tag { margin-left: 0; }
+.dj-bot { font-weight: 700; color: var(--text); }
+.dj-state { margin-left: auto; font-weight: 700; color: var(--ok); text-transform: uppercase; letter-spacing: .05em; font-size: .9em; }
+.dj-title { font-weight: 700; font-size: 1.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dj-title a { color: inherit; text-decoration: none; } .dj-title a:hover { text-decoration: underline; }
+.dj-sub { font-size: .82em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dj-prog { height: 4px; border-radius: 4px; background: var(--elev); overflow: hidden; margin-top: 4px; }
+.dj-prog i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 4px; transition: width .5s linear; }
+.dj-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.dj-b { width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--elev); color: var(--text); cursor: pointer; font-size: 14px; display: grid; place-items: center; }
+.dj-b:hover:not(:disabled) { background: var(--hover); } .dj-b.on { background: var(--accent); color: var(--accent-text); } .dj-b:disabled { opacity: .45; cursor: default; }
+.dj-time { font-size: .8em; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 4px; }
+.dj-vol { display: flex; align-items: center; gap: 6px; margin-left: auto; color: var(--muted); }
+.dj-vol svg { width: 16px; height: 16px; } .dj-vol input { width: 100px; }
+.dj-q summary { cursor: pointer; font-size: .82em; color: var(--muted); margin-top: 4px; }
+.dj-qi { display: flex; align-items: center; gap: 8px; font-size: .84em; padding: 3px 0; }
+.dj-qi b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.dj-qi .icon-btn { width: 24px; height: 24px; }
+.dj-embed { display: flex; gap: 10px; align-items: center; margin-top: 6px; padding: 8px; max-width: 420px; border-radius: 10px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--panel) 80%, transparent); }
+.dj-embed img, .dj-embed .dj-noart { width: 72px; aspect-ratio: 16 / 9; height: auto; border-radius: 6px; object-fit: cover; flex: 0 0 auto; background: var(--elev); font-size: 20px; }
+.dj-embed div { min-width: 0; display: grid; gap: 2px; }
+.dj-embed b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .dj-embed b a { color: inherit; }
+.dj-embed span { font-size: .82em; color: var(--muted); }
+.cmd-pop .mp-h { display: flex; align-items: center; gap: 6px; }
+.cmd-pop button b { min-width: 92px; color: var(--text); }
+.cmd-pop .cmd-arg { font-family: ui-monospace, Consolas, monospace; font-size: .78em; padding: 1px 6px; border-radius: 4px; background: var(--elev); color: var(--text) !important; }
+.dj-help { display: grid; gap: 4px; margin: 4px 0; }
+.dj-help div { display: flex; gap: 10px; align-items: baseline; font-size: .9em; }
+.dj-help code { min-width: 170px; font-size: .9em; }
+.dj-help span { color: var(--muted); }
+.dj-intro { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.dj-intro > div:nth-child(2) { flex: 1; min-width: 180px; }
+.dj-intro-art { font-size: 40px; }
+.dj-prof { display: flex; gap: 16px; align-items: flex-start; }
+@media (max-width: 600px) {
+  .dj-card { flex-direction: column; } .dj-art { width: 100%; max-width: 240px; } .dj-vol { margin-left: 0; width: 100%; } .dj-vol input { flex: 1; }
+  .dj-help div { flex-direction: column; gap: 0; } .dj-prof { flex-direction: column; }
+}

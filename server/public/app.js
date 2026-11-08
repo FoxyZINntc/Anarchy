@@ -137,7 +137,7 @@ applyPrefs();
 const S = {
   token: null, me: null, // o login fica num cookie HttpOnly; o token só fica na memória nesta aba, como reserva users: {}, friends: { friends: [], incoming: [], outgoing: [] },
   groups: {}, dms: {}, voice: {}, view: { kind: 'friends', tab: 'online' }, lastCh: {}, msgs: {}, more: {}, loading: {},
-  unread: {}, mentions: {}, typing: {}, drafts: {}, reply: null, editing: null, focusTile: null, mySid: null, connected: false, unhide: {}
+  unread: {}, mentions: {}, typing: {}, drafts: {}, reply: null, editing: null, focusTile: null, mySid: null, connected: false, unhide: {}, music: {}, clockOff: 0
 };
 let socket = null, srvStarted = null;
 const user = id => S.users[id] || (S.me && S.me.id === id ? S.me : null) || { id, username: '?', displayName: 'Desconhecido', color: '#777', status: 'offline' };
@@ -508,6 +508,7 @@ function connect() {
     if (!r.ok) return;
     S.connected = true; S.mySid = r.socketId; S.me = r.me; S.users = r.users; S.users[r.me.id] = r.me;
     S.friends = r.friends; S.groups = r.groups; S.dms = r.dms; S.voice = r.voice; V.ice = r.iceServers;
+    S.music = r.music || {}; if (r.serverNow) S.clockOff = r.serverNow - Date.now();
     $('#auth').hidden = true; $('#app').hidden = false;
     if (S.view.kind === 'group' && !S.groups[S.view.gid]) S.view = { kind: 'friends', tab: 'online' };
     if (S.view.kind === 'dm' && !S.dms[S.view.id]) S.view = { kind: 'friends', tab: 'online' };
@@ -568,6 +569,10 @@ function connect() {
   socket.on('message:delete', ({ cid, id }) => { const l = S.msgs[cid]; if (!l) return; S.msgs[cid] = l.filter(x => x.id !== id); if (viewingCid() === cid) renderMessages(); });
   socket.on('typing', ({ cid, uid }) => { (S.typing[cid] = S.typing[cid] || {})[uid] = Date.now(); if (viewingCid() === cid) renderTyping(); });
   socket.on('voice:room', onVoiceRoom);
+  socket.on('music:state', ({ roomId, state }) => {
+    if (state) { S.music[roomId] = state; S.clockOff = state.serverNow - Date.now(); } else delete S.music[roomId];
+    musicSync(); render();
+  });
   socket.on('rtc:signal', onSignal);
   socket.on('sound:played', onSoundPlayed);
   socket.on('sound:stopped', ({ roomId, uid }) => { if (roomId === V.room) stopSoundsOf(uid); });
@@ -689,8 +694,10 @@ function renderGroupSide(body) {
       ${S.mentions[c.id] ? `<span class="badge" style="border:0">${S.mentions[c.id]}</span>` : ''}
       ${own ? `<span class="row-act"><span class="icon-btn" data-act="editChannel" data-id="${c.id}" data-tip="Editar canal">${ic('gear')}</span></span>` : ''}
     </button>
-    ${peers.length ? `<div class="voice-people">${peers.map(p => `<div class="voice-person" data-act="voiceUser" data-vuid="${p.uid}" ${p.uid !== S.me.id ? 'data-tip="Clique para mudar o volume"' : ''}>${av(p.uid, 24, false, 'calm').replace('class="av', `data-speak="${p.sid}" class="av`)}<span class="lbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nameOf(p.uid))}</span>${volTag(p.uid)}${p.screen ? '<span class="live">AO VIVO</span>' : ''}${p.cam ? ic('cam') : ''}${p.deafened ? ic('headOff') : p.muted ? ic('micOff') : ''}</div>`).join('')}</div>` : ''}`;
+    ${peers.length ? `<div class="voice-people">${peers.map(p => `<div class="voice-person" data-act="voiceUser" data-vuid="${p.uid}" ${p.uid !== S.me.id ? 'data-tip="Clique para mudar o volume"' : ''}>${av(p.uid, 24, false, 'calm').replace('class="av', `data-speak="${p.sid}" class="av`)}<span class="lbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nameOf(p.uid))}</span>${volTag(p.uid)}${p.screen ? '<span class="live">AO VIVO</span>' : ''}${p.cam ? ic('cam') : ''}${p.deafened ? ic('headOff') : p.muted ? ic('micOff') : ''}</div>`).join('')}${djRow(c.id)}</div>` : ''}`;
   };
+  // o DJ aparece na sala como mais um participante enquanto toca
+  const djRow = cid => { const st = S.music[cid]; if (!st || !st.cur) return ''; return `<div class="voice-person dj-person" data-act="profile" data-id="${st.botId}" title="${esc(st.cur.title)}">${av(st.botId, 24, false, 'calm')}<span class="lbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nameOf(st.botId))}</span><span class="bot-tag">BOT</span><span class="dj-eq ${st.pausedAt !== null ? 'paused' : ''}"><i></i><i></i><i></i></span></div>`; };
   const text = g.channels.filter(c => c.type === 'text'), vc = g.channels.filter(c => c.type === 'voice');
   const ban = g.banner ? (isImg(g.banner) ? `background-image:url('${esc(g.banner)}')` : `background:${esc(g.banner)}`) : '';
   body.innerHTML = `
@@ -720,6 +727,7 @@ function renderVoiceBar() {
   bar.innerHTML = `
     <div class="vb-top"><div class="vb-status"><b>${netDot()}${V.calling ? 'Chamando...' : 'Voz conectada'}</b><button class="vb-room" data-act="openStage" ${here ? 'disabled' : 'data-tip="Ir para a sala"'}>${esc(roomName(V.room))}</button></div>
     <button class="icon-btn vb-hang" data-act="leaveVoice" data-tip="Sair da call">${ic('hang')}</button></div>
+    ${S.music[V.room]?.cur ? `<button class="vb-dj" data-act="openStage" title="${esc(S.music[V.room].cur.title)}"><span class="dj-eq ${S.music[V.room].pausedAt !== null ? 'paused' : ''}"><i></i><i></i><i></i></span><span>${esc(S.music[V.room].cur.title)}</span></button>` : ''}
     <div class="vb-btns">
       <button class="btn sm ${V.cam ? 'on' : ''}" data-act="toggleCam" data-tip="${V.cam ? 'Desligar câmera' : 'Ligar câmera'}">${ic(V.cam ? 'cam' : 'camOff')}</button>
       <button class="btn sm ${V.screen ? 'on' : ''}" data-act="toggleScreen" data-tip="${V.screen ? 'Parar de compartilhar' : 'Compartilhar tela'}">${ic('screen')}</button>
@@ -844,7 +852,7 @@ function renderMembers() {
   const r = id => {
     const u = user(id), call = inCall.has(id);
     const sub = call ? `<span class="mem-s call">${ic('voice')}Em call</span>` : u.customStatus ? `<span class="mem-s">${esc(u.customStatus)}</span>` : '';
-    return `<div class="mem ${u.status === 'offline' ? 'off' : ''}" data-act="profile" data-id="${id}">${av(id, 32, true, 'calm')}<div class="info"><div class="mem-n"><b style="color:${esc(nameColor(id, g))}">${esc(u.displayName)}</b>${g.ownerId === id ? '<span class="crown" title="Dono do grupo">👑</span>' : ''}</div>${sub}</div></div>`;
+    return `<div class="mem ${u.status === 'offline' ? 'off' : ''}" data-act="profile" data-id="${id}">${av(id, 32, true, 'calm')}<div class="info"><div class="mem-n"><b style="color:${esc(nameColor(id, g))}">${esc(u.displayName)}</b>${u.bot ? '<span class="bot-tag">BOT</span>' : ''}${g.ownerId === id ? '<span class="crown" title="Dono do grupo">👑</span>' : ''}</div>${sub}</div></div>`;
   };
   // como no Discord: quem está online aparece no primeiro cargo "separado" que tiver; offline fica no fim
   const placed = new Set(); let html = '';
@@ -929,9 +937,10 @@ function renderMessages(forceBottom) {
       ${head ? av(m.authorId, 40, false) : `<div class="gutter">${fmtTime(m.ts)}</div>`}
       <div class="mc" style="min-width:0">
         ${m.replyTo ? `<div class="reply-ref" data-act="jump" data-id="${m.replyTo}">${ic('reply').replace('<svg', '<svg style="width:14px;height:14px;transform:scaleX(-1)"')}${ref ? `<b>${esc(nameOf(ref.authorId))}</b> ${esc((ref.content || (ref.sticker ? '🗂️ figurinha' : ref.gif ? '🎞️ GIF' : '🖼️ imagem')).slice(0, 90))}` : '<i>mensagem apagada</i>'}</div>` : ''}
-        ${head ? `<div class="who"><b data-act="profile" data-id="${m.authorId}" style="color:${esc(nameColor(m.authorId, g))}">${esc(u.displayName)}</b>${g && g.ownerId === m.authorId ? '<span class="crown">👑</span>' : ''}<time>${fmtDay(m.ts) === 'Hoje' ? '' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></div>` : ''}
+        ${head ? `<div class="who"><b data-act="profile" data-id="${m.authorId}" style="color:${esc(nameColor(m.authorId, g))}">${esc(u.displayName)}</b>${u.bot ? '<span class="bot-tag">BOT</span>' : ''}${g && g.ownerId === m.authorId ? '<span class="crown">👑</span>' : ''}<time>${fmtDay(m.ts) === 'Hoje' ? '' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></div>` : ''}
         ${editing ? `<div class="edit-box"><textarea id="editArea" rows="2">${esc(m.content)}</textarea><span class="small muted">Enter salva · Esc cancela</span></div>`
           : m.content ? `<div class="body" style="${big ? 'font-size:2.4em;line-height:1.2' : ''}">${md(m.content)}${m.edited ? ' <span class="ed">(editado)</span>' : ''}</div>` : ''}
+        ${m.music ? `<div class="dj-embed">${m.music.thumb ? `<img src="${esc(m.music.thumb)}" alt="" loading="lazy">` : '<div class="dj-noart">🎵</div>'}<div><b>${m.music.page ? `<a href="${esc(m.music.page)}" target="_blank" rel="noopener">${esc(m.music.title)}</a>` : esc(m.music.title)}</b><span>${esc(m.music.by || '')}${m.music.dur ? `${m.music.by ? ' · ' : ''}${fmtDur(m.music.dur)}` : ''}</span></div></div>` : ''}
         ${m.image ? `<img class="img" src="${esc(m.image)}" alt="Imagem enviada por ${esc(u.displayName)}" data-act="zoom" loading="lazy">` : ''}
         ${m.sticker ? `<img class="sticker" src="${esc(m.sticker.url)}" alt="Figurinha: ${esc(m.sticker.name)}" title="${esc(m.sticker.name)}" data-act="stickerInfo" data-id="${esc(m.sticker.id)}" loading="lazy">` : ''}
         ${m.gif ? `<img class="gifmsg" src="${esc(m.gif.url)}" alt="${esc(m.gif.title || 'GIF')}" loading="lazy" ${m.gif.w && m.gif.h ? `style="aspect-ratio:${m.gif.w}/${m.gif.h}"` : ''} data-act="zoom">` : ''}
@@ -982,6 +991,7 @@ function buildComposer() {
   const ta = $('#composer'); ta.value = S.drafts[cid] || '';
   const fit = () => { ta.style.height = 'auto'; ta.style.height = Math.min(220, ta.scrollHeight) + 'px'; };
   fit();
+  cmdAC(ta); // comandos do DJ (/music...)
   mentionAC(ta); // antes do Enter de enviar: com a lista de @ aberta, Enter escolhe a pessoa
   let lastTyping = 0;
   ta.addEventListener('input', () => { fit(); if (Date.now() - lastTyping > 2500 && ta.value.trim()) { lastTyping = Date.now(); socket.emit('typing', { cid: viewingCid() }); } });
@@ -1099,7 +1109,7 @@ function profileCardOf(u, g) {
   const badges = badgeRow(u);
   return `<div class="profile-prev ${cv.th ? 'themed' : ''}" style="${cv.style}">${fxLayer(u)}<div class="banner" style="${bannerStyle(u)}"></div><div class="pbody">
     <div class="pf-top">${av(id, 80, true, '', u)}${badges ? `<div class="pf-badges">${badges}</div>` : ''}</div>
-    <h3>${esc(u.displayName)}</h3><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}</div>
+    <h3>${esc(u.displayName)}${u.bot ? '<span class="bot-tag">BOT</span>' : ''}</h3><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}</div>
     ${u.customStatus ? `<div class="pf-status">${esc(u.customStatus)}</div>` : ''}
     <div class="bio">${u.bio ? md(u.bio) : '<span class="muted">Sem bio.</span>'}${u.createdAt ? `<div class="muted small" style="margin-top:8px">No Discordia desde ${new Date(u.createdAt).toLocaleDateString('pt-BR')}</div>` : ''}</div>
     ${g && g.members.includes(id) ? `<div class="pf-roles"><div class="pf-h">${roles.length ? 'Cargos' : 'Sem cargos'}${g.ownerId === id ? ' · 👑 dono' : ''}</div>${roles.map(r => `<span class="role-chip"><i style="background:${esc(r.color || 'var(--muted)')}"></i>${esc(r.name)}</span>`).join('')}</div>` : ''}
@@ -1109,6 +1119,8 @@ function profileCardOf(u, g) {
 function profileActs(id, full) {
   const isMe = id === S.me.id, fr = S.friends.friends.includes(id), inc = S.friends.incoming.includes(id), out = S.friends.outgoing.includes(id);
   if (isMe) return `<button class="btn primary sm" data-act="settings" data-tab="perfil">${ic('edit')}Editar perfil</button>${full ? '' : `<button class="btn sm" data-act="fullProfile" data-id="${id}">Ver perfil completo</button>`}`;
+  // o DJ não conversa nem é amigo de ninguém: o botão leva aos comandos e às configurações dele
+  if (user(id).bot) { const bg = Object.values(S.groups).find(x => x.djId === id); return bg ? `<button class="btn primary sm" data-act="djProfile" data-gid="${bg.id}">🎧 Comandos do DJ</button>` : ''; }
   const main = fr ? `<button class="btn primary sm" data-act="openDm" data-id="${id}">${ic('msg')}Mensagem</button><button class="btn sm" data-act="callUser" data-id="${id}">${ic('phone')}Ligar</button>`
     : inc ? `<button class="btn primary sm" data-act="accept" data-id="${id}">Aceitar pedido</button><button class="btn sm" data-act="openDm" data-id="${id}">${ic('msg')}Mensagem</button>`
     : out ? `<button class="btn sm" disabled>Pedido enviado</button><button class="btn sm" data-act="openDm" data-id="${id}">${ic('msg')}Mensagem</button>`
@@ -1134,7 +1146,7 @@ async function openFullProfile(id, tab = 'sobre', uo = null) {
       ${fxLayer(u)}<div class="pf-banner" style="${bannerStyle(u)}"><button class="icon-btn pf-x" data-close aria-label="Fechar">${ic('x')}</button></div>
       <div class="pf-main">
         <div class="pf-head">${av(id, 120, true, '', u)}<div class="pf-acts">${uo ? '<span class="pf-tag">Prévia: ainda não salvo</span>' : profileActs(id, true)}</div></div>
-        <div class="pf-names"><h2>${esc(u.displayName)}</h2><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}<span class="pf-st"><i class="st-dot ${esc(u.status || 'offline')}"></i>${esc(STATUS[u.status] || 'Offline')}</span></div>
+        <div class="pf-names"><h2>${esc(u.displayName)}${u.bot ? '<span class="bot-tag">BOT</span>' : ''}</h2><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}<span class="pf-st"><i class="st-dot ${esc(u.status || 'offline')}"></i>${esc(STATUS[u.status] || 'Offline')}</span></div>
           ${badgeRow(u) ? `<div class="pf-badges big">${badgeRow(u)}</div>` : ''}
           ${u.customStatus ? `<div class="pf-status">${esc(u.customStatus)}</div>` : ''}</div>
         <nav class="pf-tabs">${tabs.map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" data-pft="${k}">${l}</button>`).join('')}</nav>
@@ -1177,11 +1189,11 @@ function userMenu(uid, x, y, anchor) {
   const I = n => ic(n).replace('<svg', '<svg style="width:16px;height:16px"');
   const p = popAt(`<div class="um-h">${av(uid, 32)}<div><b>${esc(u.displayName)}</b><span>@${esc(u.username)}</span></div></div>
     <button data-m="pf">Ver perfil ${I('user')}</button>
-    ${me ? `<button data-m="edit">Editar perfil ${I('edit')}</button>` : `<button data-m="dm">Enviar mensagem ${I('msg')}</button><button data-m="call">Iniciar chamada ${I('phone')}</button><button data-m="vid">Chamada de vídeo ${I('cam')}</button>`}
+    ${me ? `<button data-m="edit">Editar perfil ${I('edit')}</button>` : u.bot ? `<button data-m="djset">Comandos e configurações do DJ</button>` : `<button data-m="dm">Enviar mensagem ${I('msg')}</button><button data-m="call">Iniciar chamada ${I('phone')}</button><button data-m="vid">Chamada de vídeo ${I('cam')}</button>`}
     ${canMention ? `<button data-m="men">Mencionar</button>` : ''}
     ${inVoice ? `<hr><div class="um-vol"><label>Volume para você <output>${volOf(uid, 'voice')}%</output></label><input type="range" min="0" max="200" step="5" value="${volOf(uid, 'voice')}" data-m="vol"></div>
       <button data-m="mute">${prefs.umute && prefs.umute[uid] ? 'Voltar a ouvir' : 'Silenciar para mim'} ${I(prefs.umute && prefs.umute[uid] ? 'voice' : 'micOff')}</button>` : ''}
-    ${me ? '' : `<hr>${fr ? '<button data-m="unf" class="danger">Desfazer amizade</button>' : inc ? '<button data-m="acc">Aceitar pedido de amizade</button>' : out ? '<button disabled>Pedido de amizade enviado</button>' : '<button data-m="add">Adicionar amigo</button>'}
+    ${me || u.bot ? '' : `<hr>${fr ? '<button data-m="unf" class="danger">Desfazer amizade</button>' : inc ? '<button data-m="acc">Aceitar pedido de amizade</button>' : out ? '<button disabled>Pedido de amizade enviado</button>' : '<button data-m="add">Adicionar amigo</button>'}
       <button data-m="blk" class="${blocked ? '' : 'danger'}">${blocked ? 'Desbloquear' : 'Bloquear'}</button>`}
     ${mod && (gCan(g, 'manageRoles') || gCan(g, 'kick') || gCan(g, 'ban')) ? `<hr>${gCan(g, 'manageRoles') ? `<button data-m="roles">Cargos ${I('shield')}</button>` : ''}${gCan(g, 'kick') ? `<button data-m="kick" class="danger">Expulsar de ${esc(g.name)}</button>` : ''}${gCan(g, 'ban') ? `<button data-m="ban" class="danger">Banir de ${esc(g.name)}</button>` : ''}` : ''}
     <hr><button data-m="cpu">Copiar nome de usuário</button><button data-m="cpi">Copiar ID do usuário</button>`, x, y, 'menu umenu');
@@ -1192,6 +1204,7 @@ function userMenu(uid, x, y, anchor) {
     const m = e.target.closest('button[data-m]')?.dataset.m; if (!m) return; closePops();
     if (m === 'pf') openFullProfile(uid);
     if (m === 'edit') openSettings('perfil');
+    if (m === 'djset') { const bg = Object.values(S.groups).find(x => x.djId === uid); if (bg) openGroupSettings(bg.id, 'dj'); }
     if (m === 'dm') openDm(uid);
     if (m === 'call' || m === 'vid') { const d = await openDm(uid); if (d) startCall(d, m === 'vid'); }
     if (m === 'men') { const ta = $('#composer'); const t = '@' + u.username + ' '; const at = ta.selectionStart; ta.value = ta.value.slice(0, at) + t + ta.value.slice(ta.selectionEnd); ta.focus(); ta.selectionStart = ta.selectionEnd = at + t.length; }
@@ -1392,15 +1405,46 @@ function openGroupSettings(gid, tab) {
 }
 function drawGroupSettings() {
   const g = S.groups[gsGid]; if (!g) return closeSettings();
-  const tabs = [['geral', 'Visão geral', gCan(g, 'manageServer')], ['cargos', 'Cargos', gCan(g, 'manageRoles')], ['membros', 'Membros', true], ['canais', 'Canais', gCan(g, 'manageChannels')], ['convites', 'Convites', true], ['sons', 'Central de Áudio', true], ['figurinhas', 'Figurinhas', true], ['banimentos', 'Banimentos', gCan(g, 'ban')]].filter(t => t[2]);
+  const tabs = [['geral', 'Visão geral', gCan(g, 'manageServer')], ['cargos', 'Cargos', gCan(g, 'manageRoles')], ['membros', 'Membros', true], ['canais', 'Canais', gCan(g, 'manageChannels')], ['convites', 'Convites', true], ['sons', 'Central de Áudio', true], ['figurinhas', 'Figurinhas', true], ['dj', 'DJ (bot de música)', true], ['banimentos', 'Banimentos', gCan(g, 'ban')]].filter(t => t[2]);
   if (!tabs.some(t => t[0] === gsTab)) gsTab = tabs[0][0];
   $('#gsNav').innerHTML = `<div class="gs-nav-g">${groupIcon(g).replace('class="inner"', 'class="inner gs-nav-ic"')}<b>${esc(g.name)}</b></div>
     ${tabs.map(([k, l]) => `<button data-gs="${k}" class="${gsTab === k ? 'active' : ''}">${l}</button>`).join('')}
     <h4></h4>${g.ownerId === S.me.id ? '<button data-gs="apagar" class="out">Apagar grupo</button>' : '<button data-gs="sair" class="out">Sair do grupo</button>'}`;
   const b = $('#setBody');
-  const T = { geral: gsGeral, cargos: gsCargos, membros: gsMembros, canais: gsCanais, convites: gsConvites, banimentos: gsBans, sons: gsSons, figurinhas: gsFigurinhas };
+  const T = { geral: gsGeral, cargos: gsCargos, membros: gsMembros, canais: gsCanais, convites: gsConvites, banimentos: gsBans, sons: gsSons, figurinhas: gsFigurinhas, dj: gsDj };
   b.onclick = null;
   T[gsTab](g, b);
+}
+
+// DJ: o bot de música do grupo
+function gsDj(g, b) {
+  const id = groupDj(g), canEdit = gCan(g, 'manageServer');
+  const help = `<div class="set-card"><h3>Como usar</h3><p class="muted small" style="margin:0">Entre numa sala de voz do grupo e, em qualquer canal de texto, digite:</p>
+    <div class="dj-help">${DJ_CMDS.map(c => `<div><code>/${c[0]}${c[1] ? ' ' + esc(c[1]) : ''}</code><span>${esc(c[2])}</span></div>`).join('')}</div>
+    <p class="muted small" style="margin:0">Aceita nome da música (busca no YouTube) ou link do YouTube, SoundCloud e de arquivos de áudio. Cada pessoa ajusta o volume do DJ só para si no cartão "Tocando agora" da call.</p></div>`;
+  if (!id) {
+    b.innerHTML = `<h2>DJ (bot de música)</h2><p class="muted set-sub">Um membro do grupo que toca música na call. Ninguém precisa instalar nada.</p>
+      <div class="set-card dj-intro"><div class="dj-intro-art">🎧</div><div><b>Este grupo ainda não tem DJ.</b><p class="muted small" style="margin:4px 0 0">${canEdit ? 'Adicione e personalize o nome, a foto e a cor.' : 'Peça para quem gerencia o grupo adicionar.'}</p></div>${canEdit ? '<button class="btn primary" id="djAdd">Adicionar DJ</button>' : ''}</div>${help}`;
+    if ($('#djAdd')) $('#djAdd').onclick = async () => { const r = await act('bot:add', { gid: g.id }, 'DJ adicionado ao grupo! Digite /music numa conversa do grupo.'); if (r.ok) setTimeout(drawGroupSettings, 200); };
+    return;
+  }
+  const u = user(id); const d = { avatar: u.avatar || null, color: u.color || '#8b5cf6' };
+  b.innerHTML = `<h2>DJ (bot de música)</h2><p class="muted set-sub">O DJ é um membro do grupo. Só quem gerencia o grupo muda o perfil dele.</p>
+    <div class="set-card"><div class="dj-prof"><div id="djAv">${av(id, 72, false)}</div><div style="flex:1;min-width:0;display:grid;gap:10px">
+      <label class="field">Nome<input id="djName" maxlength="32" value="${esc(u.displayName)}" ${canEdit ? '' : 'disabled'}></label>
+      <label class="field">Status<input id="djStatus" maxlength="60" value="${esc(u.customStatus || '')}" placeholder="Digite /music" ${canEdit ? '' : 'disabled'}></label></div></div>
+      <label class="field">Sobre<textarea id="djBio" rows="2" maxlength="190" ${canEdit ? '' : 'disabled'}>${esc(u.bio || '')}</textarea></label>
+      ${canEdit ? `<div class="field">Cor<div class="colors" id="djColors">${COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}" aria-label="Cor ${c}"></button>`).join('')}<input type="color" id="djColor" value="${esc(d.color)}" aria-label="Outra cor"></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="djImg">Trocar foto</button>${u.avatar ? '<button class="btn sm ghost" id="djImgX">Tirar foto</button>' : ''}<span class="spacer" style="flex:1"></span><button class="btn sm danger" id="djDel">Remover DJ</button><button class="btn sm primary" id="djSave">Salvar</button></div>` : ''}
+    </div>${help}`;
+  if (!canEdit) return;
+  const save = async extra => { const r = await act('bot:update', { gid: g.id, displayName: $('#djName').value, customStatus: $('#djStatus').value, bio: $('#djBio').value, color: d.color, ...extra }, 'DJ atualizado.'); if (r.ok) setTimeout(drawGroupSettings, 200); };
+  $('#djColors').onclick = e => { const c = e.target.closest('[data-c]'); if (c) { d.color = c.dataset.c; $('#djColor').value = d.color; } };
+  $('#djColor').oninput = e => { d.color = e.target.value; };
+  $('#djSave').onclick = () => save({});
+  $('#djImg').onclick = async () => { const f = await pickFile(); if (!f) return; try { let data = await readFile(f); if (!/gif/.test(f.type)) data = await shrink(data, 256, .9); const { url } = await api('/api/upload', { data }); save({ avatar: url }); } catch (e) { toast(e.message || 'Não consegui enviar a foto.', true); } };
+  if ($('#djImgX')) $('#djImgX').onclick = () => save({ avatar: null });
+  $('#djDel').onclick = async () => { if (await confirmBox('Remover DJ', `Tirar ${u.displayName} do grupo? A música para e a fila é apagada.`, 'Remover')) { const r = await act('bot:remove', { gid: g.id }, 'DJ removido.'); if (r.ok) setTimeout(drawGroupSettings, 200); } };
 }
 
 function gsGeral(g, b) {
@@ -2118,6 +2162,7 @@ async function joinVoice(roomId, opts = {}) {
   SOUNDS.join();
   if (opts.video) toggleCam();
   if (prefs.mixerOpen) mixerOpen();
+  musicSync(); // o DJ já estava tocando nesta sala: entra ouvindo do ponto certo
   render(); return true;
 }
 function cleanupVoice() {
@@ -2126,7 +2171,7 @@ function cleanupVoice() {
   [V.screen, V.cam].forEach(s => s && s.getTracks().forEach(t => t.stop())); stopMic();
   V.screen = V.cam = null; V.room = null; SB.playing.forEach(x => { try { x.src.stop(); } catch {} }); SB.playing.clear(); V.calling = false; S.focusTile = null;
   [...V.levels.keys()].forEach(dropLevel); V.videoCache.clear(); dropAudio(() => true); $('#audioSink').innerHTML = '';
-  ring(false); mixerSync(); render();
+  ring(false); musicSync(); mixerSync(); render();
 }
 function leaveVoice(why = 'você saiu') {
   V.rejoin = null;
@@ -2282,6 +2327,7 @@ function applyVolumes() {
     if (v > 1 && boost(a, true)) { a.el.muted = true; a.gain.gain.value = v; }
     else { boost(a, false); a.el.muted = v === 0; a.el.volume = Math.min(1, v); }
   });
+  musicVol();
   mixerSync();
 }
 function attachAudio(sid, stream) {
@@ -2297,7 +2343,101 @@ function attachAudio(sid, stream) {
 function dropAudio(filter) {
   AUD.forEach((a, id) => { if (filter(a, id)) { try { a.src && a.src.disconnect(); a.gain && a.gain.disconnect(); } catch {} a.el.remove(); AUD.delete(id); } });
 }
+/* =============== DJ: música do bot na call ===============
+   O servidor manda o que tocar e desde quando (startedAt, no relógio dele). Cada app toca o áudio
+   (/api/music/:id) no mesmo ponto, então todo mundo ouve junto. O volume do DJ é o da sala x o seu. */
+const MU = { el: null, id: null, wait: null };
+const srvNow = () => Date.now() + (S.clockOff || 0);
+const djState = () => V.room && S.music[V.room];
+function djPos(st) { return st.pausedAt !== null ? st.pausedAt / 1000 : (srvNow() - st.startedAt) / 1000; }
+function musicSync() {
+  const st = djState(), cur = st && st.cur;
+  clearTimeout(MU.wait);
+  if (!cur) { if (MU.el) { MU.el.pause(); MU.el.removeAttribute('src'); MU.el.load(); } MU.id = null; return; }
+  if (!MU.el) {
+    MU.el = new Audio(); MU.el.preload = 'auto';
+    // link direto sem duração: avisa o servidor quanto dura (para ele passar para a próxima na hora certa)
+    MU.el.addEventListener('loadedmetadata', () => { const s = djState(); if (s && s.cur && s.cur.id === MU.id && !s.cur.dur && isFinite(MU.el.duration)) socket.emit('music:dur', { roomId: V.room, id: MU.id, dur: MU.el.duration }); });
+    MU.el.addEventListener('error', () => { if (MU.id) clog('O áudio do DJ falhou ao carregar.', 'aviso'); });
+  }
+  if (prefs.spkId && MU.el.setSinkId && MU.el.__sink !== prefs.spkId) { MU.el.__sink = prefs.spkId; MU.el.setSinkId(prefs.spkId).catch(() => {}); }
+  if (MU.id !== cur.id) { MU.id = cur.id; MU.el.src = '/api/music/' + encodeURIComponent(cur.id); }
+  musicVol();
+  const pos = djPos(st);
+  if (st.pausedAt !== null) { MU.el.pause(); if (Math.abs((MU.el.currentTime || 0) - pos) > 0.5) try { MU.el.currentTime = pos; } catch {} return; }
+  if (pos < 0) { MU.el.pause(); try { MU.el.currentTime = 0; } catch {} MU.wait = setTimeout(musicSync, -pos * 1000); return; }
+  if (cur.dur && pos > cur.dur + 1) { MU.el.pause(); return; }
+  if (Math.abs((MU.el.currentTime || 0) - pos) > 0.8) try { MU.el.currentTime = pos; } catch {}
+  if (MU.el.paused) MU.el.play().catch(() => toast('Clique em qualquer lugar para ouvir o DJ.'));
+}
+function musicVol() {
+  const st = djState(); if (!MU.el || !st) return;
+  const v = V.deaf || prefs.djOn === false ? 0 : (st.vol / 100) * clamp(prefs.djVol ?? 70, 0, 100) / 100 * clamp(prefs.outVol ?? 100, 0, 200) / 100;
+  MU.el.volume = clamp(v, 0, 1); MU.el.muted = v === 0;
+}
+// fica conferindo se está no ponto certo (o áudio pode atrasar ao carregar); atualiza a barra de tempo
+setInterval(() => {
+  const st = djState();
+  if (st && st.cur && MU.el && MU.id === st.cur.id && st.pausedAt === null && !MU.el.paused) {
+    const pos = djPos(st); if (pos > 0 && Math.abs(MU.el.currentTime - pos) > 1.2) try { MU.el.currentTime = pos; } catch {}
+  }
+  $$('.dj-card').forEach(c => { const s = S.music[c.dataset.room]; if (!s || !s.cur) return; const p = clamp(djPos(s), 0, s.cur.dur || 1e9); const bar = $('.dj-prog i', c), tm = $('.dj-time', c); if (bar && s.cur.dur) bar.style.width = (100 * p / s.cur.dur) + '%'; if (tm) tm.textContent = fmtDur(p) + (s.cur.dur ? ' / ' + fmtDur(s.cur.dur) : ''); });
+}, 500);
+function fmtDur(s) { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = String(s % 60).padStart(2, '0'); return h ? `${h}:${String(m).padStart(2, '0')}:${x}` : `${m}:${x}`; }
+// cartão "Tocando agora" (no palco da call)
+function djCard(roomId) {
+  const st = S.music[roomId]; if (!st || !st.cur) return '';
+  const c = st.cur, paused = st.pausedAt !== null, inRoom = V.room === roomId;
+  const thumb = c.thumb ? `<img src="${esc(c.thumb)}" alt="" loading="lazy">` : `<div class="dj-noart">🎵</div>`;
+  const b = (a, icon, tip, on) => `<button class="dj-b ${on ? 'on' : ''}" data-act="djCtl" data-a="${a}" data-room="${roomId}" title="${tip}" ${inRoom ? '' : 'disabled'}>${icon}</button>`;
+  return `<div class="dj-card" data-room="${roomId}">
+    <div class="dj-art">${thumb}</div>
+    <div class="dj-main">
+      <div class="dj-top">${av(st.botId, 20, false)}<span class="dj-bot">${esc(nameOf(st.botId))}</span><span class="bot-tag">BOT</span><span class="dj-state">${paused ? 'Pausado' : 'Tocando agora'}</span></div>
+      <div class="dj-title" title="${esc(c.title)}">${c.page ? `<a href="${esc(c.page)}" target="_blank" rel="noopener">${esc(c.title)}</a>` : esc(c.title)}</div>
+      <div class="dj-sub">${esc(c.by || '')}${c.by ? ' · ' : ''}pedido por ${esc(nameOf(c.who))}${st.queue.length ? ` · ${st.queue.length} na fila` : ''}${st.loop ? ' · 🔁 repetindo' : ''}</div>
+      <div class="dj-prog"><i></i></div>
+      <div class="dj-row">
+        ${b(paused ? 'continuar' : 'pausar', paused ? '▶' : '⏸', paused ? 'Continuar' : 'Pausar')}${b('pular', '⏭', 'Pular')}${b('parar', '⏹', 'Parar e limpar a fila')}${b('repetir', '🔁', 'Repetir esta música', st.loop)}
+        <span class="dj-time">0:00</span>
+        <label class="dj-vol" title="Volume do DJ só para você">${ic('voice')}<input type="range" min="0" max="100" step="5" value="${prefs.djVol ?? 70}" data-djvol="1"></label>
+      </div>
+      ${st.queue.length ? `<details class="dj-q"><summary>Próximas (${st.queue.length})</summary>${st.queue.slice(0, 15).map((t, i) => `<div class="dj-qi"><span>${i + 1}.</span><b title="${esc(t.title)}">${esc(t.title)}</b><span class="muted">${t.dur ? fmtDur(t.dur) : ''}</span>${inRoom ? `<button class="icon-btn" data-act="djCtl" data-a="tirar" data-v="${i + 1}" data-room="${roomId}" title="Tirar da fila">${ic('x')}</button>` : ''}</div>`).join('')}</details>` : ''}
+    </div></div>`;
+}
+document.addEventListener('input', e => { if (e.target.dataset && e.target.dataset.djvol) { prefs.djVol = +e.target.value; savePrefs(); musicVol(); } });
+// comandos com / no campo de mensagem (só nos grupos com DJ)
+const DJ_CMDS = [['music', 'nome ou link', 'Toca uma música ou põe na fila'], ['pular', '', 'Pula para a próxima'], ['pausar', '', 'Pausa a música'], ['continuar', '', 'Continua de onde parou'], ['parar', '', 'Para tudo e limpa a fila'], ['fila', '', 'Mostra a fila'], ['agora', '', 'O que está tocando'], ['volume', '0 a 100', 'Volume do DJ para todo mundo'], ['repetir', '', 'Repete a música atual'], ['tirar', 'número', 'Tira uma música da fila'], ['embaralhar', '', 'Embaralha a fila'], ['ajuda', '', 'Lista os comandos']];
+const groupDj = g => g && g.djId && g.members.includes(g.djId) && user(g.djId).bot ? g.djId : null;
+function cmdAC(ta) {
+  let box = null, items = [], sel = 0;
+  const close = () => { box?.remove(); box = null; items = []; };
+  // comando sem nada para completar (/pular, /fila...) já vai direto; os outros esperam você digitar
+  const pick = i => { const it = items[i]; if (!it) return; close(); if (!it[1]) { ta.value = '/' + it[0]; sendMessage(); return; } ta.value = '/' + it[0] + ' '; ta.selectionStart = ta.selectionEnd = ta.value.length; ta.dispatchEvent(new Event('input')); ta.focus(); };
+  const draw = () => {
+    if (!items.length) return close();
+    if (!box) { box = document.createElement('div'); box.className = 'mention-pop cmd-pop'; box.setAttribute('role', 'listbox'); ta.closest('.composer-wrap').prepend(box); box.addEventListener('mousedown', e => { e.preventDefault(); const b = e.target.closest('[data-i]'); if (b) pick(+b.dataset.i); }); }
+    const g = curGroup();
+    box.innerHTML = `<div class="mp-h">${av(groupDj(g), 18, false)} Comandos do ${esc(nameOf(groupDj(g)))}</div>${items.map((c, i) => `<button type="button" role="option" data-i="${i}" class="${i === sel ? 'on' : ''}"><b>/${c[0]}</b>${c[1] ? `<span class="cmd-arg">${esc(c[1])}</span>` : ''}<span>${esc(c[2])}</span></button>`).join('')}`;
+  };
+  const update = () => {
+    const g = S.view.kind === 'group' && curGroup();
+    const m = /^\/(\w*)$/.exec(ta.value);
+    if (!g || !groupDj(g) || !m) return close();
+    items = DJ_CMDS.filter(c => c[0].startsWith(m[1].toLowerCase())); sel = Math.min(sel, Math.max(0, items.length - 1)); draw();
+  };
+  ta.addEventListener('input', update);
+  ta.addEventListener('blur', () => setTimeout(close, 120));
+  ta.addEventListener('keydown', e => {
+    if (!box) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; draw(); }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); pick(sel); }
+    else if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); }
+  });
+}
+
 function applySink() {
+  if (MU.el && MU.el.setSinkId) { MU.el.__sink = prefs.spkId || ''; MU.el.setSinkId(prefs.spkId || '').catch(() => {}); }
   $$('#audioSink audio').forEach(a => a.setSinkId && a.setSinkId(prefs.spkId || '').catch(() => {}));
   if (actx && actx.setSinkId && actx.__sink !== (prefs.spkId || '')) { actx.__sink = prefs.spkId || ''; actx.setSinkId(prefs.spkId || '').catch(() => {}); }
 }
@@ -2444,6 +2584,7 @@ function renderStageSlot() {
       ${peers.length ? `<div style="display:flex;justify-content:center;gap:-8px">${peers.slice(0, 6).map(p => av(p.uid, 40, false)).join('')}</div>` : `<div style="font-size:54px">🎧</div>`}
       <h2>${isDm ? 'Chamada em andamento' : esc(c.name)}</h2>
       <p class="muted">${peers.length ? `${peers.map(p => esc(nameOf(p.uid))).join(', ')} ${peers.length > 1 ? 'estão' : 'está'} na sala.` : 'Ninguém aqui ainda. Entre e chame a galera.'}</p>
+      ${djCard(roomId)}
       <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap"><button class="btn primary" data-act="joinRoom" data-id="${roomId}">${ic('voice')}Entrar na sala</button><button class="btn" data-act="joinRoom" data-video="1" data-id="${roomId}">${ic('cam')}Entrar com câmera</button></div>
     </div></div></div>`;
     return;
@@ -2476,7 +2617,7 @@ function renderStageSlot() {
   const calling = V.calling && peers.length <= 1 ? `<p style="text-align:center;margin:0;padding-top:12px" class="muted">Chamando ${esc(roomName(roomId))}...</p>` : '';
   // grade que ocupa o espaço: 1 → tudo, 2 → lado a lado, 3-4 → 2x2, 5-6 → 3x2, 7-9 → 3x3...
   const n = tiles.length, cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4, rows = Math.ceil(n / cols);
-  slot.innerHTML = `<div class="stage ${isDm ? 'mini' : ''}" style="${isDm ? '' : 'flex:1'}">${calling}${sbw}<div class="stage-grid ${focus ? 'has-focus' : 'fill'}" style="--cols:${cols};--rows:${rows}">
+  slot.innerHTML = `<div class="stage ${isDm ? 'mini' : ''}" style="${isDm ? '' : 'flex:1'}">${calling}${sbw}${djCard(roomId)}<div class="stage-grid ${focus ? 'has-focus' : 'fill'}" style="--cols:${cols};--rows:${rows}">
     ${focus ? focus.html.replace('class="tile', 'class="tile focus') + `<div class="thumbs">${tiles.filter(t => t !== focus).map(t => t.html).join('')}</div>` : tiles.map(t => t.html).join('')}
   </div>${ctrls}</div>`;
   tiles.forEach(t => { if (t.stream) $$(`.vslot[data-v="${t.vkey}"]`, slot).forEach(s => s.appendChild(videoEl(t.vkey, t.stream, t.mirror && t.vkey.startsWith('cam')))); });
@@ -3292,6 +3433,8 @@ const A = {
   leaveVoice: () => leaveVoice(),
   openStage,
   joinRoom: el => joinVoice(el.dataset.id, { video: !!el.dataset.video }),
+  djCtl: async el => { const r = await emit('music:ctl', { roomId: el.dataset.room, action: el.dataset.a, value: el.dataset.v }); if (!r.ok) toast(r.erro, true); },
+  djProfile: el => openGroupSettings(el.dataset.gid, 'dj'),
   voiceUser: (el, e) => { e.stopPropagation(); voiceMenu(el.dataset.vuid, el); },
   focus: (el, e) => { if (e.target.closest('.fs')) return; S.focusTile = S.focusTile === el.dataset.key ? null : el.dataset.key; renderStageSlot(); },
   fullscreen: (el, e) => { e.stopPropagation(); const v = el.closest('.tile').querySelector('video'); (v?.requestFullscreen ? v.requestFullscreen() : el.closest('.tile').requestFullscreen?.())?.catch?.(() => {}); },

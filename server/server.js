@@ -134,12 +134,13 @@ const sockets = new Map(); // socketId -> socket
 function isOnline(uid) { return online.has(uid) && online.get(uid).size > 0; }
 function publicUser(u) {
   if (!u) return null;
-  const on = isOnline(u.id) && u.status !== 'invisivel';
+  const on = u.bot || (isOnline(u.id) && u.status !== 'invisivel');
   return {
+    ...(u.bot ? { bot: true } : {}),
     id: u.id, username: u.username, displayName: u.displayName, avatar: u.avatar || null,
     color: u.color, banner: u.banner, bio: u.bio || '', customStatus: u.customStatus || '',
     pronouns: u.pronouns || '', theme: u.theme || null,
-    accent: u.accent || null, frame: u.frame || null, effect: u.effect || null, badges: badgesOf(u),
+    accent: u.accent || null, frame: u.frame || null, effect: u.effect || null, badges: u.bot ? [] : badgesOf(u),
     status: on ? (u.status || 'online') : 'offline', createdAt: u.createdAt
   };
 }
@@ -267,9 +268,167 @@ function leaveVoice(socket) {
   if (r) { r.delete(socket.id); if (!r.size) voice.delete(roomId); }
   socket.data.voice = null;
   pushVoice(roomId);
+  // todo mundo saiu: o DJ para
+  if (!voice.get(roomId) && music.has(roomId)) stopMusic(roomId, 'vazia');
   // avisa se a call de DM terminou
   const info = channelInfo(roomId);
   if (info && info.kind === 'dm' && !voice.get(roomId)) toUsers(info.members, 'call:ended', { dmId: roomId });
+}
+
+/* ---------- DJ: bot de música dos grupos ----------
+   O bot é um membro do grupo (usuário com bot: true). Os comandos (/music, /pular...) chegam como mensagens.
+   A música não passa pelo WebRTC: o servidor diz a todos da sala o que tocar e desde quando (startedAt), e cada
+   app toca o áudio (puxado deste servidor, /api/music/:id) sincronizado, com o próprio volume. */
+const { createMusic } = require('./music');
+const dj = createMusic({ log });
+const music = new Map();  // roomId -> { roomId, gid, cid, botId, cur, queue, startedAt, pausedAt, vol, loop, timer }
+const tracks = new Map(); // id da faixa -> faixa (o endereço real do áudio só fica aqui no servidor)
+const isBot = id => !!(db.users[id] && db.users[id].bot);
+const fmtDur = s => { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = String(s % 60).padStart(2, '0'); return h ? `${h}:${String(m).padStart(2, '0')}:${x}` : `${m}:${x}`; };
+const uname = id => (db.users[id] && db.users[id].displayName) || 'alguém';
+const card = t => ({ title: t.title, by: t.by, page: t.page, thumb: t.thumb, dur: t.dur });
+const mdSafe = s => String(s).replace(/([*_~`|\\])/g, '\\$1');
+function musicView(st) {
+  if (!st) return null;
+  const t = x => x && { id: x.id, title: x.title, by: x.by, page: x.page, dur: x.dur, thumb: x.thumb, who: x.who };
+  return { roomId: st.roomId, gid: st.gid, botId: st.botId, cur: t(st.cur), queue: st.queue.map(t), startedAt: st.startedAt, pausedAt: st.pausedAt, vol: st.vol, loop: st.loop, serverNow: now() };
+}
+function pushMusic(roomId) {
+  const info = channelInfo(roomId); if (!info) return;
+  toUsers(info.members.filter(m => !isBot(m)), 'music:state', { roomId, state: musicView(music.get(roomId)) });
+}
+function botSay(g, cid, content, extra = {}) {
+  if (!g.djId || !g.members.includes(g.djId) || !g.channels.some(c => c.id === cid && c.type === 'text')) return null;
+  const msg = { id: newId(), cid, authorId: g.djId, content, image: null, ts: now(), edited: null, reactions: {}, replyTo: null, ...extra };
+  const list = db.messages[cid] || (db.messages[cid] = []);
+  list.push(msg); if (list.length > 3000) list.splice(0, list.length - 3000);
+  save(); toUsers(g.members, 'message:new', msg); return msg;
+}
+function botEdit(g, msg, content, extra = {}) {
+  if (!msg) return botSay(g, extra.cid, content, extra);
+  Object.assign(msg, { content }, extra); save(); toUsers(g.members, 'message:update', msg); return msg;
+}
+function scheduleEnd(st) {
+  clearTimeout(st.timer); st.timer = null;
+  if (!st.cur || st.pausedAt !== null || !st.cur.dur) return;
+  const left = st.startedAt + st.cur.dur * 1000 - now();
+  st.timer = setTimeout(() => nextTrack(st.roomId), Math.max(0, left) + 800);
+}
+// próxima da fila. msg: mensagem "procurando..." para virar o "tocando agora" (em vez de mandar outra)
+async function nextTrack(roomId, { skipped = false, msg = null } = {}) {
+  const st = music.get(roomId); if (!st) return;
+  const prev = st.cur;
+  if (st.loop && prev && !skipped) st.queue.unshift(prev);
+  else if (prev) setTimeout(() => { if (![...music.values()].some(s => s.cur === prev || s.queue.includes(prev))) tracks.delete(prev.id); }, 60e3).unref();
+  st.cur = st.queue.shift() || null;
+  if (!st.cur) return stopMusic(roomId, 'fim', msg);
+  // o endereço do áudio do YouTube vence em algumas horas: busca de novo se a faixa ficou velha na fila
+  if (now() - st.cur.at > 4 * 3600e3 && st.cur.q) { try { Object.assign(st.cur, await dj.resolve(st.cur.q)); } catch {} }
+  st.startedAt = now() + 1500; st.pausedAt = null; // 1,5 s para todo mundo carregar e começar junto
+  scheduleEnd(st); pushMusic(roomId);
+  const g = db.groups[st.gid];
+  if (g && !(st.loop && prev === st.cur)) botEdit(g, msg, `🎵 Tocando agora: **${mdSafe(st.cur.title)}**${st.cur.dur ? ` (${fmtDur(st.cur.dur)})` : ''} · pedido por ${mdSafe(uname(st.cur.who))}`, { music: card(st.cur), cid: st.cid });
+}
+function stopMusic(roomId, why, msg = null) {
+  const st = music.get(roomId); if (!st) return;
+  clearTimeout(st.timer); music.delete(roomId);
+  [st.cur, ...st.queue].forEach(t => t && tracks.delete(t.id));
+  pushMusic(roomId);
+  const g = db.groups[st.gid]; if (!g) return;
+  if (why === 'fim') botEdit(g, msg, 'A fila acabou. Até a próxima! 👋', { cid: st.cid });
+  else if (why === 'vazia') botSay(g, st.cid, 'Todo mundo saiu da call, então parei a música. 👋');
+}
+// o DJ de um grupo e a sala de voz do grupo em que a pessoa está
+const djOf = g => g && g.djId && g.members.includes(g.djId) && db.users[g.djId] ? g.djId : null;
+function roomOfUser(g, uid) {
+  for (const sid of online.get(uid) || []) { const r = sockets.get(sid)?.data.voice; if (r && g.channels.some(c => c.id === r)) return r; }
+  return null;
+}
+const CMDS = {
+  music: ['music', 'm', 'tocar', 'play', 'p'], pular: ['pular', 'skip', 's', 'proxima'], pausar: ['pausar', 'pause'], continuar: ['continuar', 'resume', 'voltar'],
+  parar: ['parar', 'stop', 'sair'], fila: ['fila', 'queue', 'q'], agora: ['agora', 'np', 'tocando'], volume: ['volume', 'vol', 'v'], repetir: ['repetir', 'loop', 'r'],
+  tirar: ['tirar', 'remover', 'remove'], embaralhar: ['embaralhar', 'shuffle', 'misturar'], ajuda: ['ajuda', 'help', 'comandos']
+};
+const CMD_OF = Object.fromEntries(Object.entries(CMDS).flatMap(([k, l]) => l.map(a => [a, k])));
+const HELP = [
+  '**Comandos do DJ** 🎧 (entre numa sala de voz do grupo antes)',
+  '`/music nome ou link` toca ou põe na fila (YouTube, SoundCloud, link de mp3...)',
+  '`/pular` próxima música · `/pausar` · `/continuar` · `/parar` para tudo e limpa a fila',
+  '`/fila` mostra a fila · `/agora` o que está tocando · `/tirar 2` tira a 2ª da fila · `/embaralhar`',
+  '`/volume 80` volume do DJ para todo mundo (0 a 100) · `/repetir` repete a música atual',
+  'Cada um também ajusta o volume do DJ só para si no cartão "Tocando agora" da call.'
+].join('\n');
+// ações do DJ (vêm dos comandos no chat ou dos botões do cartão). Devolve o texto da resposta.
+function djAction(g, uid, room, action, arg) {
+  const st = music.get(room);
+  const need = () => st && st.cur ? null : 'Não tem nada tocando agora. Use `/music nome da música`.';
+  const who = mdSafe(uname(uid));
+  if (action === 'pular') { if (need()) return need(); const t = st.cur; setImmediate(() => nextTrack(room, { skipped: true })); return `⏭️ ${who} pulou **${mdSafe(t.title)}**.`; }
+  if (action === 'pausar') { if (need()) return need(); if (st.pausedAt !== null) return 'Já está pausado. Use `/continuar`.'; st.pausedAt = Math.max(0, now() - st.startedAt); scheduleEnd(st); pushMusic(room); return `⏸️ ${who} pausou a música.`; }
+  if (action === 'continuar') { if (need()) return need(); if (st.pausedAt === null) return 'A música já está tocando.'; st.startedAt = now() - st.pausedAt + 500; st.pausedAt = null; scheduleEnd(st); pushMusic(room); return `▶️ ${who} continuou a música.`; }
+  if (action === 'parar') { if (!st) return 'O DJ já está parado.'; stopMusic(room, 'parar'); return `⏹️ ${who} parou a música e limpou a fila.`; }
+  if (action === 'volume') {
+    if (!st) return 'Não tem nada tocando agora.';
+    const v = parseInt(String(arg).replace('%', ''), 10);
+    if (!Number.isFinite(v)) return `Volume do DJ: **${st.vol}%**. Para mudar: \`/volume 80\` (0 a 150).`;
+    st.vol = Math.max(0, Math.min(100, v)); pushMusic(room); return `🔊 ${who} mudou o volume do DJ para **${st.vol}%**.`;
+  }
+  if (action === 'repetir') { if (need()) return need(); st.loop = !st.loop; pushMusic(room); return st.loop ? `🔁 Repetindo **${mdSafe(st.cur.title)}** até alguém usar \`/repetir\` de novo.` : '🔁 Repetição desligada.'; }
+  if (action === 'tirar') {
+    if (!st || !st.queue.length) return 'A fila está vazia.';
+    const i = parseInt(arg, 10) - 1; if (!(i >= 0 && i < st.queue.length)) return `Escolha um número da fila de 1 a ${st.queue.length}. Veja com \`/fila\`.`;
+    const [t] = st.queue.splice(i, 1); tracks.delete(t.id); pushMusic(room); return `🗑️ ${who} tirou **${mdSafe(t.title)}** da fila.`;
+  }
+  if (action === 'embaralhar') {
+    if (!st || st.queue.length < 2) return 'Precisa de pelo menos 2 músicas na fila.';
+    for (let i = st.queue.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [st.queue[i], st.queue[j]] = [st.queue[j], st.queue[i]]; }
+    pushMusic(room); return `🔀 ${who} embaralhou a fila.`;
+  }
+  if (action === 'fila' || action === 'agora') {
+    if (!st || !st.cur) return 'Não tem nada tocando. Use `/music nome da música`.';
+    const pos = st.pausedAt !== null ? st.pausedAt / 1000 : Math.max(0, (now() - st.startedAt) / 1000);
+    const head = `${st.pausedAt !== null ? '⏸️' : '🎵'} **${mdSafe(st.cur.title)}** · ${fmtDur(pos)}${st.cur.dur ? ' / ' + fmtDur(st.cur.dur) : ''} · pedido por ${mdSafe(uname(st.cur.who))}${st.loop ? ' · 🔁' : ''}`;
+    if (action === 'agora') return head;
+    const rest = st.queue.slice(0, 10).map((t, i) => `\`${i + 1}.\` ${mdSafe(t.title)}${t.dur ? ` (${fmtDur(t.dur)})` : ''} · ${mdSafe(uname(t.who))}`);
+    return [head, rest.length ? '**Próximas:**' : 'A fila está vazia depois desta.', ...rest, st.queue.length > 10 ? `...e mais ${st.queue.length - 10}.` : ''].filter(Boolean).join('\n');
+  }
+  return null;
+}
+async function djPlay(g, cid, uid, room, q) {
+  const msg = botSay(g, cid, `🔎 Procurando **${mdSafe(q.slice(0, 120))}**...`);
+  let r;
+  try { r = await dj.resolve(q); }
+  catch (e) { return botEdit(g, msg, `😕 Não consegui tocar **${mdSafe(q.slice(0, 120))}**: ${mdSafe(e.message)}.`, { cid }); }
+  if (!djOf(g) || !voice.get(room)) return botEdit(g, msg, 'Achei a música, mas a sala de voz ficou vazia.', { cid });
+  const t = { id: newId(), ...r, who: uid, q, roomId: room };
+  tracks.set(t.id, t);
+  let st = music.get(room);
+  if (!st) { st = { roomId: room, gid: g.id, cid, botId: g.djId, cur: null, queue: [], startedAt: 0, pausedAt: null, vol: 100, loop: false, timer: null }; music.set(room, st); }
+  st.cid = cid;
+  if (st.queue.length >= 100) { tracks.delete(t.id); return botEdit(g, msg, 'A fila está cheia (100 músicas). Espere algumas tocarem.', { cid }); }
+  st.queue.push(t);
+  if (!st.cur) return nextTrack(room, { msg });
+  pushMusic(room);
+  botEdit(g, msg, `➕ Na fila (#${st.queue.length}): **${mdSafe(t.title)}**${t.dur ? ` (${fmtDur(t.dur)})` : ''} · pedido por ${mdSafe(uname(uid))}`, { music: card(t), cid });
+}
+// mensagem que começa com / num grupo com DJ: é comando? (true = tratou, não vira mensagem normal)
+function djCommand(g, cid, uid, text) {
+  const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text.trim()); if (!m) return false;
+  const action = CMD_OF[m[1].toLowerCase()]; if (!action || !djOf(g)) return false;
+  const arg = m[2].trim();
+  if (action === 'ajuda') { botSay(g, cid, HELP); return true; }
+  const room = roomOfUser(g, uid);
+  if (!room) { botSay(g, cid, `${mdSafe(uname(uid))}, entre numa sala de voz do grupo primeiro. 🎧`); return true; }
+  if (action === 'music') {
+    if (!arg) { botSay(g, cid, 'Diga a música: `/music nome da música` ou `/music link`.'); return true; }
+    if (limited('dj:' + uid, 8, 60e3)) { botSay(g, cid, 'Calma! Muitos pedidos seguidos. Espere um pouquinho.'); return true; }
+    djPlay(g, cid, uid, room, arg.slice(0, 300));
+    return true;
+  }
+  const st = music.get(room); if (st) st.cid = cid;
+  const reply = djAction(g, uid, room, action, arg);
+  if (reply) botSay(g, cid, reply);
+  return true;
 }
 
 /* ---------- HTTP ---------- */
@@ -284,7 +443,7 @@ try { app.use(require('compression')()); } catch { log('   Aviso: pacote "compre
 const CSP = [
   "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
-  "img-src 'self' data: blob: https://*.supabase.co https://*.giphy.com https://media.tenor.com",
+  "img-src 'self' data: blob: https://*.supabase.co https://*.giphy.com https://media.tenor.com https://i.ytimg.com https://*.sndcdn.com",
   "media-src 'self' blob: https://*.supabase.co",
   "connect-src 'self' https://*.supabase.co https://*.giphy.com https://media.tenor.com",
   "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"
@@ -371,7 +530,7 @@ app.post('/api/register', (req, res) => {
 app.post('/api/login', (req, res) => {
   const username = str(req.body.username, 40).trim().toLowerCase();
   if (limited('login-ip:' + ipOf(req), 30, 15 * 60e3) || limited('login-user:' + username, 8, 15 * 60e3)) return res.status(429).json({ erro: 'Muitas tentativas. Espere 15 minutos e tente de novo.' });
-  const u = Object.values(db.users).find(x => x.username === username);
+  const u = Object.values(db.users).find(x => x.username === username && !x.bot);
   const ok = pwOk(u || DUMMY, str(req.body.password, 200)); // mesmo sem usuário faz a conta (tempo igual)
   if (!u || !ok) return res.status(400).json({ erro: 'Usuário ou senha incorretos.' });
   hits.delete('login-user:' + username);
@@ -437,6 +596,26 @@ app.get('/api/gifs', auth, async (req, res) => {
   } catch (e) { res.status(502).json({ erro: 'Não consegui buscar GIFs agora (' + e.message + ').' }); }
 });
 app.get('/api/config', (req, res) => res.json({ iceServers: cfg.iceServers, build: BUILD }));
+// áudio do DJ: o servidor busca no site de origem e repassa (aceita "Range", para o app pular para o ponto certo)
+app.get('/api/music/:id', auth, async (req, res) => {
+  const t = tracks.get(req.params.id);
+  if (!t || !canAccess(req.uid, t.roomId)) return res.status(404).end();
+  const ac = new AbortController(); res.on('close', () => ac.abort());
+  try {
+    const headers = { ...t.src.headers, 'Accept-Encoding': 'identity' };
+    delete headers['Accept-Language'];
+    if (req.headers.range) headers.Range = req.headers.range;
+    const up = await fetch(t.src.url, { headers, redirect: 'follow', signal: ac.signal });
+    if (!up.ok && up.status !== 206) return res.status(502).end();
+    res.status(up.status);
+    const ct = up.headers.get('content-type') || '';
+    res.setHeader('Content-Type', /^audio\//.test(ct) ? ct : t.src.mime);
+    ['content-length', 'content-range', 'accept-ranges'].forEach(h => { const v = up.headers.get(h); if (v) res.setHeader(h, v); });
+    res.setHeader('Cache-Control', 'no-store');
+    const { Readable } = require('stream');
+    Readable.fromWeb(up.body).on('error', () => res.destroy()).pipe(res);
+  } catch (e) { if (!res.headersSent) res.status(502).end(); else res.destroy(); }
+});
 
 /* ---------- Socket.IO ---------- */
 function onConnection(socket) {
@@ -459,11 +638,13 @@ function onConnection(socket) {
     const rooms = {};
     groupsOf(uid).forEach(g => g.channels.filter(c => c.type === 'voice').forEach(c => { if (voice.has(c.id)) rooms[c.id] = voicePeers(c.id); }));
     dmsOf(uid).forEach(d => { if (voice.has(d.id)) rooms[d.id] = voicePeers(d.id); });
+    const djRooms = {};
+    groupsOf(uid).forEach(g => g.channels.forEach(c => { const st = music.get(c.id); if (st) djRooms[c.id] = musicView(st); }));
     ok(cb, {
       me: selfUser(me()), users, friends: friendState(uid),
       groups: Object.fromEntries(groupsOf(uid).map(g => [g.id, g])),
       dms: Object.fromEntries(dmsOf(uid).map(d => [d.id, { ...d, last: (db.messages[d.id] || []).slice(-1)[0]?.ts || d.createdAt }])),
-      voice: rooms, iceServers: cfg.iceServers, socketId: socket.id, build: BUILD, started: STARTED
+      voice: rooms, iceServers: cfg.iceServers, socketId: socket.id, build: BUILD, started: STARTED, music: djRooms, serverNow: now()
     });
     // banidos também aparecem com nome na lista de banimentos
     groupsOf(uid).forEach(g => g.bans.forEach(b => { if (db.users[b.uid] && !users[b.uid]) socket.emit('user:update', publicUser(db.users[b.uid])); }));
@@ -525,7 +706,7 @@ function onConnection(socket) {
     if (limited('freq:' + uid, 20, 10 * 60e3)) return fail(cb, 'Muitos pedidos de amizade seguidos. Espere alguns minutos.');
     const name = str(d.username, 40).trim().toLowerCase().replace(/^@/, '');
     const target = Object.values(db.users).find(u => u.username === name);
-    if (!target) return fail(cb, 'Não achei ninguém com esse nome de usuário.');
+    if (!target || target.bot) return fail(cb, 'Não achei ninguém com esse nome de usuário.');
     if (target.id === uid) return fail(cb, 'Você não pode adicionar a si mesmo.');
     if (blockedBetween(uid, target.id)) return fail(cb, 'Não dá para enviar pedido para essa pessoa.');
     if (target.privacy && target.privacy.requests === 'ninguem') return fail(cb, 'Essa pessoa não está aceitando pedidos de amizade.');
@@ -564,7 +745,7 @@ function onConnection(socket) {
   on('dm:open', (d, cb) => {
     if (limited('dm:' + uid, 30, 10 * 60e3)) return fail(cb, 'Muitas conversas novas seguidas. Espere alguns minutos.');
     const other = db.users[d.userId];
-    if (!other || other.id === uid) return fail(cb, 'Usuário inválido.');
+    if (!other || other.id === uid || other.bot) return fail(cb, 'Usuário inválido.');
     if (blockedBetween(uid, other.id)) return fail(cb, 'Você não pode conversar com essa pessoa.');
     let dm = Object.values(db.dms).find(x => x.members.includes(uid) && x.members.includes(other.id));
     if (!dm) {
@@ -697,8 +878,10 @@ function onConnection(socket) {
     delete g.memberRoles[m];
     toUser(m, 'group:removed', { gid: g.id });
     for (const s of online.get(m) || []) { const sk = sockets.get(s); if (sk && g.channels.some(c => c.id === sk.data.voice)) leaveVoice(sk); }
-    if (!g.members.length) { g.channels.forEach(c => delete db.messages[c.id]); delete db.groups[g.id]; }
-    else { if (g.ownerId === m) g.ownerId = g.members[0]; pushGroup(g); }
+    if (g.djId === m) { g.djId = null; g.channels.forEach(c => stopMusic(c.id)); }
+    // só sobrou o bot (ou ninguém): o grupo acaba
+    if (!g.members.some(x => !isBot(x))) { g.channels.forEach(c => { delete db.messages[c.id]; stopMusic(c.id); }); delete db.groups[g.id]; }
+    else { if (g.ownerId === m) g.ownerId = g.members.find(x => !isBot(x)); pushGroup(g); }
     save();
   };
   on('group:leave', (d, cb) => { const g = myGroup(d.gid); if (!g) return fail(cb, 'Grupo não encontrado.'); removeMember(g, uid); ok(cb); });
@@ -721,7 +904,7 @@ function onConnection(socket) {
   on('group:delete', (d, cb) => {
     const g = myGroup(d.gid, true); if (!g) return fail(cb, 'Só o dono pode apagar o grupo.');
     g.members.forEach(m => toUser(m, 'group:removed', { gid: g.id }));
-    g.channels.forEach(c => { delete db.messages[c.id]; const r = voice.get(c.id); if (r) for (const sid of r.keys()) { const sk = sockets.get(sid); sk && leaveVoice(sk); } });
+    g.channels.forEach(c => { delete db.messages[c.id]; stopMusic(c.id); const r = voice.get(c.id); if (r) for (const sid of r.keys()) { const sk = sockets.get(sid); sk && leaveVoice(sk); } });
     delete db.groups[g.id]; save(); ok(cb);
   });
   const SLOW = [0, 5, 10, 15, 30, 60, 120, 300, 600, 3600];
@@ -772,6 +955,8 @@ function onConnection(socket) {
     if (limited('msg:' + uid, 12, 10e3)) return fail(cb, 'Calma! Você está mandando mensagens rápido demais.');
     const info = canAccess(uid, d.cid); if (!info) return fail(cb, 'Sem acesso.');
     if (info.kind === 'dm' && info.members.some(m => m !== uid && blockedBetween(uid, m))) return fail(cb, 'Você não pode mandar mensagens para essa pessoa.');
+    // comando do DJ (/music, /pular...): o bot responde e o comando não vira mensagem
+    if (info.kind === 'group' && typeof d.content === 'string' && d.content.trim().startsWith('/') && !d.image && djCommand(info.group, d.cid, uid, str(d.content, 400))) return ok(cb, { command: true });
     const content = str(d.content, 4000).trim();
     const image = store.isUpload(d.image) ? d.image : null;
     // figurinha: precisa existir num grupo seu (guarda uma cópia do endereço, para a mensagem não quebrar se apagarem)
@@ -965,6 +1150,51 @@ function onConnection(socket) {
 
   // o app mede quanto o servidor demora para responder (aparece no registro da call)
   on('rtt', (_, cb) => ok(cb));
+
+  /* DJ (bot de música do grupo) */
+  on('bot:add', (d, cb) => {
+    const g = withPerm(d.gid, 'manageServer'); if (!g) return fail(cb, 'Só quem gerencia o grupo pode adicionar o DJ.');
+    if (djOf(g)) return fail(cb, 'Este grupo já tem um DJ.');
+    const id = newId(), salt = crypto.randomBytes(16).toString('hex');
+    let username; do { username = 'dj.' + crypto.randomBytes(4).toString('hex').slice(0, 6); } while (Object.values(db.users).some(u => u.username === username));
+    // ninguém entra nesta conta: a senha é aleatória e o login de bots é recusado
+    db.users[id] = { id, username, displayName: 'DJ', salt, passHash: crypto.randomBytes(64).toString('hex'), color: '#8b5cf6', banner: null, avatar: null,
+      bio: 'Toco música na call. Digite /ajuda para ver os comandos.', status: 'online', customStatus: 'Digite /music', createdAt: now(), bot: true, botGid: g.id };
+    g.djId = id; g.members.push(id); systemJoin(g, id); save(); pushGroup(g);
+    ok(cb, { id });
+  });
+  on('bot:update', (d, cb) => {
+    const g = withPerm(d.gid, 'manageServer'); const id = djOf(g); if (!id) return fail(cb, 'Sem permissão.');
+    const u = db.users[id];
+    if ('displayName' in d && str(d.displayName, 32).trim()) u.displayName = str(d.displayName, 32).trim();
+    if ('avatar' in d) u.avatar = d.avatar === null || store.isUpload(d.avatar) ? d.avatar : u.avatar;
+    if ('color' in d && HEX.test(d.color)) u.color = d.color;
+    if ('bio' in d) u.bio = str(d.bio, 190).trim();
+    if ('customStatus' in d) u.customStatus = str(d.customStatus, 60).trim();
+    save(); pushUser(id); pushGroup(g); ok(cb);
+  });
+  on('bot:remove', (d, cb) => {
+    const g = withPerm(d.gid, 'manageServer'); const id = djOf(g); if (!id) return fail(cb, 'Sem permissão.');
+    g.channels.forEach(c => stopMusic(c.id));
+    removeMember(g, id); ok(cb);
+  });
+  // botões do cartão "Tocando agora": precisa estar na sala
+  on('music:ctl', (d, cb) => {
+    const st = music.get(d.roomId); const g = st && db.groups[st.gid];
+    if (!g || roomOfUser(g, uid) !== d.roomId) return fail(cb, 'Entre na sala para controlar o DJ.');
+    if (!['pular', 'pausar', 'continuar', 'parar', 'repetir', 'volume', 'tirar', 'embaralhar'].includes(d.action)) return fail(cb, 'Ação inválida.');
+    if (limited('djctl:' + uid, 20, 30e3)) return fail(cb, 'Calma! Muitos cliques seguidos.');
+    const reply = djAction(g, uid, d.roomId, d.action, d.value);
+    if (reply && !['volume'].includes(d.action)) botSay(g, st.cid, reply);
+    ok(cb);
+  });
+  // link direto sem duração conhecida: o app de quem está na sala avisa quanto o áudio dura
+  on('music:dur', d => {
+    const st = music.get(d.roomId); if (!st || !st.cur || st.cur.id !== d.id || st.cur.dur) return;
+    if (!canAccess(uid, d.roomId)) return;
+    const s = +d.dur; if (!(s > 0 && s < 6 * 3600)) return;
+    st.cur.dur = Math.round(s); scheduleEnd(st); pushMusic(d.roomId);
+  });
 
   socket.on('disconnect', reason => {
     if (socket.data.voice) console.log(`[call] ${me()?.username || uid} saiu da call sem querer: ${reason}`);
