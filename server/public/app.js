@@ -1735,12 +1735,12 @@ function drawSettings() {
       <div class="set-card"><h3>Entrada (seu microfone)</h3>
         <label class="field">Dispositivo de entrada<select id="dMic"><option value="">Padrão do sistema</option></select></label>
         <div class="field">Volume do microfone <span class="hint">· o que os outros escutam de você</span><div class="range-row"><input type="range" id="vGain" min="0" max="200" step="5" value="${prefs.micGain}"><output id="vGainO">${prefs.micGain}%</output></div></div>
-        <div class="field">Teste do microfone<div class="mic-test"><button class="btn sm" id="mTest">Testar</button><div class="meter big" id="mBox"><i id="mMeter"></i><b id="mTh" style="left:${prefs.vadLevel}%" ${prefs.vadMode === 'manual' ? '' : 'hidden'}></b></div></div><span class="muted small">Você vai se ouvir com o volume e os efeitos escolhidos. Use fone para não dar microfonia.</span></div>
+        <div class="field">Teste do microfone<div class="mic-test"><button class="btn sm" id="mTest">Testar</button><div class="meter big" id="mBox"><i id="mMeter"></i><b id="mTh" style="left:${prefs.vadLevel}%" ${prefs.vadMode === 'manual' ? '' : 'hidden'}></b></div></div><span class="mic-gate" id="mGate"></span><span class="muted small">Você vai se ouvir com o volume e os efeitos escolhidos. Use fone para não dar microfonia.</span></div>
       </div>
       <div class="set-card"><h3>Modo de entrada</h3>
         ${setRow('Como o microfone abre', '', seg('vMode', [['voz', 'Ativação por voz'], ['ptt', 'Aperte para falar']], prefs.ptt ? 'ptt' : 'voz'))}
         <div id="vVoz" ${prefs.ptt ? 'hidden' : ''}>
-          ${setRow('Sensibilidade automática', 'O app decide sozinho quando você está falando.', sw('vAuto', prefs.vadMode !== 'manual'))}
+          ${setRow('Detecção de voz automática', 'O microfone só abre quando você fala e fecha no silêncio: chiado, ventilador e barulho de fundo não vão para a call. O app aprende sozinho o ruído do seu microfone.', sw('vAuto', prefs.vadMode !== 'manual'))}
           <div class="field" id="vLvl" ${prefs.vadMode === 'manual' ? '' : 'hidden'}>Sensibilidade manual <span class="hint">· o microfone só abre acima da marca</span><div class="range-row"><input type="range" id="vTh" min="1" max="60" step="1" value="${prefs.vadLevel}"><output id="vThO">${prefs.vadLevel}%</output></div></div>
         </div>
         <div id="vPtt" ${prefs.ptt ? '' : 'hidden'}>${setRow('Tecla de aperte para falar', 'Clique e aperte a tecla desejada. Funciona com a janela do Discordia em foco.', `<button class="kbd" id="vKey" style="cursor:pointer">${esc(keyName(prefs.pttKey))}</button>`)}</div>
@@ -1885,17 +1885,22 @@ async function toggleMicTest() {
   if (micTest) return stopMicTest();
   try {
     const s = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints() });
-    const c = audioCtx(); const src = c.createMediaStreamSource(s); const an = c.createAnalyser(); an.fftSize = 512; src.connect(an);
+    const c = audioCtx(); const src = c.createMediaStreamSource(s); const an = c.createAnalyser(); an.fftSize = 1024; an.smoothingTimeConstant = 0.2; src.connect(an);
+    const vad = makeVad();
     const g = c.createGain(); g.gain.value = prefs.micGain / 100; const out = c.createMediaStreamDestination(); src.connect(g); g.connect(out);
     const el = new Audio(); el.srcObject = out.stream; if (prefs.spkId && el.setSinkId) el.setSinkId(prefs.spkId).catch(() => {}); el.play().catch(() => {});
     const buf = new Uint8Array(an.fftSize);
     const iv = setInterval(() => {
       g.gain.value = prefs.micGain / 100;
       const lv = clamp(levelOf(an, buf) * prefs.micGain / 100, 0, 100);
+      const open = vad.step(an);
       const meter = $('#mMeter'); if (!meter) return;
       meter.style.width = lv + '%';
-      meter.classList.toggle('below', prefs.vadMode === 'manual' && !prefs.ptt && lv < prefs.vadLevel);
-    }, 50);
+      // cinza = o microfone ficaria fechado na call (os outros não ouvem nada)
+      const closed = !prefs.ptt && (prefs.vadMode === 'manual' ? lv < prefs.vadLevel : prefs.vadMode !== 'off' && !open);
+      meter.classList.toggle('below', closed);
+      const st = $('#mGate'); if (st) { st.textContent = prefs.ptt ? '' : closed ? 'Microfone fechado (os outros não ouvem)' : 'Microfone aberto (os outros ouvem)'; st.classList.toggle('on', !closed); }
+    }, 20);
     micTest = { s, iv, el, src, g }; $('#mTest').textContent = 'Parar teste'; toast('Fale algo: você vai ouvir a própria voz.');
   } catch { toast('Não consegui abrir o microfone. Verifique a permissão do navegador.', true); }
 }
@@ -1918,23 +1923,57 @@ function toggleOutTest() {
 }
 function stopOutTest() { if (!outTest) return; clearTimeout(outTest.tm); outTest.el.srcObject = null; outTest = null; const b = $('#oTest'); if (b) b.textContent = 'Tocar som de teste'; }
 
+/* ---- detecção de voz (como no Discord) ----
+   Mede o som do microfone a cada 20 ms. Aprende sozinho o nível do chiado/ruído de fundo do seu microfone e só
+   abre quando aparece algo bem acima dele E com cara de voz (energia concentrada na faixa da fala, 250-3500 Hz;
+   chiado espalha a energia por todas as frequências). Segura aberto 400 ms depois da última sílaba para não picotar. */
+function makeVad() {
+  return { noise: null, open: false, hits: 0, last: -1e9, fbuf: null, tbuf: null, mins: [], sum: 0, cnt: 0, curAt: 0, db: -100, sm: null,
+    step(an, now = performance.now()) {
+      if (!this.tbuf || this.tbuf.length !== an.fftSize) { this.tbuf = new Float32Array(an.fftSize); this.fbuf = new Float32Array(an.frequencyBinCount); }
+      an.getFloatTimeDomainData(this.tbuf);
+      let s = 0; for (const v of this.tbuf) s += v * v;
+      const db = 10 * Math.log10(s / this.tbuf.length + 1e-12);
+      an.getFloatFrequencyData(this.fbuf);
+      const hz = an.context.sampleRate / an.fftSize; let voice = 0, all = 0;
+      for (let i = 1; i < this.fbuf.length; i++) { const e = Math.pow(10, this.fbuf[i] / 10), f = i * hz; all += e; if (f >= 250 && f <= 3500) voice += e; }
+      const ratio = all > 0 ? voice / all : 0;
+      // nível suavizado (barulho de fundo oscila; a voz sobe e fica)
+      this.db = db; this.sm = this.sm === null ? db : this.sm * 0.6 + db * 0.4;
+      // ruído de fundo = a menor média de 100 ms dos últimos 3 s (entre uma palavra e outra sempre tem pausa)
+      this.sum += db; this.cnt++;
+      if (now - this.curAt >= 100) { this.mins.push(this.sum / this.cnt); if (this.mins.length > 30) this.mins.shift(); this.sum = 0; this.cnt = 0; this.curAt = now; }
+      this.noise = this.mins.length ? Math.min(...this.mins) : db;
+      // bem acima do ruído com algo de voz, ou só um pouco acima mas com muita cara de voz (fala baixa)
+      const lv = this.sm;
+      const speech = lv > -62 && ((lv > this.noise + 9 && ratio > 0.35) || (lv > this.noise + 5 && ratio > 0.5));
+      this.hits = speech ? this.hits + 1 : 0;
+      if (this.hits >= 2) this.last = now; // 2 leituras seguidas: não abre por estalo de teclado
+      this.open = now - this.last < 400;
+      return this.open;
+    }
+  };
+}
+
 /* ---- caminho do microfone ----
    Por padrão a faixa do microfone vai direto para a call (como sempre foi). Só quando você muda o volume do
-   microfone ou usa sensibilidade manual ela passa por um ganho (Web Audio). O cancelamento de eco e a
-   supressão de ruído acontecem antes, na captura, então continuam funcionando. */
-const MICP = { raw: null, chain: null, open: true, last: 0 };
-const needChain = () => prefs.micGain !== 100 || (prefs.vadMode === 'manual' && !prefs.ptt);
+   microfone ela passa por um ganho (Web Audio). O cancelamento de eco e a supressão de ruído acontecem antes,
+   na captura, então continuam funcionando. A detecção de voz escuta uma cópia da faixa: assim, com o microfone
+   fechado para a call, ela continua ouvindo para abrir de novo quando você falar. */
+const MICP = { raw: null, chain: null, open: true, last: 0, vad: makeVad(), probe: null };const needChain = () => prefs.micGain !== 100;
 async function getMic() { return buildMic(await navigator.mediaDevices.getUserMedia({ audio: audioConstraints() })); }
 function buildMic(raw) {
   if (MICP.raw && MICP.raw !== raw) MICP.raw.getTracks().forEach(t => t.stop());
-  dropMicChain(); MICP.raw = raw; MICP.open = true;
+  dropMicChain(); MICP.raw = raw; MICP.open = true; MICP.vad = makeVad();
   const c = audioCtx();
   try {
-    const src = c.createMediaStreamSource(raw); const an = c.createAnalyser(); an.fftSize = 512; src.connect(an);
-    MICP.chain = { src, an, buf: new Uint8Array(512) };
+    const t = raw.getAudioTracks()[0];
+    MICP.probe = t ? t.clone() : null; if (MICP.probe) MICP.probe.enabled = true;
+    const src = c.createMediaStreamSource(MICP.probe ? new MediaStream([MICP.probe]) : raw); const an = c.createAnalyser(); an.fftSize = 1024; an.smoothingTimeConstant = 0.2; src.connect(an);
+    MICP.chain = { src, an, buf: new Uint8Array(1024) };
     if (needChain()) {
       const g = c.createGain(); g.gain.value = prefs.micGain / 100; const d = c.createMediaStreamDestination();
-      src.connect(g); g.connect(d); Object.assign(MICP.chain, { g, d });
+      const gs = c.createMediaStreamSource(raw); gs.connect(g); g.connect(d); Object.assign(MICP.chain, { g, d, gs });
       return d.stream;
     }
   } catch (e) { console.warn('microfone sem processamento', e); }
@@ -1942,8 +1981,9 @@ function buildMic(raw) {
 }
 function dropMicChain() {
   const ch = MICP.chain; MICP.chain = null; if (!ch) return;
-  try { ch.src.disconnect(); ch.g && ch.g.disconnect(); } catch {}
+  try { ch.src.disconnect(); ch.gs && ch.gs.disconnect(); ch.g && ch.g.disconnect(); } catch {}
   if (ch.d) ch.d.stream.getTracks().forEach(t => t.stop());
+  if (MICP.probe) { MICP.probe.stop(); MICP.probe = null; }
 }
 function stopMic() { [V.mic, MICP.raw].forEach(s => s && s.getTracks().forEach(t => t.stop())); dropMicChain(); MICP.raw = null; V.mic = null; }
 // volume do microfone mudou: ajusta na hora se já tem o ganho; senão monta o caminho uma vez
@@ -1955,15 +1995,18 @@ function micChainCheck() {
   if (!V.room || !V.mic) return;
   if (!!(MICP.chain && MICP.chain.d) !== needChain()) { clearTimeout(micChainCheck.t); micChainCheck.t = setTimeout(restartMic, 350); }
 }
-// sensibilidade manual: abre o microfone só quando o nível passa da marca (e segura 400 ms para não picotar)
+// abre e fecha o microfone: automático (detecção de voz) ou manual (só acima da marca), segurando 400 ms
 setInterval(() => {
   const ch = MICP.chain;
-  if (!V.room || prefs.ptt || prefs.vadMode !== 'manual' || !ch || !ch.d) { if (!MICP.open) { MICP.open = true; applyMicGate(); } return; }
-  const lv = levelOf(ch.an, ch.buf) * prefs.micGain / 100, now = Date.now();
-  if (lv >= prefs.vadLevel) MICP.last = now;
-  const open = now - MICP.last < 400;
+  if (!V.room || prefs.ptt || prefs.vadMode === 'off' || !ch) { if (!MICP.open) { MICP.open = true; applyMicGate(); } return; }
+  let open;
+  if (prefs.vadMode === 'manual') {
+    const lv = levelOf(ch.an, ch.buf) * prefs.micGain / 100, now = Date.now();
+    if (lv >= prefs.vadLevel) MICP.last = now;
+    open = now - MICP.last < 400;
+  } else open = MICP.vad.step(ch.an);
   if (open !== MICP.open) { MICP.open = open; applyMicGate(); }
-}, 40);
+}, 20);
 
 /* =============== voz, vídeo e tela (WebRTC) =============== */
 const V = { room: null, mic: null, screen: null, cam: null, peers: new Map(), muted: false, deaf: false, ice: [], pttDown: false, calling: false, levels: new Map(), videoCache: new Map(), rejoin: null };
@@ -2048,7 +2091,7 @@ function tuneSenders(pc) {
 }
 function secureOk() { return window.isSecureContext && navigator.mediaDevices; }
 function applyMicGate() {
-  const vadOk = prefs.ptt || prefs.vadMode !== 'manual' || MICP.open;
+  const vadOk = prefs.ptt || prefs.vadMode === 'off' || MICP.open;
   const on = !V.muted && !V.deaf && (!prefs.ptt || V.pttDown) && vadOk;
   V.mic && V.mic.getAudioTracks().forEach(t => t.enabled = on);
 }

@@ -465,3 +465,6 @@
 .clog-l span { min-width: 0; overflow-wrap: anywhere; }
 .clog-l.aviso span { color: var(--warn); }
 .clog-l.erro span { color: var(--danger); font-weight: 600; }
+/* teste do microfone: mostra se a detecção de voz deixaria o microfone aberto */
+.mic-gate { display: block; font-size: .85em; font-weight: 600; color: var(--muted); min-height: 1.3em; }
+.mic-gate.on { color: var(--ok); }
