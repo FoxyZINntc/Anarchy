@@ -518,6 +518,8 @@ function connect() {
     if (r.started && srvStarted && r.started !== srvStarted) clog('O servidor reiniciou enquanto você estava desconectado (atualização do servidor ou queda dele).', V.rejoin ? 'aviso' : '');
     if (r.started) srvStarted = r.started;
     clog(`Conectado ao servidor (${socket.io.engine?.transport?.name || '?'}).`);
+    // novidades desde a última vez (só uma vez por abertura do app)
+    if (!connect.news) { connect.news = true; setTimeout(() => showNews(false), 1200); }
     // caiu no meio da call: volta sozinho para a mesma sala
     const rj = V.rejoin; V.rejoin = null;
     if (rj && !V.room) {
@@ -1037,6 +1039,42 @@ async function sendImage(file) {
 }
 
 /* =============== modais e menus =============== */
+/* =============== Novidades ===============
+   Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
+   atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
+const NEWS = [
+  { id: '2026-11-08-dj', date: '08/11/2026', title: 'DJ: bot de música nos grupos', emoji: '🎧', items: [
+    'Adicione o DJ em <b>Configurações do grupo › DJ (bot de música)</b> e personalize nome, foto e cor.',
+    'Entre numa sala de voz e digite <code>/music</code> com o nome ou o link da música. Digite <code>/</code> para ver todos os comandos.',
+    'Cartão <b>Tocando agora</b> na call, com fila, pausar, pular e repetir.',
+    'Clique com o botão direito no DJ para mudar o volume dele <b>só para você</b>.'
+  ] },
+  { id: '2026-11-08-voz', date: '08/11/2026', title: 'Calls mais limpas e estáveis', emoji: '🎙️', items: [
+    '<b>Detecção de voz:</b> o microfone só abre quando você fala. Chiado e barulho de fundo não vão mais para a call.',
+    'Se a sua conexão cair, você <b>volta sozinho para a call</b> quando ela voltar.',
+    '<b>Registro da call</b> em Configurações › Voz e vídeo: mostra quando e por que você caiu.'
+  ] },
+  { id: '2026-11-08-tela', date: '08/11/2026', title: 'Som da tela sem eco', emoji: '🖥️', items: [
+    'Ao compartilhar a tela, vai o som do PC <b>menos o do Discordia</b>: ninguém se ouve de volta (app 1.3.0).',
+    'Compartilhando uma janela, vai só o som daquele programa.'
+  ] },
+  { id: '2026-11-07-mencoes', date: '07/11/2026', title: 'Menções e editor de áudio', emoji: '💬', items: [
+    'Digite <code>@</code> para mencionar alguém. Quem foi mencionado recebe aviso e a mensagem fica destacada.',
+    'Na Central de Áudio, solte um áudio longo e <b>corte o trecho</b> que quiser antes de adicionar.'
+  ] }
+];
+const NEWS_KEY = 'discordia:news';
+function showNews(all) {
+  let seen = null; try { seen = localStorage.getItem(NEWS_KEY); } catch {}
+  const idx = NEWS.findIndex(n => n.id === seen);
+  const list = all ? NEWS : (idx < 0 ? NEWS.slice(0, 3) : NEWS.slice(0, idx));
+  try { localStorage.setItem(NEWS_KEY, NEWS[0].id); } catch {}
+  if (!list.length) return;
+  modal(`<div class="modal-h news-h"><div class="news-spark">✨</div><h2>Novidades no Discordia</h2><p>${all ? 'Tudo o que mudou recentemente.' : 'Veja o que mudou desde a última vez que você entrou.'}</p></div>
+    <div class="modal-b news-b">${list.map(n => `<section class="news-it"><div class="news-ic">${n.emoji}</div><div><h3>${esc(n.title)}<span>${esc(n.date)}</span></h3><ul>${n.items.map(i => `<li>${i}</li>`).join('')}</ul></div></section>`).join('')}</div>
+    <div class="modal-f"><button class="btn primary" data-close>Legal!</button></div>`, m => { m.classList.add('news-modal'); const top = () => { const b = $('.news-b', m); if (b) b.scrollTop = 0; }; top(); setTimeout(top, 80); setTimeout(top, 300); });
+}
+
 function modal(html, onMount) {
   const root = $('#modalRoot');
   const back = document.createElement('div'); back.className = 'modal-back';
@@ -1602,6 +1640,7 @@ function openSettings(tab) {
       <button data-st="conta">${I('user')}Minha conta</button><button data-st="perfil">${I('edit')}Perfil</button><button data-st="privacidade">${I('shield')}Privacidade e segurança</button>
       <h4>Configurações do app</h4>
       <button data-st="aparencia">${I('smile')}Aparência</button><button data-st="voz">${I('mic')}Voz e vídeo</button><button data-st="notif">${I('bell')}Notificações</button><button data-st="atalhos">${I('menu')}Atalhos</button><button data-st="app">${I('gear')}Aplicativo</button>
+      <button data-st="novidades">✨ Novidades</button>
       <hr><button data-st="sair" class="out">${I('out')}Sair da conta</button>
     </div></nav>
     <div class="set-body"><div class="set-body-in" id="setBody"></div></div>
@@ -1609,7 +1648,7 @@ function openSettings(tab) {
   document.body.appendChild(el);
   $('#setX').onclick = closeSettings;
   el.querySelector('.set-body').addEventListener('click', e => { const x = e.target.closest('[data-st-go]'); if (x) { setTab = x.dataset.stGo; drawSettings(); } });
-  el.querySelector('.set-nav').onclick = e => { const b = e.target.closest('[data-st]'); if (!b) return; if (b.dataset.st === 'sair') return confirmBox('Sair da conta', 'Você vai precisar entrar de novo com usuário e senha.', 'Sair').then(ok => ok && logout()); setTab = b.dataset.st; drawSettings(); };
+  el.querySelector('.set-nav').onclick = e => { const b = e.target.closest('[data-st]'); if (!b) return; if (b.dataset.st === 'novidades') return showNews(true); if (b.dataset.st === 'sair') return confirmBox('Sair da conta', 'Você vai precisar entrar de novo com usuário e senha.', 'Sair').then(ok => ok && logout()); setTab = b.dataset.st; drawSettings(); };
   drawSettings();
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('.settings') && !$('.modal-back') && !capturingKey) closeSettings(); });

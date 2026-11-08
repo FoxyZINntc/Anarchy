@@ -526,3 +526,19 @@
   .dj-card { flex-direction: column; } .dj-art { width: 100%; max-width: 240px; } .dj-vol { margin-left: 0; width: 100%; } .dj-vol input { flex: 1; }
   .dj-help div { flex-direction: column; gap: 0; } .dj-prof { flex-direction: column; }
 }
+/* a caixa da call não estica com nome de música comprido: o nome corta com "..." */
+#voiceBar { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+#voiceBar > * { min-width: 0; }
+.vb-dj { min-width: 0; max-width: 100%; overflow: hidden; box-sizing: border-box; }
+.vb-dj span:last-child { flex: 1; }
+/* popup de Novidades */
+.news-modal .modal { max-width: 560px; }
+.news-h { text-align: center; }
+.news-spark { font-size: 34px; line-height: 1; margin-bottom: 4px; animation: pop .4s; }
+.news-b { display: grid; gap: 12px; max-height: min(60vh, 520px); overflow-y: auto; }
+.news-it { display: flex; gap: 12px; padding: 12px; border-radius: 12px; background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.news-ic { font-size: 24px; line-height: 1.2; flex: 0 0 auto; }
+.news-it h3 { margin: 0 0 6px; font-size: 1em; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.news-it h3 span { font-size: .75em; font-weight: 500; color: var(--muted); }
+.news-it ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: .9em; color: color-mix(in srgb, var(--text) 85%, var(--muted)); }
+.news-it code { font-size: .9em; }
