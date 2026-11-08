@@ -1045,8 +1045,9 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
-  { id: '2026-11-08-anarchy', date: '08/11/2026', title: 'O Discordia agora se chama Anarchy', emoji: '🏴', items: [
+  { id: '2026-11-08-anarchy', date: '08/11/2026', title: 'O Discordia agora se chama Anarchy', emoji: '<img src="logo.svg" alt="" class="news-logo">', items: [
     'Novo nome, mesmo app: suas conversas, grupos, amigos e configurações continuam todos aqui.',
+    'Logo nova: o <b>A de anarquia</b> vermelho no fundo branco.',
     'O app de computador se atualiza sozinho para o <b>Anarchy</b> (versão 1.4.0), com o atalho e o ícone com o nome novo.'
   ] },
   { id: '2026-11-08-dj', date: '08/11/2026', title: 'DJ: bot de música nos grupos', emoji: '🎧', items: [

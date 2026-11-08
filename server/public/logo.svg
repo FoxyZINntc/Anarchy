@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Anarchy: o "A de anarquia" (A no círculo) vermelho num fundo branco -->
+  <rect width="512" height="512" rx="112" fill="#ffffff"/>
+  <g transform="translate(256 262) scale(0.8) translate(-256 -262)" fill="none" stroke="#d7141f">
+    <circle cx="256" cy="276" r="164" stroke-width="38"/>
+    <path d="M104 470 L256 74 L408 470" stroke-width="48" stroke-linejoin="miter" stroke-miterlimit="10" stroke-linecap="butt"/>
+    <path d="M58 340 L454 340" stroke-width="46" stroke-linecap="butt"/>
+  </g>
+</svg>

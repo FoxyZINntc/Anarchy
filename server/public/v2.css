@@ -542,3 +542,7 @@
 .news-it h3 span { font-size: .75em; font-weight: 500; color: var(--muted); }
 .news-it ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: .9em; color: color-mix(in srgb, var(--text) 85%, var(--muted)); }
 .news-it code { font-size: .9em; }
+/* logo do Anarchy: A de anarquia vermelho no branco */
+.logo-mark { background: #fff url(logo.svg) center / 100% no-repeat !important; box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 60%, transparent); }
+.logo-mark::after { content: none !important; }
+.news-logo { width: 28px; height: 28px; border-radius: 7px; display: block; }
