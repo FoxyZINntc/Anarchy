@@ -1,4 +1,4 @@
-// DJ do Discordia: busca músicas com o yt-dlp (YouTube, SoundCloud, links diretos de áudio...).
+// DJ do Anarchy: busca músicas com o yt-dlp (YouTube, SoundCloud, links diretos de áudio...).
 // O yt-dlp é baixado sozinho do GitHub oficial (github.com/yt-dlp/yt-dlp) para server/bin e se atualiza 1x por dia.
 // Para usar um yt-dlp já instalado: YTDLP_PATH=caminho no .env.
 const fs = require('fs');

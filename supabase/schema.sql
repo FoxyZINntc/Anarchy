@@ -1,6 +1,6 @@
--- Discordia — estrutura do banco no Supabase
+-- Anarchy — estrutura do banco no Supabase
 -- Rode este arquivo uma vez no SQL Editor do seu projeto Supabase.
--- O servidor do Discordia usa a chave service_role, que passa por cima do RLS.
+-- O servidor do Anarchy usa a chave service_role, que passa por cima do RLS.
 -- O RLS fica ligado e sem políticas: ninguém consegue ler os dados com a chave pública (anon).
 
 create table if not exists public.usuarios (
@@ -107,7 +107,7 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 values ('uploads', 'uploads', true, 8388608, array['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 on conflict (id) do nothing;
 
--- tokens que autorizam um servidor Discordia a usar a função discordia-db (só o hash SHA-256 fica guardado)
+-- tokens que autorizam um servidor Anarchy a usar a função anarchy-db (só o hash SHA-256 fica guardado)
 create table if not exists public.servidor_tokens (
   token_hash text primary key,
   nome       text not null,
@@ -117,9 +117,9 @@ alter table public.servidor_tokens enable row level security;
 revoke all on public.servidor_tokens from anon, authenticated;
 -- para liberar um servidor: insert into public.servidor_tokens (token_hash, nome) values (encode(sha256('SEU_TOKEN'::bytea), 'hex'), 'meu servidor');
 
--- Discordia: Central de Áudio (sons) e figurinhas dos grupos.
+-- Anarchy: Central de Áudio (sons) e figurinhas dos grupos.
 -- Só cria coisas novas (nada é apagado ou alterado). Os arquivos ficam no Storage; aqui só os dados.
--- O servidor do Discordia acessa pela função discordia-db (service_role); RLS ligado e sem políticas
+-- O servidor do Anarchy acessa pela função anarchy-db (service_role); RLS ligado e sem políticas
 -- = ninguém lê nem escreve com a chave pública (anon/authenticated).
 
 create table if not exists public.sons (

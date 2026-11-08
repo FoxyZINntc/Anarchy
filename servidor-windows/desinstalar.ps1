@@ -6,4 +6,4 @@ Unregister-ScheduledTask -TaskName 'Discordia Auto Atualizar' -Confirm:$false -E
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'server[\\/]server\.js' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 $ts = 'C:\Program Files\Tailscale\tailscale.exe'
 if (Test-Path $ts) { & $ts funnel reset }
-Write-Host "Servidor do Discordia removido. Os dados continuam em server\dados (ou no Supabase)." -ForegroundColor Green
+Write-Host "Servidor do Anarchy removido. Os dados continuam em server\dados (ou no Supabase)." -ForegroundColor Green

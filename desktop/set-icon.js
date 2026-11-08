@@ -1,4 +1,4 @@
-// coloca o ícone e as informações de versão no Discordia.exe (sem precisar do Wine)
+// coloca o ícone e as informações de versão no Anarchy.exe (sem precisar do Wine)
 const fs = require('fs');
 const ResEdit = require('resedit');
 const exePath = process.argv[2];
@@ -10,7 +10,7 @@ const gid = groups.length ? groups[0].id : 1, lang = groups.length ? groups[0].l
 ResEdit.Resource.IconGroupEntry.replaceIconsForResource(res.entries, gid, lang, ico.icons.map(i => i.data));
 const vi = ResEdit.Resource.VersionInfo.fromEntries(res.entries)[0];
 if (vi) {
-  vi.setStringValues({ lang: 1033, codepage: 1200 }, { ProductName: 'Discordia', FileDescription: 'Discordia', CompanyName: 'Discordia', OriginalFilename: 'Discordia.exe', InternalName: 'Discordia', LegalCopyright: '' });
+  vi.setStringValues({ lang: 1033, codepage: 1200 }, { ProductName: 'Anarchy', FileDescription: 'Anarchy', CompanyName: 'Anarchy', OriginalFilename: 'Anarchy.exe', InternalName: 'Anarchy', LegalCopyright: '' });
   vi.setFileVersion(1, 0, 0, 0, 1033); vi.setProductVersion(1, 0, 0, 0, 1033);
   vi.outputToResourceEntries(res.entries);
 }

@@ -1,4 +1,4 @@
-# Mostra se o servidor do Discordia esta rodando, o endereco publico e o fim do log.
+# Mostra se o servidor do Anarchy esta rodando, o endereco publico e o fim do log.
 $Raiz = Split-Path -Parent $PSScriptRoot
 $t = Get-ScheduledTask -TaskName 'Discordia Servidor' -ErrorAction SilentlyContinue
 if ($t) { Write-Host "Tarefa: $($t.State)" } else { Write-Host "Tarefa: nao instalada (rode instalar.ps1)" -ForegroundColor Yellow }

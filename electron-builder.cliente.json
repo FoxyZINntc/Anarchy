@@ -1,6 +1,6 @@
 {
   "appId": "com.discordia.app",
-  "productName": "Discordia",
+  "productName": "Anarchy",
   "asar": true,
   "files": [
     "desktop/**/*",
@@ -37,8 +37,8 @@
     "runAfterFinish": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "Discordia",
-    "artifactName": "Discordia Setup.${ext}",
+    "shortcutName": "Anarchy",
+    "artifactName": "Anarchy Setup.${ext}",
     "deleteAppDataOnUninstall": false
   }
 }

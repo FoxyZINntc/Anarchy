@@ -1,6 +1,6 @@
--- Discordia: Central de Áudio (sons) e figurinhas dos grupos.
+-- Anarchy: Central de Áudio (sons) e figurinhas dos grupos.
 -- Só cria coisas novas (nada é apagado ou alterado). Os arquivos ficam no Storage; aqui só os dados.
--- O servidor do Discordia acessa pela função discordia-db (service_role); RLS ligado e sem políticas
+-- O servidor do Anarchy acessa pela função anarchy-db (service_role); RLS ligado e sem políticas
 -- = ninguém lê nem escreve com a chave pública (anon/authenticated).
 
 create table if not exists public.sons (

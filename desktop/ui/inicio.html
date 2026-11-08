@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<title>Discordia</title>
+<title>Anarchy</title>
 <style>
 :root { --rail: #0b0d10; --side: #14171c; --main: #191c22; --panel: #20242c; --elev: #262b34; --hover: #2a2f39; --line: #2c313b; --text: #e8eaf0; --muted: #8b93a3; --accent: #6c7cff; --ok: #3ccf91; --danger: #f2545b; --warn: #f5b83d; color-scheme: dark; }
 * { box-sizing: border-box; }
@@ -75,13 +75,13 @@ input[type=text]:focus { border-color: var(--accent); }
 <!-- primeira vez -->
 <section class="page" id="p-inicio" hidden>
   <div class="wrap">
-    <div class="brand"><img src="../assets/icon.png" alt="">Discordia</div>
-    <h1>Como você quer usar o Discordia?</h1>
+    <div class="brand"><img src="../assets/icon.png" alt="">Anarchy</div>
+    <h1>Como você quer usar o Anarchy?</h1>
     <p class="muted">Dá para trocar depois, pelo ícone perto do relógio ou nas configurações.</p>
     <div class="cards">
       <form class="card" id="joinForm">
         <div class="ic">🔗</div>
-        <h2>Entrar no Discordia de um amigo</h2>
+        <h2>Entrar no Anarchy de um amigo</h2>
         <p class="muted">Cole o endereço que o dono do servidor te mandou.</p>
         <input type="text" id="addr" placeholder="https://exemplo.trycloudflare.com" autocomplete="off" spellcheck="false">
         <p class="err" id="joinErr"></p>
@@ -92,7 +92,7 @@ input[type=text]:focus { border-color: var(--accent); }
         <div class="ic">🖥️</div>
         <h2>Hospedar neste computador</h2>
         <p class="muted">Este PC vira o servidor do grupo. As contas, mensagens e grupos ficam guardados aqui.</p>
-        <p class="hint">Ele precisa ficar ligado para os amigos conversarem. O Discordia roda escondido perto do relógio, sem janela extra.</p>
+        <p class="hint">Ele precisa ficar ligado para os amigos conversarem. O Anarchy roda escondido perto do relógio, sem janela extra.</p>
         <p class="err" id="hostErr"></p>
         <button class="btn" id="hostBtn" type="button">Hospedar aqui</button>
       </div>
@@ -133,11 +133,11 @@ input[type=text]:focus { border-color: var(--accent); }
         <div class="addr" id="pubBox" hidden><code id="pubUrl"></code><button class="btn sm primary" id="pubCopy">Copiar</button></div>
         <p class="err" id="pubErr"></p>
         <div class="row"><button class="btn primary" id="pubOn">Gerar link público</button><button class="btn" id="pubOff" hidden>Desligar link</button></div>
-        <div class="set" style="margin-top:6px"><span class="hint">Gerar o link sozinho ao abrir o Discordia</span><label class="switch"><input type="checkbox" id="pubAuto"><span></span></label></div>
+        <div class="set" style="margin-top:6px"><span class="hint">Gerar o link sozinho ao abrir o Anarchy</span><label class="switch"><input type="checkbox" id="pubAuto"><span></span></label></div>
       </div>
     </div>
     <div class="card">
-      <div class="sec"><h3>Amigos na mesma casa (mesmo Wi-Fi)</h3><p class="hint">No app do Discordia, eles usam:</p><div id="lanApp"></div>
+      <div class="sec"><h3>Amigos na mesma casa (mesmo Wi-Fi)</h3><p class="hint">No app do Anarchy, eles usam:</p><div id="lanApp"></div>
       <p class="hint" style="margin-top:6px">No navegador (aceite o aviso de segurança):</p><div id="lanWeb"></div></div>
     </div>
     <div class="card">
@@ -169,13 +169,13 @@ input[type=text]:focus { border-color: var(--accent); }
 </section>
 
 <script>
-const D = window.discordiaDesktop;
+const D = window.anarchyDesktop;
 const q = new URLSearchParams(location.search);
 const page = q.get('page') || 'inicio';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 document.getElementById('p-' + page).hidden = false;
-document.title = { painel: 'Discordia — Servidor', picker: 'Compartilhar tela' }[page] || 'Discordia';
+document.title = { painel: 'Anarchy — Servidor', picker: 'Compartilhar tela' }[page] || 'Anarchy';
 function toast(t) { const e = document.createElement('div'); e.className = 'toast'; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 2000); }
 
 if (page === 'inicio') {

@@ -1,6 +1,8 @@
-/* Discordia — app */
+/* Anarchy — app */
 (() => {
 'use strict';
+// apps de computador antigos (de quando o projeto se chamava Discordia) mostram a ponte com o nome antigo
+if (!window.anarchyDesktop && window.discordiaDesktop) window.anarchyDesktop = window.discordiaDesktop;
 
 /* =============== utilidades =============== */
 const $ = (s, r = document) => r.querySelector(s);
@@ -100,8 +102,8 @@ const BGS = {
 const DEFAULT_PREFS = { theme: 'meia-noite', accent: null, font: 'inter', fontSize: 15, density: 'conf', radius: null, layout: 'padrao', avatars: true, clock24: true, bg: 'none', bgImage: null, glass: 82, anim: true, sounds: true, volume: 60, desktop: false, mentionsOnly: false, micId: '', spkId: '', camId: '', ns: true, ec: true, agc: true, ptt: false, pttKey: 'KeyV', quality: '1080p30', showMembers: true, joinSounds: true, vol: {}, svol: {}, umute: {},
   profileFx: true, lite: false, hidePreview: false, micGain: 100, vadMode: 'auto', vadLevel: 12, outVol: 100, sbVol: 70, sbOn: true };
 let prefs = { ...DEFAULT_PREFS };
-try { const st = JSON.parse(localStorage.getItem('discordia:prefs') || '{}'); prefs = { ...prefs, ...st }; if (window.discordiaDesktop && !('desktop' in st)) prefs.desktop = true; } catch {}
-const DESK = window.discordiaDesktop || null;
+try { const st = JSON.parse(localStorage.getItem('discordia:prefs') || '{}'); prefs = { ...prefs, ...st }; if (window.anarchyDesktop && !('desktop' in st)) prefs.desktop = true; } catch {}
+const DESK = window.anarchyDesktop || null;
 function savePrefs() { try { localStorage.setItem('discordia:prefs', JSON.stringify(prefs)); } catch (e) { toast('Não deu para salvar as preferências (imagem de fundo grande demais?).', true); } }
 function applyPrefs() {
   const t = THEMES[prefs.theme] || THEMES['meia-noite'];
@@ -368,7 +370,7 @@ async function authStart(mode = AU.mode) {
   $('#authLog').innerHTML = '<div class="au-day">HOJE</div>';
   ask('user');
   if (reg) await bot(['Gente nova! Adoro 🎉', 'Escolhe um nome de usuário. É com ele que os amigos vão te achar (3 a 20 caracteres: letras minúsculas, números, ponto ou _).']);
-  else await bot(['Opa! Eu sou o Porteiro do Discordia 👋', 'Ninguém entra sem se identificar. Qual é o seu nome de usuário?']);
+  else await bot(['Opa! Eu sou o Porteiro do Anarchy 👋', 'Ninguém entra sem se identificar. Qual é o seu nome de usuário?']);
 }
 function showAuth() {
   $('#app').hidden = true; $('#auth').hidden = false;
@@ -585,7 +587,7 @@ function connect() {
     if (V.room === dmId && by !== S.me.id && (S.voice[dmId] || []).length <= 1) { ring(false); toast(`${nameOf(by)} recusou a chamada.`); leaveVoice('a pessoa recusou a chamada'); }
   });
   socket.on('notify', n => {
-    if (n.type === 'friend-request') { SOUNDS.req(); toast(`${nameOf(n.from)} te enviou um pedido de amizade.`); notifyDesktop('Pedido de amizade', `${nameOf(n.from)} quer ser seu amigo no Discordia.`); }
+    if (n.type === 'friend-request') { SOUNDS.req(); toast(`${nameOf(n.from)} te enviou um pedido de amizade.`); notifyDesktop('Pedido de amizade', `${nameOf(n.from)} quer ser seu amigo no Anarchy.`); }
     if (n.type === 'friend-accepted') { SOUNDS.req(); toast(`${nameOf(n.from)} aceitou seu pedido de amizade.`); }
     if (n.type === 'group-added') { SOUNDS.req(); toast(`${nameOf(n.from)} te adicionou em "${S.groups[n.gid]?.name || 'um grupo'}".`); }
   });
@@ -634,7 +636,7 @@ function onMessage(m) {
 }
 function updateTitle() {
   const n = Object.values(S.mentions).reduce((a, b) => a + b, 0);
-  document.title = (n ? `(${n}) ` : '') + 'Discordia';
+  document.title = (n ? `(${n}) ` : '') + 'Anarchy';
 }
 function markRead(cid) { if (!cid) return; if (S.unread[cid] || S.mentions[cid]) { delete S.unread[cid]; delete S.mentions[cid]; updateTitle(); renderRail(); renderSide(); } }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) markRead(viewingCid()); });
@@ -1043,6 +1045,10 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-08-anarchy', date: '08/11/2026', title: 'O Discordia agora se chama Anarchy', emoji: '🏴', items: [
+    'Novo nome, mesmo app: suas conversas, grupos, amigos e configurações continuam todos aqui.',
+    'O app de computador se atualiza sozinho para o <b>Anarchy</b> (versão 1.4.0), com o atalho e o ícone com o nome novo.'
+  ] },
   { id: '2026-11-08-dj', date: '08/11/2026', title: 'DJ: bot de música nos grupos', emoji: '🎧', items: [
     'Adicione o DJ em <b>Configurações do grupo › DJ (bot de música)</b> e personalize nome, foto e cor.',
     'Entre numa sala de voz e digite <code>/music</code> com o nome ou o link da música. Digite <code>/</code> para ver todos os comandos.',
@@ -1055,7 +1061,7 @@ const NEWS = [
     '<b>Registro da call</b> em Configurações › Voz e vídeo: mostra quando e por que você caiu.'
   ] },
   { id: '2026-11-08-tela', date: '08/11/2026', title: 'Som da tela sem eco', emoji: '🖥️', items: [
-    'Ao compartilhar a tela, vai o som do PC <b>menos o do Discordia</b>: ninguém se ouve de volta (app 1.3.0).',
+    'Ao compartilhar a tela, vai o som do PC <b>menos o do Anarchy</b>: ninguém se ouve de volta (app 1.3.0).',
     'Compartilhando uma janela, vai só o som daquele programa.'
   ] },
   { id: '2026-11-07-mencoes', date: '07/11/2026', title: 'Menções e editor de áudio', emoji: '💬', items: [
@@ -1070,7 +1076,7 @@ function showNews(all) {
   const list = all ? NEWS : (idx < 0 ? NEWS.slice(0, 3) : NEWS.slice(0, idx));
   try { localStorage.setItem(NEWS_KEY, NEWS[0].id); } catch {}
   if (!list.length) return;
-  modal(`<div class="modal-h news-h"><div class="news-spark">✨</div><h2>Novidades no Discordia</h2><p>${all ? 'Tudo o que mudou recentemente.' : 'Veja o que mudou desde a última vez que você entrou.'}</p></div>
+  modal(`<div class="modal-h news-h"><div class="news-spark">✨</div><h2>Novidades no Anarchy</h2><p>${all ? 'Tudo o que mudou recentemente.' : 'Veja o que mudou desde a última vez que você entrou.'}</p></div>
     <div class="modal-b news-b">${list.map(n => `<section class="news-it"><div class="news-ic">${n.emoji}</div><div><h3>${esc(n.title)}<span>${esc(n.date)}</span></h3><ul>${n.items.map(i => `<li>${i}</li>`).join('')}</ul></div></section>`).join('')}</div>
     <div class="modal-f"><button class="btn primary" data-close>Legal!</button></div>`, m => { m.classList.add('news-modal'); const top = () => { const b = $('.news-b', m); if (b) b.scrollTop = 0; }; top(); setTimeout(top, 80); setTimeout(top, 300); });
 }
@@ -1123,7 +1129,7 @@ const EFFECTS = { estrelas: 'Estrelas', neve: 'Neve', brilho: 'Brilho', bolhas: 
 const BADGES = {
   pioneiro: ['🚀', 'Pioneiro', 'Uma das 25 primeiras contas deste servidor.'],
   fundador: ['🏰', 'Fundador', 'Criou um grupo.'],
-  veterano: ['🎖️', 'Veterano', 'Está no Discordia há mais de um ano.'],
+  veterano: ['🎖️', 'Veterano', 'Está no Anarchy há mais de um ano.'],
   sociavel: ['🫂', 'Sociável', 'Tem 10 amigos ou mais.'],
   estiloso: ['🎨', 'Estiloso', 'Montou o perfil com foto, banner e bio.']
 };
@@ -1149,7 +1155,7 @@ function profileCardOf(u, g) {
     <div class="pf-top">${av(id, 80, true, '', u)}${badges ? `<div class="pf-badges">${badges}</div>` : ''}</div>
     <h3>${esc(u.displayName)}${u.bot ? '<span class="bot-tag">BOT</span>' : ''}</h3><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}</div>
     ${u.customStatus ? `<div class="pf-status">${esc(u.customStatus)}</div>` : ''}
-    <div class="bio">${u.bio ? md(u.bio) : '<span class="muted">Sem bio.</span>'}${u.createdAt ? `<div class="muted small" style="margin-top:8px">No Discordia desde ${new Date(u.createdAt).toLocaleDateString('pt-BR')}</div>` : ''}</div>
+    <div class="bio">${u.bio ? md(u.bio) : '<span class="muted">Sem bio.</span>'}${u.createdAt ? `<div class="muted small" style="margin-top:8px">No Anarchy desde ${new Date(u.createdAt).toLocaleDateString('pt-BR')}</div>` : ''}</div>
     ${g && g.members.includes(id) ? `<div class="pf-roles"><div class="pf-h">${roles.length ? 'Cargos' : 'Sem cargos'}${g.ownerId === id ? ' · 👑 dono' : ''}</div>${roles.map(r => `<span class="role-chip"><i style="background:${esc(r.color || 'var(--muted)')}"></i>${esc(r.name)}</span>`).join('')}</div>` : ''}
     </div></div>`;
 }
@@ -1340,7 +1346,7 @@ function joinModal() {
 }
 function inviteModal(g) {
   const can = S.friends.friends.filter(id => !g.members.includes(id));
-  modal(`<div class="modal-h"><h2>Convidar para ${esc(g.name)}</h2><p>Mande o código para quem tem conta no Discordia, ou adicione seus amigos direto.</p></div>
+  modal(`<div class="modal-h"><h2>Convidar para ${esc(g.name)}</h2><p>Mande o código para quem tem conta no Anarchy, ou adicione seus amigos direto.</p></div>
     <div class="modal-b">
       <div class="field">Código de convite<div class="code-box"><code>${esc(g.invite)}</code><button class="btn primary sm" id="iCopy">Copiar</button></div></div>
       ${can.length ? `<div class="field">Seus amigos<div class="pick-list">${can.map(id => `<label class="pick">${av(id, 32)}<span>${esc(nameOf(id))}</span><input type="checkbox" value="${id}"></label>`).join('')}</div></div>` : '<p class="muted small">Todos os seus amigos já estão neste grupo.</p>'}
@@ -1400,7 +1406,7 @@ function showUpd() {
   const bar = $('#updBar'); const on = !!(UPD.web || UPD.desk) && !UPD.hidden;
   bar.hidden = !on; document.body.classList.toggle('has-upd', on);
   if (!on) return;
-  bar.innerHTML = `<span class="upd-t">${ic('refresh')}${UPD.desk ? `A versão <b>${esc(UPD.desk)}</b> do Discordia está pronta.` : 'Saiu uma versão nova do Discordia.'}</span>
+  bar.innerHTML = `<span class="upd-t">${ic('refresh')}${UPD.desk ? `A versão <b>${esc(UPD.desk)}</b> do Anarchy está pronta.` : 'Saiu uma versão nova do Anarchy.'}</span>
     <button class="upd-go" data-act="updateNow">${UPD.desk ? 'Atualizar e reiniciar' : 'Atualizar agora'}</button>
     <button class="upd-x" id="updX" aria-label="Agora não" data-tip="Agora não">${ic('x')}</button>`;
   $('#updX').onclick = () => { UPD.hidden = true; showUpd(); };
@@ -1610,7 +1616,7 @@ function gsCanais(g, b) {
 
 function gsConvites(g, b) {
   b.innerHTML = `<h2>Convites</h2>
-    <div class="set-card"><h3>Código do grupo</h3><p class="muted small" style="margin:0">Quem tem conta no Discordia entra pela bússola na barra da esquerda.</p>
+    <div class="set-card"><h3>Código do grupo</h3><p class="muted small" style="margin:0">Quem tem conta no Anarchy entra pela bússola na barra da esquerda.</p>
       <div class="code-box gs-code"><code>${esc(g.invite)}</code><button class="btn primary sm" id="ivCopy">Copiar</button>${gCan(g, 'manageServer') ? '<button class="btn sm ghost" id="ivNew">Gerar outro</button>' : ''}</div>
       ${gCan(g, 'manageServer') ? '<p class="muted small" style="margin:0">Gerar outro desativa o código antigo na hora.</p>' : ''}</div>
     <div class="set-card"><h3>Adicionar amigos direto</h3><p class="muted small" style="margin:0">Seus amigos entram sem precisar do código.</p><div><button class="btn" id="ivFriends">${ic('users')}Escolher amigos</button></div></div>`;
@@ -1832,7 +1838,7 @@ function drawSettings() {
           ${setRow('Detecção de voz automática', 'O microfone só abre quando você fala e fecha no silêncio: chiado, ventilador e barulho de fundo não vão para a call. O app aprende sozinho o ruído do seu microfone.', sw('vAuto', prefs.vadMode !== 'manual'))}
           <div class="field" id="vLvl" ${prefs.vadMode === 'manual' ? '' : 'hidden'}>Sensibilidade manual <span class="hint">· o microfone só abre acima da marca</span><div class="range-row"><input type="range" id="vTh" min="1" max="60" step="1" value="${prefs.vadLevel}"><output id="vThO">${prefs.vadLevel}%</output></div></div>
         </div>
-        <div id="vPtt" ${prefs.ptt ? '' : 'hidden'}>${setRow('Tecla de aperte para falar', 'Clique e aperte a tecla desejada. Funciona com a janela do Discordia em foco.', `<button class="kbd" id="vKey" style="cursor:pointer">${esc(keyName(prefs.pttKey))}</button>`)}</div>
+        <div id="vPtt" ${prefs.ptt ? '' : 'hidden'}>${setRow('Tecla de aperte para falar', 'Clique e aperte a tecla desejada. Funciona com a janela do Anarchy em foco.', `<button class="kbd" id="vKey" style="cursor:pointer">${esc(keyName(prefs.pttKey))}</button>`)}</div>
       </div>
       <div class="set-card"><h3>Processamento de voz</h3>
         ${setRow('Supressão de ruído', 'Corta ventilador, teclado e barulho de fundo. Se sua voz ficar abafada ou cortando, tente desligar.', sw('vNs', prefs.ns))}
@@ -1861,7 +1867,7 @@ function drawSettings() {
       </div>`;
     drawCallLog();
     $('#clogCopy').onclick = async () => { try { await navigator.clipboard.writeText(clogText()); toast('Registro copiado.'); } catch { toast('Não consegui copiar.', true); } };
-    $('#clogSave').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([clogText()], { type: 'text/plain;charset=utf-8' })); a.download = `discordia-registro-call-${new Date().toISOString().slice(0, 10)}.txt`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); };
+    $('#clogSave').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([clogText()], { type: 'text/plain;charset=utf-8' })); a.download = `anarchy-registro-call-${new Date().toISOString().slice(0, 10)}.txt`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); };
     $('#clogClear').onclick = () => { CLOG = []; clogSave(); drawCallLog(); };
     fillDevices();
     const restart = () => { if (V.room) restartMic(); };
@@ -1894,7 +1900,7 @@ function drawSettings() {
       <div class="set-card">
         ${setRow('Sons', 'Toque ao receber mensagens e pedidos.', sw('nS', prefs.sounds))}
         <div class="field">Volume dos sons<div class="range-row"><input type="range" id="nV" min="0" max="100" value="${prefs.volume}"><output id="nVO">${prefs.volume}%</output></div></div>
-        ${setRow('Notificações na área de trabalho', 'Avisa mesmo com o Discordia minimizado.', sw('nD', prefs.desktop))}
+        ${setRow('Notificações na área de trabalho', 'Avisa mesmo com o Anarchy minimizado.', sw('nD', prefs.desktop))}
         ${setRow('Nos grupos, só menções', 'Só notificar quando escreverem @' + esc(S.me.username) + '. Mensagens diretas sempre avisam.', sw('nM', prefs.mentionsOnly))}
       </div>
       <div class="set-card"><p class="muted small" style="margin:0">Com o status <b>Não perturbe</b>, nenhum som de mensagem toca.</p><div><button class="btn sm" id="nT">Tocar som de teste</button></div></div>`;
@@ -1913,9 +1919,9 @@ function drawSettings() {
   }
   else if (setTab === 'app' && !DESK) {
     b.innerHTML = `<h2>Aplicativo</h2>
-      <div class="set-card"><h3>Versão</h3>${setRow('Discordia no navegador', 'Interface ' + esc(UPD.build || '?') + '. Quando o servidor recebe uma versão nova, aparece a barra Atualizar no topo.', '<button class="btn" id="wRl">Recarregar</button>')}</div>
+      <div class="set-card"><h3>Versão</h3>${setRow('Anarchy no navegador', 'Interface ' + esc(UPD.build || '?') + '. Quando o servidor recebe uma versão nova, aparece a barra Atualizar no topo.', '<button class="btn" id="wRl">Recarregar</button>')}</div>
       <div class="set-card"><h3>Idioma</h3>${setRow('Português (Brasil)', 'É o único idioma disponível por enquanto.', '')}</div>
-      <div class="set-card"><h3>App de computador</h3><p class="muted small" style="margin:0">O app para Windows abre sozinho com o PC, fica perto do relógio e se atualiza sozinho. Baixe em github.com/FoxyZINntc/Discordia/releases.</p></div>`;
+      <div class="set-card"><h3>App de computador</h3><p class="muted small" style="margin:0">O app para Windows abre sozinho com o PC, fica perto do relógio e se atualiza sozinho. Baixe em github.com/FoxyZINntc/Anarchy/releases.</p></div>`;
     $('#wRl').onclick = () => location.reload();
   }
   else if (setTab === 'app' && DESK) {
@@ -1927,15 +1933,15 @@ function drawSettings() {
         <div class="set-card"><h3>Servidor</h3>
           ${setRow(host ? 'Este computador é o servidor' : 'Conectado a um servidor', host ? 'As contas e mensagens ficam guardadas neste PC.' : esc(i.server), host ? '<button class="btn primary" id="dPanel">Painel do servidor</button>' : '')}
           ${host && i.tunnel.url ? setRow('Link público', esc(i.tunnel.url), '<button class="btn" id="dCopy">Copiar</button>') : ''}
-          ${i.fixed ? '' : setRow('Trocar de servidor', 'Volta para a tela inicial do Discordia.', '<button class="btn danger" id="dReset">Trocar</button>')}
+          ${i.fixed ? '' : setRow('Trocar de servidor', 'Volta para a tela inicial do Anarchy.', '<button class="btn danger" id="dReset">Trocar</button>')}
         </div>
-        ${DESK.updateCheck ? `<div class="set-card"><h3>Atualizações</h3>${setRow('Discordia ' + esc(i.version), i.update && i.update.ready ? `A versão ${esc(i.update.version)} está pronta para instalar.` : 'O app procura versões novas sozinho a cada 30 minutos.', i.update && i.update.ready ? '<button class="btn primary" id="dUpdGo">Atualizar e reiniciar</button>' : '<button class="btn" id="dUpd">Procurar agora</button>')}<p class="muted small" id="dUpdMsg" style="margin:0"></p></div>` : ''}
+        ${DESK.updateCheck ? `<div class="set-card"><h3>Atualizações</h3>${setRow('Anarchy ' + esc(i.version), i.update && i.update.ready ? `A versão ${esc(i.update.version)} está pronta para instalar.` : 'O app procura versões novas sozinho a cada 30 minutos.', i.update && i.update.ready ? '<button class="btn primary" id="dUpdGo">Atualizar e reiniciar</button>' : '<button class="btn" id="dUpd">Procurar agora</button>')}<p class="muted small" id="dUpdMsg" style="margin:0"></p></div>` : ''}
         <div class="set-card"><h3>Janela</h3>
           ${i.platform !== 'linux' ? setRow('Iniciar com o Windows', 'Abre escondido perto do relógio quando o PC liga.', sw('dAuto', i.settings.autoStart)) : ''}
-          ${setRow('Fechar para a bandeja', 'O X esconde a janela e o Discordia continua recebendo mensagens e chamadas.', sw('dTray', i.settings.minimizeToTray))}
-          ${setRow('Abrir minimizado', 'O Discordia abre direto perto do relógio, sem mostrar a janela.', sw('dMin', i.settings.startMinimized))}
+          ${setRow('Fechar para a bandeja', 'O X esconde a janela e o Anarchy continua recebendo mensagens e chamadas.', sw('dTray', i.settings.minimizeToTray))}
+          ${setRow('Abrir minimizado', 'O Anarchy abre direto perto do relógio, sem mostrar a janela.', sw('dMin', i.settings.startMinimized))}
         </div>
-        <div class="set-card"><p class="muted small" style="margin:0">Discordia ${esc(i.version)} · F11 tela cheia · F5 recarregar</p></div>`;
+        <div class="set-card"><p class="muted small" style="margin:0">Anarchy ${esc(i.version)} · F11 tela cheia · F5 recarregar</p></div>`;
       if ($('#dPanel')) $('#dPanel').onclick = () => DESK.panel();
       if ($('#dCopy')) $('#dCopy').onclick = () => { DESK.copy(i.tunnel.url); toast('Link copiado.'); };
       if ($('#dUpdGo')) $('#dUpdGo').onclick = () => DESK.updateInstall();
@@ -2185,7 +2191,7 @@ function applyMicGate() {
   V.mic && V.mic.getAudioTracks().forEach(t => t.enabled = on);
 }
 async function joinVoice(roomId, opts = {}) {
-  if (!secureOk()) { modal(`<div class="modal-h"><h2>Conexão não segura</h2><p>O navegador só libera microfone e tela em endereços <b>https://</b> ou em <b>localhost</b>. Abra o Discordia pelo link https que aparece na janela do servidor, ou pelo link público.</p></div><div class="modal-f"><button class="btn primary" data-close>Entendi</button></div>`); return false; }
+  if (!secureOk()) { modal(`<div class="modal-h"><h2>Conexão não segura</h2><p>O navegador só libera microfone e tela em endereços <b>https://</b> ou em <b>localhost</b>. Abra o Anarchy pelo link https que aparece na janela do servidor, ou pelo link público.</p></div><div class="modal-f"><button class="btn primary" data-close>Entendi</button></div>`); return false; }
   if (V.room === roomId) { openStage(); return true; }
   if (V.room) leaveVoice('trocou de sala');
   V.jt =Date.now() * 1000 + Math.floor(Math.random() * 1000); // sessão nova desta entrada na call
@@ -2928,7 +2934,7 @@ function gifPicker(anchor) {
     const f = favs();
     const list = tab === 'fav' ? f.gifs : tab === 'rec' ? f.recentGifs : items;
     const grid = $('#gfGrid', p);
-    if (tab === 'trend' && !configured) grid.innerHTML = `<div class="sb-empty"><div style="font-size:34px">🔑</div><p>A busca de GIFs ainda não foi ligada neste servidor.</p><span class="muted small">Quem cuida do servidor precisa colocar a chave do GIPHY (ou do Tenor) nos segredos da função <b>discordia-db</b> no Supabase. Favoritos e recentes continuam funcionando.</span></div>`;
+    if (tab === 'trend' && !configured) grid.innerHTML = `<div class="sb-empty"><div style="font-size:34px">🔑</div><p>A busca de GIFs ainda não foi ligada neste servidor.</p><span class="muted small">Quem cuida do servidor precisa colocar a chave do GIPHY (ou do Tenor) nos segredos da função <b>anarchy-db</b> no Supabase. Favoritos e recentes continuam funcionando.</span></div>`;
     else grid.innerHTML = list.length ? list.map(card).join('') : `<div class="sb-empty"><p>${loading ? 'Carregando...' : tab === 'fav' ? 'Clique na estrela de um GIF para favoritar.' : tab === 'rec' ? 'Os GIFs que você mandar aparecem aqui.' : 'Nada encontrado.'}</p></div>`;
     $('#gfAttr', p).textContent = tab === 'trend' && configured ? (SB.gifProvider === 'tenor' ? 'Via Tenor' : 'Powered by GIPHY') : '';
   };

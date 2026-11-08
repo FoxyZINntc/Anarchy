@@ -1,4 +1,4 @@
-// Discordia — porta de acesso do servidor ao banco.
+// Anarchy — porta de acesso do servidor ao banco.
 // Usa a chave interna do Supabase (que nunca sai daqui) e só aceita pedidos
 // com um token de servidor cujo hash está na tabela servidor_tokens.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -26,7 +26,7 @@ async function gifs(q: string, pos: number, limit: number) {
   }
   if (tenor) {
     const u = new URL("https://tenor.googleapis.com/v2/" + (q ? "search" : "featured"));
-    u.search = new URLSearchParams({ key: tenor, client_key: "discordia", limit: String(limit), media_filter: "gif,tinygif", contentfilter: "medium", locale: "pt_BR", ...(q ? { q } : {}), ...(pos ? { pos: String(pos) } : {}) }).toString();
+    u.search = new URLSearchParams({ key: tenor, client_key: "anarchy", limit: String(limit), media_filter: "gif,tinygif", contentfilter: "medium", locale: "pt_BR", ...(q ? { q } : {}), ...(pos ? { pos: String(pos) } : {}) }).toString();
     const j: any = await (await fetch(u)).json();
     return { configured: true, provider: "tenor", next: +j.next || pos + limit, items: (j.results || []).map((x: any) => ({ id: x.id, title: x.content_description || "", url: x.media_formats?.gif?.url, preview: x.media_formats?.tinygif?.url || x.media_formats?.gif?.url, w: x.media_formats?.gif?.dims?.[0] || 0, h: x.media_formats?.gif?.dims?.[1] || 0 })).filter((x: any) => x.url) };
   }
@@ -59,7 +59,7 @@ const table = (t: unknown) => {
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Use POST." }, 405);
-  if (!(await authorized(req.headers.get("x-discordia-token")))) return json({ error: "Token de servidor inválido." }, 401);
+  if (!(await authorized(req.headers.get("x-anarchy-token") || req.headers.get("x-discordia-token")))) return json({ error: "Token de servidor inválido." }, 401);
   let b: any;
   try { b = await req.json(); } catch { return json({ error: "JSON inválido." }, 400); }
   try {
@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     const msg = (e as Error).message || String(e);
     // fica no registro da função (Supabase > Edge Functions > Logs) para descobrir o motivo de cada erro
-    console.error(`discordia-db ${b && b.op} ${b && (b.table || b.name || "")}: ${msg}`);
+    console.error(`anarchy-db ${b && b.op} ${b && (b.table || b.name || "")}: ${msg}`);
     return json({ error: msg }, 400);
   }
 });

@@ -1,4 +1,4 @@
-// Discordia — servidor de chat, grupos, calls e compartilhamento de tela
+// Anarchy — servidor de chat, grupos, calls e compartilhamento de tela
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -55,7 +55,7 @@ const log = opts.standalone ? console.log : (opts.log || (() => {}));
 loadEnv([BASE, path.join(__dirname, '..'), process.cwd()]);
 cfg.supabaseUrl = opts.supabaseUrl ?? process.env.SUPABASE_URL ?? cfg.supabaseUrl;
 cfg.supabaseKey = opts.supabaseKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? cfg.supabaseKey;
-cfg.supabaseToken = opts.supabaseToken ?? process.env.SUPABASE_DISCORDIA_TOKEN ?? cfg.supabaseToken;
+cfg.supabaseToken = opts.supabaseToken ?? process.env.SUPABASE_ANARCHY_TOKEN ?? process.env.SUPABASE_DISCORDIA_TOKEN ?? cfg.supabaseToken;
 if (process.env.SERVIDOR_24H) cfg.abrirNavegador = false;
 
 /* ---------- TURN: repetidor de áudio/vídeo para calls em redes difíceis (4G, CGNAT) ---------- */
@@ -84,7 +84,7 @@ if (process.env.CF_TURN_KEY_ID) { await refreshCloudflareTurn(); turnTimer = set
 /* ---------- banco de dados (Supabase ou arquivo local) ---------- */
 const store = await createStore({ dataDir: DATA, supabaseUrl: cfg.supabaseUrl, supabaseKey: cfg.supabaseKey, supabaseToken: cfg.supabaseToken, log });
 const db = store.db;
-// TURN pelo Supabase: se o .env deste PC não tem TURN, pede credenciais à função discordia-db (as chaves da
+// TURN pelo Supabase: se o .env deste PC não tem TURN, pede credenciais à função anarchy-db (as chaves da
 // Cloudflare ficam nos segredos do Supabase). Renova a cada 30 min; sem TURN, quem está em 4G/CGNAT não ouve a call.
 async function refreshSupabaseTurn() {
   if (process.env.CF_TURN_KEY_ID || process.env.TURN_URLS || !store.turn) return;
@@ -580,7 +580,7 @@ app.post('/api/upload-audio', auth, (req, res) => {
   if (!type) return res.status(400).json({ erro: 'Formato de áudio não reconhecido. Use MP3, WAV, OGG, WEBM ou M4A.' });
   store.upload(buf, newId() + '.' + AUDIO_EXT[type], type).then(url => res.json({ url })).catch(e => res.status(500).json({ erro: e.message }));
 });
-// GIFs: a chave do GIPHY/Tenor fica no Supabase (função discordia-db); aqui só repassa, com cache e limite
+// GIFs: a chave do GIPHY/Tenor fica no Supabase (função anarchy-db); aqui só repassa, com cache e limite
 const gifCache = new Map(), gifHits = new Map();
 app.get('/api/gifs', auth, async (req, res) => {
   const q = str(req.query.q, 60).trim(), pos = Math.max(0, Math.min(500, parseInt(req.query.pos, 10) || 0));
@@ -1228,7 +1228,7 @@ function certificate() {
   const f = path.join(DATA, 'certificado.json');
   try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch {}
   const selfsigned = require('selfsigned');
-  const pems = selfsigned.generate([{ name: 'commonName', value: 'discordia.local' }], {
+  const pems = selfsigned.generate([{ name: 'commonName', value: 'anarchy.local' }], {
     days: 3650, keySize: 2048, algorithm: 'sha256',
     extensions: [{ name: 'subjectAltName', altNames: [{ type: 2, value: 'localhost' }, ...lanIps().map(ip => ({ type: 7, ip }))] }]
   });
@@ -1241,7 +1241,7 @@ const httpServer = http.createServer(app);
 let httpsServer = null;
 ios.push(makeIo(httpServer));
 httpServer.once('error', e => {
-  if (e.code === 'EADDRINUSE') log('\n  A porta ' + cfg.portaHttp + ' já está em uso. O Discordia já está aberto em outra janela?\n');
+  if (e.code === 'EADDRINUSE') log('\n  A porta ' + cfg.portaHttp + ' já está em uso. O Anarchy já está aberto em outra janela?\n');
   else log(e);
   reject(e);
 });
@@ -1257,7 +1257,7 @@ httpServer.listen(cfg.portaHttp, () => {
   const ips = lanIps();
   log('');
   log('  ================================================');
-  log('   DISCORDIA está no ar!');
+  log('   ANARCHY está no ar!');
   log('  ================================================');
   log('   Neste computador:   http://localhost:' + cfg.portaHttp);
   log('   Banco de dados:     ' + store.label);
@@ -1268,7 +1268,7 @@ httpServer.listen(cfg.portaHttp, () => {
     log('   Para amigos pela internet, veja o SERVIDOR.md');
     log('   (Tailscale Funnel: endereço fixo e grátis).');
   }
-  if (!process.env.SERVIDOR_24H) log('   Deixe esta janela aberta enquanto usar o Discordia.');
+  if (!process.env.SERVIDOR_24H) log('   Deixe esta janela aberta enquanto usar o Anarchy.');
   log('  ================================================');
   log('');
   if (cfg.abrirNavegador) {

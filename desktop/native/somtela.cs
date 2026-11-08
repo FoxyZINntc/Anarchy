@@ -1,5 +1,5 @@
 // somtela.exe: captura o som do Windows para o compartilhamento de tela, do jeito do Discord.
-//   somtela.exe excluir <pid>   -> som de tudo, MENOS o processo <pid> e os filhos dele (o proprio Discordia: sem eco das vozes da call)
+//   somtela.exe excluir <pid>   -> som de tudo, MENOS o processo <pid> e os filhos dele (o proprio Anarchy: sem eco das vozes da call)
 //   somtela.exe janela <hwnd>   -> so o som do programa dono da janela <hwnd> (e dos filhos dele)
 // Usa a "process loopback" do Windows 10 2004+ / Windows 11. Escreve PCM 16 bits, 48 kHz, estereo no stdout.
 // No stderr escreve "ok" quando comecou ou "erro ..." e sai com codigo 1. Para quando o stdin fecha (o app fechou).

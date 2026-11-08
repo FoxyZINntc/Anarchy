@@ -1,4 +1,4 @@
-# Discordia
+# Anarchy
 
 Chat com amigos, grupos com canais de texto e voz, calls, câmera e compartilhamento de tela. Funciona como programa de Windows (sem navegador) e também pelo navegador.
 
@@ -24,18 +24,18 @@ Chat com amigos, grupos com canais de texto e voz, calls, câmera e compartilham
 
 ## Supabase
 
-O servidor fala com o Supabase pela função `supabase/functions/discordia-db`, usando um **token de servidor**. A chave secreta do Supabase nunca sai do Supabase.
+O servidor fala com o Supabase pela função `supabase/functions/anarchy-db`, usando um **token de servidor**. A chave secreta do Supabase nunca sai do Supabase.
 
-1. Rode `supabase/schema.sql` no SQL Editor e publique a função `discordia-db` (sem verificação de JWT). Já está feito no projeto `discordia`.
+1. Rode `supabase/schema.sql` no SQL Editor e publique a função `anarchy-db` (sem verificação de JWT). Já está feito no projeto do Supabase (id `npyvvnqvtpenucqoovza`).
 2. Gere um token, guarde o hash dele em `servidor_tokens` (veja o fim do `schema.sql`).
-3. Configure `SUPABASE_URL` e `SUPABASE_DISCORDIA_TOKEN` no `.env`, ou no app em `desktop/servidor-padrao.json` (fora do git).
+3. Configure `SUPABASE_URL` e `SUPABASE_ANARCHY_TOKEN` no `.env` (o nome antigo `SUPABASE_DISCORDIA_TOKEN` também funciona), ou no app em `desktop/servidor-padrao.json` (fora do git).
 
 Também funciona com a chave service_role direto (`SUPABASE_SERVICE_ROLE_KEY`). Nenhum token ou chave vai para o GitHub.
 As tabelas têm RLS ligado e sem políticas, então a chave pública (anon) não lê nada.
 
 ## Servidor 24/7
 
-Para deixar o Discordia ligado o tempo todo num servidor de casa (Windows Server), com endereço fixo e app sem tela de IP, siga o [SERVIDOR.md](SERVIDOR.md).
+Para deixar o Anarchy ligado o tempo todo num servidor de casa (Windows Server), com endereço fixo e app sem tela de IP, siga o [SERVIDOR.md](SERVIDOR.md).
 
 ## Rodar
 

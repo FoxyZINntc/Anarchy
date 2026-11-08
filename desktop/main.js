@@ -1,11 +1,14 @@
-// Discordia — aplicativo de computador
+// Anarchy — aplicativo de computador
 const { app, BrowserWindow, Tray, Menu, ipcMain, session, desktopCapturer, shell, nativeImage, net, clipboard, Notification, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const { spawn } = require('child_process');
 
+// o app se chamava "Discordia": continua usando a mesma pasta de dados (login, configurações, preferências)
+const OLD_DATA = path.join(app.getPath('appData'), 'Discordia');
 if (process.env.NEXO_USERDATA) app.setPath('userData', process.env.NEXO_USERDATA);
+else if (fs.existsSync(OLD_DATA)) app.setPath('userData', OLD_DATA);
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
 /* ---------- configuração ---------- */
@@ -24,14 +27,17 @@ const originOf = u => { try { return new URL(u).origin; } catch { return ''; } }
 const hostOf = u => { try { return new URL(u).host; } catch { return ''; } };
 // app "cliente": o endereço do servidor oficial vem embutido (desktop/servidor.json) e nunca é perguntado.
 // "updates" é o repositório do GitHub onde saem as versões novas do app.
-let FIXED = '', UPD_REPO = '';
+let FIXED = '', UPD_REPO = '', UPD_OLD = '';
 try {
   const sj = JSON.parse(fs.readFileSync(path.join(__dirname, 'servidor.json'), 'utf8'));
   FIXED = originOf(String(sj.url || '').trim());
   if (/^[\w.-]+\/[\w.-]+$/.test(String(sj.updates || ''))) UPD_REPO = sj.updates;
+  if (/^[\w.-]+\/[\w.-]+$/.test(String(sj.updatesOld || ''))) UPD_OLD = sj.updatesOld;
 } catch {}
+const UPD_REPOS = [UPD_REPO, UPD_OLD].filter(Boolean);
 // só para testes: aponta o app para outro servidor (ex.: um servidor local) sem mexer no servidor.json
-if (process.env.DISCORDIA_SERVIDOR_TESTE) FIXED = originOf(process.env.DISCORDIA_SERVIDOR_TESTE.trim());
+const TESTE = process.env.ANARCHY_SERVIDOR_TESTE || process.env.DISCORDIA_SERVIDOR_TESTE;
+if (TESTE) FIXED = originOf(TESTE.trim());
 if (FIXED) { cfg.mode = 'client'; cfg.server = FIXED; }
 
 // um servidor em http:// na rede local precisa ser tratado como seguro para liberar microfone e tela
@@ -57,7 +63,7 @@ async function startHost() {
       return server;
     } catch (e) { lastErr = e; if (e.code !== 'EADDRINUSE') break; }
   }
-  throw new Error(lastErr && lastErr.code === 'EADDRINUSE' ? 'As portas do Discordia já estão ocupadas. Feche o Discordia.exe antigo, se estiver aberto, e tente de novo.' : (lastErr ? lastErr.message : 'Erro ao iniciar o servidor.'));
+  throw new Error(lastErr && lastErr.code === 'EADDRINUSE' ? 'As portas do Anarchy já estão ocupadas. Feche o Anarchy.exe antigo, se estiver aberto, e tente de novo.' : (lastErr ? lastErr.message : 'Erro ao iniciar o servidor.'));
 }
 async function stopHost() { stopTunnel(); if (server) { await server.stop(); server = null; } }
 
@@ -70,7 +76,7 @@ const cfPath = () => path.join(app.getPath('userData'), CF_NAME);
 function download(url, dest, hops = 0) {
   return new Promise((resolve, reject) => {
     if (hops > 6) return reject(new Error('Redirecionamentos demais.'));
-    https.get(url, { headers: { 'User-Agent': 'Discordia' } }, res => {
+    https.get(url, { headers: { 'User-Agent': 'Anarchy' } }, res => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) { res.resume(); return resolve(download(new URL(res.headers.location, url).toString(), dest, hops + 1)); }
       if (res.statusCode !== 200) { res.resume(); return reject(new Error('Download falhou (' + res.statusCode + ').')); }
       const tmp = dest + '.part'; const f = fs.createWriteStream(tmp);
@@ -120,7 +126,7 @@ async function announceUpdate() {
   if (!win || win.isDestroyed() || !win.isVisible()) {
     // janela escondida perto do relógio: avisa por notificação; clicar abre a pergunta
     try {
-      const n = new Notification({ title: 'Atualização do Discordia pronta', body: `A versão ${upd.version} já foi baixada. Clique para atualizar.`, icon: asset('icon.png') });
+      const n = new Notification({ title: 'Atualização do Anarchy pronta', body: `A versão ${upd.version} já foi baixada. Clique para atualizar.`, icon: asset('icon.png') });
       n.on('click', () => { showMain(); updAsked = null; announceUpdate(); });
       n.show();
     } catch {}
@@ -128,8 +134,8 @@ async function announceUpdate() {
   }
   updAsked = upd.version;
   const r = await dialog.showMessageBox(win, {
-    type: 'info', title: 'Atualização do Discordia', message: `A versão ${upd.version} do Discordia está pronta.`,
-    detail: 'O Discordia fecha, atualiza e abre de novo sozinho. Leva poucos segundos.',
+    type: 'info', title: 'Atualização do Anarchy', message: `A versão ${upd.version} do Anarchy está pronta.`,
+    detail: 'O Anarchy fecha, atualiza e abre de novo sozinho. Leva poucos segundos.',
     buttons: ['Reiniciar agora', 'Depois'], defaultId: 0, cancelId: 1, noLink: true
   });
   if (r.response === 0) installUpdate();
@@ -144,18 +150,29 @@ async function checkUpdate() {
     upd.state = 'procurando';
     // "github.com/<repo>/releases/latest" redireciona para a página da versão mais nova (ex.: .../tag/v1.1.4).
     // Diferente da API, esse endereço não tem limite de 60 consultas por hora, então dá para olhar a cada minuto.
-    const loc = await new Promise((resolve, reject) => {
-      const q = https.request(`https://github.com/${UPD_REPO}/releases/latest`, { method: 'HEAD', headers: { 'User-Agent': 'Discordia' }, timeout: 15000 }, res => { res.resume(); resolve({ status: res.statusCode, location: res.headers.location || '' }); });
+    const head = url => new Promise((resolve, reject) => {
+      const q = https.request(url, { method: 'HEAD', headers: { 'User-Agent': 'Anarchy' }, timeout: 15000 }, res => { res.resume(); resolve({ status: res.statusCode, location: res.headers.location || '' }); });
       q.on('timeout', () => q.destroy(new Error('tempo esgotado'))); q.on('error', reject); q.end();
     });
-    const m = /\/releases\/tag\/v?([\d.]+)\s*$/.exec(loc.location);
-    if (!m) throw new Error('não achei a versão mais nova (GitHub respondeu ' + loc.status + ')');
-    const ver = m[1];
+    // o repositório pode ter mudado de nome (Discordia -> Anarchy): tenta os dois e segue o redirecionamento do GitHub
+    let m = null, loc = null, repo = UPD_REPO;
+    for (const r of UPD_REPOS) {
+      let url = `https://github.com/${r}/releases/latest`;
+      for (let hop = 0; hop < 4 && url; hop++) {
+        loc = await head(url);
+        m = /github\.com\/([\w.-]+\/[\w.-]+)\/releases\/tag\/v?([\d.]+)\s*$/.exec(loc.location) || (/^\/([\w.-]+\/[\w.-]+)\/releases\/tag\/v?([\d.]+)\s*$/.exec(loc.location));
+        if (m) break;
+        url = loc.status >= 300 && loc.status < 400 && loc.location ? new URL(loc.location, url).href : null;
+      }
+      if (m) { repo = m[1]; break; }
+    }
+    if (!m) throw new Error('não achei a versão mais nova (GitHub respondeu ' + (loc && loc.status) + ')');
+    const ver = m[2];
     if (!newer(ver, app.getVersion())) { upd.state = 'em-dia'; return upd; }
-    const file = path.join(app.getPath('temp'), `Discordia-Setup-${ver}.exe`);
+    const file = path.join(app.getPath('temp'), `Anarchy-Setup-${ver}.exe`);
     upd.state = 'baixando';
     // baixa para um arquivo temporário e só troca no fim: um download pela metade nunca é usado
-    if (!fs.existsSync(file) || fs.statSync(file).size < 5 * 1024 * 1024) await download(`https://github.com/${UPD_REPO}/releases/download/v${ver}/Discordia-Setup.exe`, file);
+    if (!fs.existsSync(file) || fs.statSync(file).size < 5 * 1024 * 1024) await download(`https://github.com/${repo}/releases/download/v${ver}/Anarchy-Setup.exe`, file);
     upd = { state: 'pronto', version: ver, file, ready: true, error: '' };
     announceUpdate();
   } catch (e) { upd.state = 'erro'; upd.error = e.message; }
@@ -164,7 +181,7 @@ async function checkUpdate() {
 function installUpdate() {
   if (!upd.ready || !fs.existsSync(upd.file)) return false;
   quitting = true;
-  // instalador do electron-builder: /S = sem perguntas, --force-run = abre o Discordia quando terminar
+  // instalador do electron-builder: /S = sem perguntas, --force-run = abre o Anarchy quando terminar
   spawn(upd.file, ['--updated', '/S', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
   setTimeout(() => app.exit(0), 400);
   return true;
@@ -175,7 +192,7 @@ function showLocal(w, page, msg = '') { return w.loadFile(path.join(__dirname, '
 function createWindow() {
   const b = cfg.bounds || { width: 1280, height: 800 };
   win = new BrowserWindow({
-    ...b, minWidth: 940, minHeight: 560, title: 'Discordia', icon: asset('icon.png'), backgroundColor: '#14171c', autoHideMenuBar: true, show: false,
+    ...b, minWidth: 940, minHeight: 560, title: 'Anarchy', icon: asset('icon.png'), backgroundColor: '#14171c', autoHideMenuBar: true, show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false, backgroundThrottling: false, spellcheck: true }
   });
   win.setMenu(null);
@@ -187,7 +204,7 @@ function createWindow() {
   win.on('close', e => {
     if (quitting || !cfg.minimizeToTray) return;
     e.preventDefault(); win.hide();
-    if (!cfg.trayTipShown) { cfg.trayTipShown = true; saveCfg(); notify('O Discordia continua aberto', 'Ele fica perto do relógio para você receber mensagens e chamadas. Para fechar de vez, use "Sair" no ícone.'); }
+    if (!cfg.trayTipShown) { cfg.trayTipShown = true; saveCfg(); notify('O Anarchy continua aberto', 'Ele fica perto do relógio para você receber mensagens e chamadas. Para fechar de vez, use "Sair" no ícone.'); }
   });
   win.on('focus', () => { win.flashFrame(false); });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
@@ -204,7 +221,7 @@ function createWindow() {
   });
   win.webContents.on('did-fail-load', (e, code, desc, url, isMain) => {
     if (!isMain || code === -3 || url.startsWith('file:')) return;
-    showLocal(win, 'offline', cfg.mode === 'host' ? 'O servidor deste computador não respondeu.' : FIXED ? 'O servidor do Discordia está fora do ar ou sua internet caiu. Assim que ele voltar, eu conecto sozinho.' : 'Não consegui falar com ' + hostOf(cfg.server) + '. O servidor do seu amigo pode estar desligado, ou o link mudou.');
+    showLocal(win, 'offline', cfg.mode === 'host' ? 'O servidor deste computador não respondeu.' : FIXED ? 'O servidor do Anarchy está fora do ar ou sua internet caiu. Assim que ele voltar, eu conecto sozinho.' : 'Não consegui falar com ' + hostOf(cfg.server) + '. O servidor do seu amigo pode estar desligado, ou o link mudou.');
   });
   win.on('page-title-updated', (e, title) => {
     const m = /^\((\d+)\)/.exec(title); const n = m ? +m[1] : 0;
@@ -212,7 +229,7 @@ function createWindow() {
     unread = n;
     if (process.platform === 'win32') win.setOverlayIcon(n ? nativeImage.createFromPath(asset('badge.png')) : null, n ? n + ' mensagens novas' : '');
     if (process.platform !== 'win32') app.setBadgeCount(n);
-    if (tray) tray.setToolTip(n ? `Discordia (${n} novas)` : 'Discordia');
+    if (tray) tray.setToolTip(n ? `Anarchy (${n} novas)` : 'Anarchy');
   });
   route();
 }
@@ -227,7 +244,7 @@ async function route() {
 }
 function openPanel() {
   if (panel && !panel.isDestroyed()) { panel.show(); panel.focus(); return; }
-  panel = new BrowserWindow({ width: 520, height: 720, minWidth: 420, minHeight: 500, title: 'Discordia — Servidor', icon: asset('icon.png'), backgroundColor: '#14171c', autoHideMenuBar: true, parent: undefined, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false } });
+  panel = new BrowserWindow({ width: 520, height: 720, minWidth: 420, minHeight: 500, title: 'Anarchy — Servidor', icon: asset('icon.png'), backgroundColor: '#14171c', autoHideMenuBar: true, parent: undefined, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false } });
   panel.setMenu(null);
   showLocal(panel, 'painel');
 }
@@ -238,12 +255,12 @@ function notify(title, body) { try { if (Notification.isSupported()) new Notific
 function buildTray() {
   if (!tray) {
     tray = new Tray(nativeImage.createFromPath(asset(process.platform === 'win32' ? 'tray.png' : 'tray@2x.png')).resize({ width: 16, height: 16 }));
-    tray.setToolTip('Discordia');
+    tray.setToolTip('Anarchy');
     tray.on('click', showMain); tray.on('double-click', showMain);
   }
   const host = cfg.mode === 'host';
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Abrir o Discordia', click: showMain },
+    { label: 'Abrir o Anarchy', click: showMain },
     ...(upd.ready ? [{ label: `Atualizar e reiniciar (versão ${upd.version})`, click: installUpdate }] : []),
     { type: 'separator' },
     ...(host ? [
@@ -254,7 +271,7 @@ function buildTray() {
     { label: 'Iniciar com o Windows', type: 'checkbox', checked: cfg.autoStart, visible: process.platform !== 'linux', click: m => setSettings({ autoStart: m.checked }) },
     { label: 'Trocar de servidor...', click: resetMode, visible: !FIXED },
     { type: 'separator' },
-    { label: 'Sair do Discordia', click: () => { quitting = true; app.quit(); } }
+    { label: 'Sair do Anarchy', click: () => { quitting = true; app.quit(); } }
   ]));
 }
 function setSettings(s) {
@@ -313,8 +330,8 @@ ipcMain.handle('test', async (e, url) => {
   try {
     const u = new URL(/^https?:\/\//i.test(url) ? url : 'http://' + url);
     const r = await Promise.race([net.fetch(u.origin + '/api/config', { bypassCustomProtocolHandlers: true }), new Promise((_, rej) => setTimeout(() => rej(new Error('tempo esgotado')), 8000))]);
-    if (!r.ok) return { ok: false, erro: 'Esse endereço respondeu, mas não parece ser um servidor Discordia.' };
-    const j = await r.json(); if (!j.iceServers) return { ok: false, erro: 'Esse endereço não é um servidor Discordia.' };
+    if (!r.ok) return { ok: false, erro: 'Esse endereço respondeu, mas não parece ser um servidor Anarchy.' };
+    const j = await r.json(); if (!j.iceServers) return { ok: false, erro: 'Esse endereço não é um servidor Anarchy.' };
     return { ok: true, url: u.origin };
   } catch (err) { return { ok: false, erro: 'Não consegui conectar (' + err.message + '). Confira o endereço e se o servidor está ligado.' }; }
 });
@@ -353,7 +370,7 @@ function askSource() {
 
 /* ---------- som do compartilhamento de tela, sem o eco da call ----------
    Igual ao Discord: o somtela.exe usa a "process loopback" do Windows 10 2004+ / 11.
-   Tela inteira: som de tudo MENOS o Discordia (as vozes da call não voltam para quem falou).
+   Tela inteira: som de tudo MENOS o Anarchy (as vozes da call não voltam para quem falou).
    Janela: só o som do programa daquela janela. */
 const SOMTELA = app.isPackaged ? path.join(process.resourcesPath, 'somtela.exe') : path.join(__dirname, 'native', 'somtela.exe');
 const somtelaOk = process.platform === 'win32' && +(require('os').release().split('.')[2] || 0) >= 19041 && fs.existsSync(SOMTELA);
@@ -362,7 +379,7 @@ function somStop() { const p = somProc; somProc = null; if (p) { try { p.stdin.e
 ipcMain.handle('somtela:start', e => new Promise(resolve => {
   somStop();
   if (!somtelaOk || !lastShare || Date.now() - lastShare.at > 60000) return resolve(false);
-  // janela do próprio Discordia: o som dela são as vozes da call, então vai sem som
+  // janela do próprio Anarchy: o som dela são as vozes da call, então vai sem som
   if (BrowserWindow.getAllWindows().some(w => { try { return w.getMediaSourceId() === lastShare.id; } catch { return false; } })) return resolve(false);
   const m = /^window:(\d+):/.exec(lastShare.id);
   const args = m ? ['janela', m[1]] : ['excluir', String(process.pid)];
@@ -393,6 +410,8 @@ app.on('certificate-error', (e, wc, url, err, cert, cb) => {
   if (ok) { e.preventDefault(); cb(true); } else cb(false);
 });
 app.whenReady().then(() => {
+  // "abrir com o Windows": o programa passou de Discordia.exe para Anarchy.exe; regrava o atalho de início com o caminho novo
+  if (cfg.autoStart && process.platform === 'win32' && app.isPackaged) app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] });
   const ses = session.defaultSession;
   const allowed = ['media', 'notifications', 'clipboard-sanitized-write', 'clipboard-read', 'fullscreen', 'display-capture', 'speaker-selection'];
   ses.setPermissionRequestHandler((wc, perm, cb) => cb(allowed.includes(perm)));

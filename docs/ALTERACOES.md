@@ -1,4 +1,4 @@
-# Discordia: alterações recentes
+# Anarchy: alterações recentes
 
 ## Avatar (componente único: `av()` em `server/public/app.js`, estilos em `v2.css`)
 
@@ -49,7 +49,7 @@ Camadas dentro do próprio avatar, com `isolation: isolate`, para que nada vaze 
 ## TURN (calls entre redes diferentes)
 
 - Sem TURN, quem está em 4G, CGNAT ou atrás de alguns roteadores entra na call mas não ouve nem é ouvido.
-- O servidor pede credenciais TURN da Cloudflare à função discordia-db (op `turn`), que usa os segredos `CF_TURN_KEY_ID` e `CF_TURN_API_TOKEN` do Supabase. Renova a cada 30 minutos. Se o .env do servidor tiver TURN próprio, ele tem prioridade.
+- O servidor pede credenciais TURN da Cloudflare à função anarchy-db (op `turn`), que usa os segredos `CF_TURN_KEY_ID` e `CF_TURN_API_TOKEN` do Supabase. Renova a cada 30 minutos. Se o .env do servidor tiver TURN próprio, ele tem prioridade.
 - O app avisa quando o áudio com alguém não conecta em 15 segundos, e o mixer mostra conectando / sem conexão.
 
 
@@ -71,8 +71,8 @@ Camadas dentro do próprio avatar, com `isolation: isolate`, para que nada vaze 
 ## Som do compartilhamento de tela sem eco (app 1.3.0)
 - Antes o app pedia ao Chromium o `loopback`, que captura o som do PC inteiro, vozes da call incluidas: quem falava se ouvia na tela dos outros.
 - Agora o `desktop/native/somtela.exe` (C#, compilado com o csc do .NET Framework que vem no Windows: `npm run nativo`) usa a "process loopback" do Windows 10 2004+ / 11, como o Discord:
-  - tela inteira: som de tudo **menos** o processo do Discordia e os filhos dele;
-  - janela: so o som do programa daquela janela (janela do proprio Discordia vai sem som).
+  - tela inteira: som de tudo **menos** o processo do Anarchy e os filhos dele;
+  - janela: so o som do programa daquela janela (janela do proprio Anarchy vai sem som).
 - `main.js` (`somtela:start/stop`) roda o exe e manda o PCM (16 bits, 48 kHz, estereo) para a janela em pedacos de ~20 ms; o `preload.js` monta a faixa com `MediaStreamTrackGenerator` e coloca no stream da tela. Parar a tela fecha o exe.
 - Windows antigo (antes do 2004): compartilha sem som e mostra o aviso.
 ## DJ: bot de música dos grupos

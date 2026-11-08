@@ -1,4 +1,4 @@
-# Discordia 24/7 no seu servidor de casa (Windows Server)
+# Anarchy 24/7 no seu servidor de casa (Windows Server)
 
 O resultado: o servidor fica ligado o tempo todo, com um **endereço fixo e grátis** (`https://seu-servidor.algo.ts.net`), sem abrir porta no roteador e sem mostrar o IP da sua casa. O app que seus amigos instalam já vem com esse endereço: eles só abrem, falam com o Porteiro e entram, igual ao Discord.
 
@@ -13,7 +13,7 @@ amigo (app)  ──https──▶  Tailscale Funnel  ──túnel──▶  seu 
 3. Baixe o projeto (PowerShell):
    ```powershell
    cd C:\
-   git clone https://github.com/FoxyZINntc/Discordia.git
+   git clone https://github.com/FoxyZINntc/Anarchy.git
    cd C:\Discordia
    ```
 4. Instale o **Tailscale**: https://tailscale.com/download/windows e entre com sua conta (pode ser a do Google ou do GitHub).
@@ -50,7 +50,7 @@ No seu PC (não precisa ser no servidor):
    ```bash
    npm run dist:cliente
    ```
-3. Mande o `dist-cliente/Discordia Setup.exe` para os amigos.
+3. Mande o `dist-cliente/Anarchy Setup.exe` para os amigos.
 
 Com o endereço embutido, o app abre direto no seu servidor. Não existe mais tela de "digitar IP" nem "hospedar". Se o servidor cair, o app mostra "fora do ar" e reconecta sozinho quando ele voltar.
 

@@ -1,8 +1,8 @@
 {
-  "name": "discordia",
-  "productName": "Discordia",
-  "version": "1.3.0",
-  "description": "Discordia: chat, grupos, amigos, calls e compartilhamento de tela",
+  "name": "anarchy",
+  "productName": "Anarchy",
+  "version": "1.4.0",
+  "description": "Anarchy: chat, grupos, amigos, calls e compartilhamento de tela",
   "author": "Lucas",
   "license": "UNLICENSED",
   "private": true,
@@ -23,7 +23,7 @@
   },
   "build": {
     "appId": "com.discordia.app",
-    "productName": "Discordia",
+    "productName": "Anarchy",
     "asar": false,
     "files": [
       "desktop/**/*",
@@ -55,8 +55,8 @@
       "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Discordia",
-      "artifactName": "Discordia Setup.${ext}",
+      "shortcutName": "Anarchy",
+      "artifactName": "Anarchy Setup.${ext}",
       "deleteAppDataOnUninstall": false
     },
     "extraResources": [

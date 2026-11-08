@@ -1,5 +1,5 @@
-// Discordia — onde os dados ficam guardados.
-// Com SUPABASE_URL e SUPABASE_DISCORDIA_TOKEN (ou SUPABASE_SERVICE_ROLE_KEY), tudo vai para o Supabase.
+// Anarchy — onde os dados ficam guardados.
+// Com SUPABASE_URL e SUPABASE_ANARCHY_TOKEN (ou o nome antigo SUPABASE_DISCORDIA_TOKEN) (ou SUPABASE_SERVICE_ROLE_KEY), tudo vai para o Supabase.
 // Sem eles, usa um arquivo JSON local (bom para testar).
 const fs = require('fs');
 const path = require('path');
@@ -58,7 +58,7 @@ function build(data) {
 const num = v => (v === null || v === undefined ? null : Number(v));
 
 /* ---------- GIFs (GIPHY ou Tenor) ----------
-   Com o Supabase por token, a busca passa pela função discordia-db (a chave fica nos segredos do Supabase).
+   Com o Supabase por token, a busca passa pela função anarchy-db (a chave fica nos segredos do Supabase).
    Nos outros modos (teste local), usa GIPHY_API_KEY ou TENOR_API_KEY do .env do servidor. */
 async function directGifs({ q, pos, limit }) {
   const giphy = process.env.GIPHY_API_KEY, tenor = process.env.TENOR_API_KEY;
@@ -70,7 +70,7 @@ async function directGifs({ q, pos, limit }) {
   }
   if (tenor) {
     const u = new URL('https://tenor.googleapis.com/v2/' + (q ? 'search' : 'featured'));
-    u.search = new URLSearchParams({ key: tenor, client_key: 'discordia', limit: String(limit), media_filter: 'gif,tinygif', contentfilter: 'medium', locale: 'pt_BR', ...(q ? { q } : {}), ...(pos ? { pos: String(pos) } : {}) });
+    u.search = new URLSearchParams({ key: tenor, client_key: 'anarchy', limit: String(limit), media_filter: 'gif,tinygif', contentfilter: 'medium', locale: 'pt_BR', ...(q ? { q } : {}), ...(pos ? { pos: String(pos) } : {}) });
     const j = await (await fetch(u)).json();
     return { configured: true, provider: 'tenor', next: +j.next || pos + limit, items: (j.results || []).map(x => ({ id: x.id, title: x.content_description || '', url: x.media_formats?.gif?.url, preview: x.media_formats?.tinygif?.url || x.media_formats?.gif?.url, w: x.media_formats?.gif?.dims?.[0] || 0, h: x.media_formats?.gif?.dims?.[1] || 0 })).filter(x => x.url) };
   }
@@ -97,7 +97,7 @@ function jsonStore(dataDir, log) {
 
 /* ---------- Supabase ---------- */
 // Dois jeitos de falar com o Supabase, com as mesmas operações:
-//  - token de servidor: passa pela função "discordia-db" (a chave secreta fica dentro do Supabase)
+//  - token de servidor: passa pela função "anarchy-db" (a chave secreta fica dentro do Supabase)
 //  - chave service_role: fala direto com o banco
 function sdkClient(url, key) {
   const { createClient } = require('@supabase/supabase-js');
@@ -117,12 +117,15 @@ function sdkClient(url, key) {
   };
 }
 function edgeClient(url, token) {
-  const endpoint = url.replace(/\/$/, '') + '/functions/v1/discordia-db';
+  // função "anarchy-db"; enquanto ela não existir no Supabase, usa a antiga "discordia-db" (mesmo código)
+  const base = url.replace(/\/$/, '') + '/functions/v1/';
+  let fn = 'anarchy-db';
   async function call(body) {
     let res;
     for (let i = 0; i < 3; i++) {
       try {
-        res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-discordia-token': token }, body: JSON.stringify(body) });
+        res = await fetch(base + fn, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-anarchy-token': token, 'x-discordia-token': token }, body: JSON.stringify(body) });
+        if (res.status === 404 && fn === 'anarchy-db') { fn = 'discordia-db'; i--; continue; }
         if (res.status < 500) break;
       } catch (e) { if (i === 2) throw new Error('sem conexão com o Supabase (' + e.message + ')'); }
       await new Promise(r => setTimeout(r, 600 * (i + 1)));

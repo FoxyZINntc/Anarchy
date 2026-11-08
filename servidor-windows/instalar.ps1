@@ -1,4 +1,4 @@
-# Instala o servidor do Discordia no Windows Server para rodar 24/7.
+# Instala o servidor do Anarchy no Windows Server para rodar 24/7.
 # Rode no PowerShell COMO ADMINISTRADOR, dentro da pasta do projeto:
 #   powershell -ExecutionPolicy Bypass -File .\servidor-windows\instalar.ps1
 #   Para trocar o token salvo: ... instalar.ps1 -TrocarToken
@@ -39,11 +39,11 @@ $envFile = Join-Path $Raiz '.env'
 if (-not (Test-Path $envFile)) { Copy-Item (Join-Path $Raiz '.env.example') $envFile; Aviso ".env criado a partir do .env.example" }
 $envTxt = Get-Content $envFile -Raw
 if ($TrocarToken) { $envTxt = [regex]::Replace($envTxt, '(?m)^SUPABASE_SERVICE_ROLE_KEY=.*\r?\n?', '') }
-if ($TrocarToken -or $envTxt -match 'SUPABASE_DISCORDIA_TOKEN=cole-aqui' -or $envTxt -notmatch 'SUPABASE_DISCORDIA_TOKEN=\S{20,}') {
-  $tok = Read-Host "    Cole o token do servidor (SUPABASE_DISCORDIA_TOKEN) ou aperte Enter para usar banco local"
+if ($TrocarToken -or $envTxt -match 'SUPABASE_(ANARCHY|DISCORDIA)_TOKEN=cole-aqui' -or $envTxt -notmatch 'SUPABASE_(ANARCHY|DISCORDIA)_TOKEN=\S{20,}') {
+  $tok = Read-Host "    Cole o token do servidor (SUPABASE_ANARCHY_TOKEN) ou aperte Enter para usar banco local"
   if ($tok.Trim()) {
-    $envTxt = [regex]::Replace($envTxt, '(?m)^SUPABASE_DISCORDIA_TOKEN=.*$', 'SUPABASE_DISCORDIA_TOKEN=' + $tok.Trim())
-    if ($envTxt -notmatch '(?m)^SUPABASE_DISCORDIA_TOKEN=') { $envTxt += "`r`nSUPABASE_DISCORDIA_TOKEN=$($tok.Trim())" }
+    $envTxt = [regex]::Replace($envTxt, '(?m)^SUPABASE_(ANARCHY|DISCORDIA)_TOKEN=.*$', 'SUPABASE_ANARCHY_TOKEN=' + $tok.Trim())
+    if ($envTxt -notmatch '(?m)^SUPABASE_ANARCHY_TOKEN=') { $envTxt += "`r`nSUPABASE_ANARCHY_TOKEN=$($tok.Trim())" }
     Set-Content $envFile $envTxt -Encoding ascii -NoNewline
     Ok "Token salvo no .env"
   } else { Aviso "Sem token: os dados ficam so em server\dados neste servidor." }
@@ -93,7 +93,7 @@ if (-not $ts) {
     Set-Content $envFile $envTxt -Encoding ascii -NoNewline
     & (Join-Path $PSScriptRoot 'reiniciar.ps1')
     Write-Host ""
-    Write-Host "    ENDERECO DO SEU DISCORDIA:  $url" -ForegroundColor Green
+    Write-Host "    ENDERECO DO SEU ANARCHY:  $url" -ForegroundColor Green
     Write-Host "    Coloque esse endereco em desktop\servidor.json antes de gerar o app (veja o SERVIDOR.md)." -ForegroundColor Green
   }
 }

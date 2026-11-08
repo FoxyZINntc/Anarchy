@@ -1,4 +1,4 @@
-# Atualiza o servidor do Discordia sozinho a partir do GitHub.
+# Atualiza o servidor do Anarchy sozinho a partir do GitHub.
 # A tarefa "Discordia Auto Atualizar" roda este arquivo a cada 1 minuto: se tiver commit novo,
 # baixa (git pull), instala dependencias se mudaram e reinicia o servidor.
 #
