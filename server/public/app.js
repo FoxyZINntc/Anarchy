@@ -88,7 +88,14 @@ const THEMES = {
   sakura: { nome: 'Sakura', dark: 0, rail: '#f3dde4', side: '#f8e8ed', main: '#fff6f8', panel: '#ffffff', elev: '#f6e3e9', hover: '#f1d8e0', line: '#ebcdd7', text: '#3a2530', muted: '#8a6b78', accent: '#e0517f', accentText: '#ffffff', accent2: '#b07cff' },
   floresta: { nome: 'Floresta', dark: 1, rail: '#0d1510', side: '#121d16', main: '#16231b', panel: '#1c2c22', elev: '#213428', hover: '#263c2e', line: '#2c4434', text: '#e6f2e8', muted: '#8aa593', accent: '#7bd88f', accentText: '#0d1510', accent2: '#f5b83d' },
   vinho: { nome: 'Vinho', dark: 1, rail: '#140a0e', side: '#1d1015', main: '#22131a', panel: '#2b1820', elev: '#331d26', hover: '#3a222c', line: '#432833', text: '#f4e6ea', muted: '#a88893', accent: '#ff5c7a', accentText: '#ffffff', accent2: '#f5b83d' },
-  lavanda: { nome: 'Lavanda', dark: 0, rail: '#e6e1f5', side: '#efebfa', main: '#f8f6ff', panel: '#ffffff', elev: '#ebe6f9', hover: '#e2dcf5', line: '#d8d0f0', text: '#2a2340', muted: '#7a7194', accent: '#7c5cff', accentText: '#ffffff', accent2: '#ff6b8b' }
+  lavanda: { nome: 'Lavanda', dark: 0, rail: '#e6e1f5', side: '#efebfa', main: '#f8f6ff', panel: '#ffffff', elev: '#ebe6f9', hover: '#e2dcf5', line: '#d8d0f0', text: '#2a2340', muted: '#7a7194', accent: '#7c5cff', accentText: '#ffffff', accent2: '#ff6b8b' },
+  // temas animados: cores + uma cena animada no fundo (fx.js) + detalhes na interface (classe fx-<cena> no body)
+  'neon-city': { nome: 'Neon City', fx: 'neon', desc: 'Cidade cyberpunk, chuva neon e glitch', prev: 'linear-gradient(180deg,#05030c,#140a2a 60%,#ff2a6d55), #05030c', dark: 1, rail: '#07060d', side: '#0b0a16', main: '#0d0c1b', panel: '#141229', elev: '#1a1735', hover: '#221e44', line: '#2e2950', text: '#e8f6ff', muted: '#8a8fb0', accent: '#fcee0a', accentText: '#0b0a12', accent2: '#00f0ff', head: '"Chakra Petch", sans-serif', radius: 3 },
+  'synthwave': { nome: 'Pôr do sol retrô', fx: 'synth', desc: 'Synthwave: sol listrado e grade andando', prev: 'linear-gradient(180deg,#0c0322,#3b0a5c 50%,#ff3e8a 62%,#1b0433 63%)', dark: 1, rail: '#110523', side: '#170931', main: '#1b0a38', panel: '#240f48', elev: '#2c1356', hover: '#361966', line: '#47227d', text: '#fde9ff', muted: '#b48ccf', accent: '#ff3ea5', accentText: '#ffffff', accent2: '#ffb347', head: '"Space Grotesk", sans-serif' },
+  'terminal': { nome: 'Terminal', fx: 'terminal', desc: 'Chuva de código verde', prev: 'repeating-linear-gradient(90deg,#020604 0 9px,#0b3d1a 9px 10px), #020604', dark: 1, rail: '#000000', side: '#020804', main: '#030a05', panel: '#06120a', elev: '#0a1a0f', hover: '#0e2414', line: '#12331b', text: '#b8ffc8', muted: '#4f8a5e', accent: '#2bff6a', accentText: '#001a08', accent2: '#9dff00', head: '"JetBrains Mono", monospace', radius: 2 },
+  'sakura-vento': { nome: 'Sakura ao vento', fx: 'sakura', desc: 'Pétalas caindo, clima de anime', prev: 'radial-gradient(circle at 30% 40%,#ff9dbd 0 4px,transparent 5px), radial-gradient(circle at 70% 70%,#ffb7cf 0 3px,transparent 4px), linear-gradient(180deg,#ffe9f1,#e8d6ff)', dark: 0, rail: '#f6dfe7', side: '#fbeaf0', main: '#fff5f8', panel: '#ffffff', elev: '#f7e4eb', hover: '#f2d9e2', line: '#ecd0da', text: '#3d2633', muted: '#8d6c7b', accent: '#ff5d8f', accentText: '#ffffff', accent2: '#9b7bff', head: '"Nunito", sans-serif' },
+  'galaxia': { nome: 'Galáxia', fx: 'galaxia', desc: 'Nebulosa e estrelas cadentes', prev: 'radial-gradient(circle at 25% 30%,#5b3cff66,transparent 50%), radial-gradient(circle at 80% 70%,#ff3ea566,transparent 50%), #03030a', dark: 1, rail: '#04040c', side: '#080a18', main: '#0a0c1e', panel: '#10132b', elev: '#151936', hover: '#1b2042', line: '#252a52', text: '#eef0ff', muted: '#8d93c0', accent: '#8f7bff', accentText: '#ffffff', accent2: '#4fd1ff' },
+  'brasas': { nome: 'Brasas', fx: 'brasas', desc: 'Fagulhas subindo da fogueira', prev: 'radial-gradient(ellipse at 50% 110%,#ff6a1a99,transparent 60%), linear-gradient(180deg,#0b0505,#4a1406)', dark: 1, rail: '#0d0605', side: '#150a08', main: '#1a0c09', panel: '#22110d', elev: '#2a1610', hover: '#331b13', line: '#3d2218', text: '#ffeee6', muted: '#b58a7a', accent: '#ff6a1a', accentText: '#1a0700', accent2: '#ffc23d' }
 };
 const FONTS = { inter: ['Inter', '"Inter", system-ui, sans-serif'], sistema: ['Sistema', 'system-ui, "Segoe UI", sans-serif'], nunito: ['Nunito', '"Nunito", system-ui, sans-serif'], grotesk: ['Space Grotesk', '"Space Grotesk", system-ui, sans-serif'], chakra: ['Chakra Petch', '"Chakra Petch", system-ui, sans-serif'], mincho: ['Shippori Mincho', '"Shippori Mincho", Georgia, serif'], mono: ['JetBrains Mono', '"JetBrains Mono", Consolas, monospace'], comic: ['Comic Neue', '"Comic Neue", "Comic Sans MS", cursive'] };
 const BGS = {
@@ -121,11 +128,22 @@ function applyPrefs() {
   set('--shadow', t.dark ? '0 18px 50px -18px rgba(0,0,0,.65)' : '0 18px 50px -20px rgba(40,30,60,.28)');
   document.documentElement.style.colorScheme = t.dark ? 'dark' : 'light';
   const bg = $('#bgLayer');
-  if (prefs.bg === 'none' || (prefs.bg === 'custom' && !prefs.bgImage)) { bg.style.background = ''; set('--glass', '100%'); }
+  // tema animado: a cena aparece atrás dos painéis (que ficam um pouco transparentes)
+  document.body.className = document.body.className.replace(/\bfx-\S+/g, '').trim();
+  if (t.fx && window.AnarchyFx) {
+    document.body.classList.add('fx-on', 'fx-' + t.fx);
+    // painéis mais transparentes para a cena aparecer (a barra "Transparência dos painéis" continua valendo)
+    bg.style.background = t.rail; set('--glass', clamp(prefs.glass - 22, 38, 86) + '%');
+    window.AnarchyFx.start(t.fx, { anim: prefs.anim, lite: prefs.lite });
+  } else if (window.AnarchyFx) window.AnarchyFx.stop();
+  if (t.fx) { /* já cuidou do fundo */ }
+  else if (prefs.bg === 'none' || (prefs.bg === 'custom' && !prefs.bgImage)) { bg.style.background = ''; set('--glass', '100%'); }
   else {
     set('--glass', prefs.glass + '%');
     bg.style.background = prefs.bg === 'custom' ? `center / cover no-repeat url("${prefs.bgImage}")` : BGS[prefs.bg][1]({ ...t, accent });
   }
+  // com fundo (imagem, degradê ou tema animado) o app deixa o fundo aparecer atrás dos painéis
+  document.body.classList.toggle('has-bg', !!t.fx || !(prefs.bg === 'none' || (prefs.bg === 'custom' && !prefs.bgImage)));
   document.body.classList.toggle('no-anim', !prefs.anim);
   document.body.classList.toggle('hide-avatars', !prefs.avatars);
   document.body.classList.toggle('bubbles', prefs.layout === 'bolhas');
@@ -1045,6 +1063,11 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-08-temas', date: '08/11/2026', title: 'Temas animados', emoji: '🌆', items: [
+    'Em <b>Configurações › Aparência › Temas animados</b>: uma cena animada no fundo do app e detalhes no visual.',
+    '<b>Neon City</b> (cyberpunk com chuva neon e glitch), <b>Pôr do sol retrô</b>, <b>Terminal</b>, <b>Sakura ao vento</b>, <b>Galáxia</b> e <b>Brasas</b>.',
+    'PC pesando? Ligue o <b>Modo leve</b>. Com <b>Animações</b> desligado, a cena fica parada.'
+  ] },
   { id: '2026-11-08-anarchy', date: '08/11/2026', title: 'O Discordia agora se chama Anarchy', emoji: '<img src="logo.svg" alt="" class="news-logo">', items: [
     'Novo nome, mesmo app: suas conversas, grupos, amigos e configurações continuam todos aqui.',
     'Logo nova: o <b>A de anarquia</b> vermelho no fundo branco.',
@@ -1790,7 +1813,9 @@ function drawSettings() {
   else if (setTab === 'aparencia') {
     const t = THEMES[prefs.theme];
     b.innerHTML = `<h2>Aparência</h2>
-      <div class="set-card"><h3>Tema</h3><div class="themes" id="thms">${Object.entries(THEMES).map(([k, th]) => `<button class="theme-card ${prefs.theme === k ? 'on' : ''}" data-t="${k}"><div class="theme-prev" style="background:${th.main}"><i style="background:${th.rail}"></i><i style="background:${th.side}"></i><div class="m"><b style="background:${th.accent};width:60%"></b><b style="background:${th.muted};width:85%;opacity:.5"></b><b style="background:${th.muted};width:45%;opacity:.5"></b></div></div><div class="nm">${th.nome}</div></button>`).join('')}</div></div>
+      <div class="set-card"><h3>Temas animados</h3><p class="muted small" style="margin:0">Uma cena animada no fundo do app e detalhes no visual. Se o PC ficar pesado, ligue o <b>Modo leve</b> lá embaixo; com <b>Animações</b> desligado a cena fica parada.</p>
+        <div class="themes fx-themes" id="fxThms">${Object.entries(THEMES).filter(([, th]) => th.fx).map(([k, th]) => `<button class="theme-card fx-card ${prefs.theme === k ? 'on' : ''}" data-t="${k}"><div class="fx-prev fxp-${th.fx}" style="background:${th.prev}"><span class="fx-tag">▶ animado</span></div><div class="nm">${th.nome}<span>${esc(th.desc)}</span></div></button>`).join('')}</div></div>
+      <div class="set-card"><h3>Tema</h3><div class="themes" id="thms">${Object.entries(THEMES).filter(([, th]) => !th.fx).map(([k, th]) => `<button class="theme-card ${prefs.theme === k ? 'on' : ''}" data-t="${k}"><div class="theme-prev" style="background:${th.main}"><i style="background:${th.rail}"></i><i style="background:${th.side}"></i><div class="m"><b style="background:${th.accent};width:60%"></b><b style="background:${th.muted};width:85%;opacity:.5"></b><b style="background:${th.muted};width:45%;opacity:.5"></b></div></div><div class="nm">${th.nome}</div></button>`).join('')}</div></div>
       <div class="set-card"><h3>Cor de destaque</h3><div class="colors" id="accs"><button type="button" data-c="" style="background:${t.accent}" title="Padrão do tema" class="${!prefs.accent ? 'on' : ''}"></button>${COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}" class="${prefs.accent === c ? 'on' : ''}"></button>`).join('')}<input type="color" id="accC" value="${prefs.accent || t.accent}" title="Escolher qualquer cor"></div></div>
       <div class="set-card"><h3>Texto</h3>
         <div class="field">Fonte<div class="seg" id="fnt">${Object.entries(FONTS).map(([k, [n, f]]) => `<button type="button" data-v="${k}" class="${prefs.font === k ? 'on' : ''}" style="font-family:${f.replace(/"/g, "'")}">${n}</button>`).join('')}</div></div>
@@ -1810,7 +1835,7 @@ function drawSettings() {
       </div>
       <div class="set-card"><h3>Movimento e desempenho</h3>${setRow('Animações', 'Transições e efeitos de movimento.', sw('anm', prefs.anim))}${setRow('Efeitos nos perfis', 'Mostrar estrelas, neve e outros efeitos animados nos cartões de perfil.', sw('pfx', prefs.profileFx))}${setRow('Modo leve', 'Tira desfoques e sombras pesadas. Bom para PCs mais fracos.', sw('lite', prefs.lite))}${setRow('Lista de membros', 'Mostrar membros ao lado do chat nos grupos.', sw('mbs', prefs.showMembers))}</div>
       <div style="display:flex;justify-content:flex-end"><button class="btn ghost" id="rstA">Voltar tudo ao padrão</button></div>`;
-    $('#thms').onclick = e => { const x = e.target.closest('[data-t]'); if (!x) return; prefs.radius = null; setPref('theme', x.dataset.t); drawSettings(); };
+    $('#thms').onclick = $('#fxThms').onclick = e => { const x = e.target.closest('[data-t]'); if (!x) return; prefs.radius = null; setPref('theme', x.dataset.t); drawSettings(); };
     $('#accs').onclick = e => { const x = e.target.closest('[data-c]'); if (!x) return; setPref('accent', x.dataset.c || null); drawSettings(); };
     $('#accC').onchange = e => { setPref('accent', e.target.value); drawSettings(); };
     bindSeg('fnt', v => setPref('font', v)); bindSeg('lay', v => setPref('layout', v)); bindSeg('den', v => setPref('density', v));

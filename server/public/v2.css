@@ -546,3 +546,63 @@
 .logo-mark { background: #fff url(logo.svg) center / 100% no-repeat !important; box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 60%, transparent); }
 .logo-mark::after { content: none !important; }
 .news-logo { width: 28px; height: 28px; border-radius: 7px; display: block; }
+
+/* ===== temas animados (fx.js) ===== */
+#fxCanvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; pointer-events: none; }
+#fxCanvas[hidden] { display: none; }
+.fx-on #rail, .fx-on #side, .fx-on #main, .fx-on #members { backdrop-filter: blur(3px); }
+.lite.fx-on #rail, .lite.fx-on #side, .lite.fx-on #main, .lite.fx-on #members { backdrop-filter: none; }
+/* cartões de escolha */
+.fx-themes { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.fx-card .nm { display: grid; gap: 1px; }
+.fx-card .nm span { font-weight: 400; font-size: .82em; color: var(--muted); }
+.fx-prev { height: 84px; position: relative; overflow: hidden; background-size: cover; }
+.fx-tag { position: absolute; left: 6px; bottom: 6px; font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,.55); color: #fff; }
+.fx-prev::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+.fxp-neon::after { background: repeating-linear-gradient(105deg, transparent 0 14px, rgba(127,233,255,.35) 14px 15px); background-size: 60px 60px; animation: fxpRain .6s linear infinite; }
+.fxp-synth::after { background: repeating-linear-gradient(0deg, #ff3ea5 0 1px, transparent 1px 12px) bottom / 100% 37% no-repeat; animation: fxpGrid 1s linear infinite; }
+.fxp-terminal::after { background: repeating-linear-gradient(180deg, transparent 0 6px, rgba(43,255,106,.55) 6px 8px, transparent 8px 22px); background-size: 10px 44px; animation: fxpCode 1.2s linear infinite; }
+.fxp-sakura::after { background: radial-gradient(circle, #ff9dbd 0 3px, transparent 4px) 0 0 / 34px 34px; animation: fxpPetal 3s linear infinite; }
+.fxp-galaxia::after { background: radial-gradient(circle, #fff 0 1px, transparent 1.5px) 0 0 / 23px 19px; animation: fxpTwinkle 2s ease-in-out infinite alternate; }
+.fxp-brasas::after { background: radial-gradient(circle, #ffc23d 0 2px, transparent 3px) 0 0 / 28px 30px; animation: fxpEmber 2.4s linear infinite; }
+@keyframes fxpRain { to { background-position: -16px 60px; } }
+@keyframes fxpGrid { to { background-position: 0 12px; } }
+@keyframes fxpCode { to { background-position: 0 44px; } }
+@keyframes fxpPetal { to { background-position: 34px 68px; } }
+@keyframes fxpTwinkle { from { opacity: .25; } to { opacity: 1; } }
+@keyframes fxpEmber { to { background-position: 6px -60px; } }
+
+/* Neon City: brilho neon, cantos cortados, linhas de TV e glitch nos títulos */
+.fx-neon .btn.primary, .fx-neon .rail-item.active .inner { box-shadow: 0 0 0 1px var(--accent), 0 0 18px -4px var(--accent); }
+.fx-neon .btn { clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px)); }
+.fx-neon .nav-row.active { box-shadow: inset 3px 0 0 var(--accent2); background: color-mix(in srgb, var(--accent2) 12%, transparent); }
+.fx-neon #side, .fx-neon #members { border-right: 1px solid color-mix(in srgb, var(--accent2) 22%, transparent); }
+.fx-neon .main-head { border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); box-shadow: 0 1px 14px -6px var(--accent); }
+.fx-neon .main-head .ttl { text-shadow: 0 0 10px color-mix(in srgb, var(--accent2) 60%, transparent); animation: fxGlitch 7s steps(1) infinite; }
+.fx-neon body::after, body.fx-neon::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9999; background: repeating-linear-gradient(0deg, rgba(0,0,0,.08) 0 1px, transparent 1px 3px); }
+@keyframes fxGlitch { 0%, 94%, 100% { transform: none; text-shadow: 0 0 10px color-mix(in srgb, var(--accent2) 60%, transparent); } 95% { transform: translate(2px, -1px) skewX(-8deg); text-shadow: -2px 0 #ff2a6d, 2px 0 #00f0ff; } 97% { transform: translate(-2px, 1px); text-shadow: 2px 0 #ff2a6d, -2px 0 #00f0ff; } }
+/* Pôr do sol retrô: títulos em degradê com brilho */
+.fx-synth .main-head .ttl, .fx-synth .au-brand, .fx-synth .side-head .title { background: linear-gradient(90deg, #ff3ea5, #ffb347); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.fx-synth .main-head .ttl svg { stroke: #ff3ea5; }
+.fx-synth .btn.primary { background: linear-gradient(90deg, #ff3ea5, #ff8a3d); box-shadow: 0 0 18px -4px #ff3ea5; }
+.fx-synth .main-head { border-bottom: 1px solid #ff3ea555; }
+/* Terminal: tudo em fonte de código, brilho verde e cursor piscando */
+.fx-terminal { --font: "JetBrains Mono", Consolas, monospace; }
+.fx-terminal .msg .body, .fx-terminal .main-head .ttl { text-shadow: 0 0 6px rgba(43,255,106,.35); }
+.fx-terminal #composer { caret-color: var(--accent); }
+.fx-terminal .main-head .ttl::after { content: "_"; margin-left: 2px; animation: fxBlink 1s steps(1) infinite; color: var(--accent); }
+@keyframes fxBlink { 50% { opacity: 0; } }
+/* Sakura: cantos bem redondos e pétala no título */
+.fx-sakura { --radius: 18px; }
+.fx-sakura .main-head .ttl::before { content: "🌸"; margin-right: 6px; display: inline-block; animation: fxSway 4s ease-in-out infinite; }
+@keyframes fxSway { 50% { transform: rotate(14deg) translateY(-1px); } }
+/* Galáxia: brilho suave */
+.fx-galaxia .btn.primary { box-shadow: 0 0 22px -6px var(--accent); }
+.fx-galaxia .main-head .ttl { text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 55%, transparent); }
+/* Brasas: brilho quente */
+.fx-brasas .btn.primary { box-shadow: 0 0 20px -6px var(--accent); }
+.fx-brasas .main-head { box-shadow: 0 1px 18px -10px var(--accent); }
+.no-anim .main-head .ttl, .no-anim .main-head .ttl::before, .no-anim .main-head .ttl::after, .no-anim .fx-prev::after { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .main-head .ttl, .main-head .ttl::before, .main-head .ttl::after, .fx-prev::after { animation: none !important; } }
+/* fundo do app (imagem, degradê ou tema animado) aparece atrás dos painéis */
+.has-bg #app { background: transparent; }
