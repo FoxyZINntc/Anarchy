@@ -110,6 +110,7 @@ const save = store.save, saveNow = store.saveNow;
 
 // "versão" da interface: muda quando app.js, style.css ou index.html mudam. Os apps abertos comparam
 // com a que receberam e mostram o botão "Atualizar".
+const STARTED = Date.now(); // o app compara: se mudou, o servidor reiniciou
 const BUILD = (() => {
   const h = crypto.createHash('sha1');
   // todos os arquivos da interface: mudou qualquer um, os apps abertos mostram "Atualizar"
@@ -462,7 +463,7 @@ function onConnection(socket) {
       me: selfUser(me()), users, friends: friendState(uid),
       groups: Object.fromEntries(groupsOf(uid).map(g => [g.id, g])),
       dms: Object.fromEntries(dmsOf(uid).map(d => [d.id, { ...d, last: (db.messages[d.id] || []).slice(-1)[0]?.ts || d.createdAt }])),
-      voice: rooms, iceServers: cfg.iceServers, socketId: socket.id, build: BUILD
+      voice: rooms, iceServers: cfg.iceServers, socketId: socket.id, build: BUILD, started: STARTED
     });
     // banidos também aparecem com nome na lista de banimentos
     groupsOf(uid).forEach(g => g.bans.forEach(b => { if (db.users[b.uid] && !users[b.uid]) socket.emit('user:update', publicUser(db.users[b.uid])); }));
@@ -962,7 +963,11 @@ function onConnection(socket) {
     toUsers(dm.members, 'call:declined', { dmId: dm.id, by: uid });
   });
 
-  socket.on('disconnect', () => {
+  // o app mede quanto o servidor demora para responder (aparece no registro da call)
+  on('rtt', (_, cb) => ok(cb));
+
+  socket.on('disconnect', reason => {
+    if (socket.data.voice) console.log(`[call] ${me()?.username || uid} saiu da call sem querer: ${reason}`);
     leaveVoice(socket);
     sockets.delete(socket.id);
     const set = online.get(uid); if (set) { set.delete(socket.id); if (!set.size) { online.delete(uid); pushUser(uid); } }
@@ -970,7 +975,8 @@ function onConnection(socket) {
 }
 
 function makeIo(server) {
-  const io = new Server(server, { maxHttpBufferSize: 2e6, serveClient: false });
+  // pingTimeout maior: uma travada de alguns segundos na internet não derruba mais a conexão (e a call)
+  const io = new Server(server, { maxHttpBufferSize: 2e6, serveClient: false, pingInterval: 20000, pingTimeout: 45000 });
   io.use((socket, next) => {
     // login pelo cookie de sessão (HttpOnly) ou pelo token antigo do app; o cookie é SameSite, então outro site não usa
     const token = (socket.handshake.auth && socket.handshake.auth.token) || cookieOf(socket.handshake.headers.cookie, COOKIE);

@@ -139,7 +139,7 @@ const S = {
   groups: {}, dms: {}, voice: {}, view: { kind: 'friends', tab: 'online' }, lastCh: {}, msgs: {}, more: {}, loading: {},
   unread: {}, mentions: {}, typing: {}, drafts: {}, reply: null, editing: null, focusTile: null, mySid: null, connected: false, unhide: {}
 };
-let socket = null;
+let socket = null, srvStarted = null;
 const user = id => S.users[id] || (S.me && S.me.id === id ? S.me : null) || { id, username: '?', displayName: 'Desconhecido', color: '#777', status: 'offline' };
 const nameOf = id => user(id).displayName || user(id).username;
 function emit(ev, data) {
@@ -495,7 +495,7 @@ $('#ptBig').onclick = () => {
 };
 async function logout() {
   try { await api('/api/logout'); } catch {}
-  try { localStorage.removeItem('discordia:token'); } catch {} S.token = null; if (V.room) leaveVoice();
+  try { localStorage.removeItem('discordia:token'); } catch {} S.token = null; if (V.room) leaveVoice('você saiu da conta');
   if (socket) socket.disconnect(); socket = null; closeSettings(); showAuth();
 }
 
@@ -514,9 +514,37 @@ function connect() {
     S.msgs = {}; S.more = {}; mainKey = null; render();
     // servidor reiniciou com uma interface nova? mostra a barra "Atualizar"
     if (r.build) { if (UPD.build && UPD.build !== r.build) { UPD.web = true; showUpd(); } if (!UPD.build) UPD.build = r.build; }
+    if (r.started && srvStarted && r.started !== srvStarted) clog('O servidor reiniciou enquanto você estava desconectado (atualização do servidor ou queda dele).', V.rejoin ? 'aviso' : '');
+    if (r.started) srvStarted = r.started;
+    clog(`Conectado ao servidor (${socket.io.engine?.transport?.name || '?'}).`);
+    // caiu no meio da call: volta sozinho para a mesma sala
+    const rj = V.rejoin; V.rejoin = null;
+    if (rj && !V.room) {
+      const still = S.dms[rj.room] || Object.values(S.groups).some(g => g.channels.some(c => c.id === rj.room && c.type === 'voice'));
+      if (Date.now() - rj.at > 180000) clog('Não voltei para a call: a conexão ficou fora por mais de 3 minutos.', 'aviso');
+      else if (!still) clog('Não voltei para a call: a sala não existe mais ou você perdeu o acesso.', 'aviso');
+      else {
+        clog(`Voltando sozinho para a call (${clogRoom(rj.room)}), ${Math.round((Date.now() - rj.at) / 1000)} s depois da queda.`);
+        const okj = await joinVoice(rj.room, { calling: rj.calling });
+        if (okj) toast('Conexão de volta: você voltou para a call.'); else clog('Não consegui voltar para a call sozinho.', 'erro');
+      }
+    }
   });
-  socket.on('connect_error', e => { if (e.message === 'auth') { socket.disconnect(); S.token = null; showAuth(); } });
-  socket.on('disconnect', () => { S.connected = false; if (V.room) { cleanupVoice(); toast('A conexão caiu. Você saiu da call.', true); } render(); });
+  socket.on('connect_error', e => {
+    if (e.message === 'auth') { clog('O servidor recusou o login (sessão expirou). Entre de novo.', V.rejoin ? 'erro' : ''); V.rejoin = null; socket.disconnect(); S.token = null; showAuth(); return; }
+    if (V.rejoin || V.room) clog(`Tentando reconectar ao servidor: ${e.message || 'sem resposta'}.`, 'aviso');
+  });
+  socket.on('disconnect', reason => {
+    S.connected = false;
+    if (V.room) {
+      const why = DROP_WHY[reason] || reason;
+      clog(`Caiu da call (${clogRoom(V.room)}): ${why}.${navigator.onLine ? '' : ' O Windows também diz que a internet caiu.'}`, 'erro');
+      if (reason !== 'io client disconnect' && reason !== 'io server disconnect') { V.rejoin = { room: V.room, at: Date.now(), calling: V.calling }; }
+      cleanupVoice();
+      toast(V.rejoin ? 'A conexão caiu. Volto para a call assim que reconectar...' : 'A conexão caiu. Você saiu da call.', true, 6000);
+    } else clog(`Desconectado do servidor: ${DROP_WHY[reason] || reason}.`);
+    render();
+  });
   socket.on('me:update', u => { S.me = u; S.users[u.id] = u; render(); });
   socket.on('user:update', u => { S.users[u.id] = u; render(); });
   socket.on('friends:update', f => { S.friends = f; render(); });
@@ -530,7 +558,7 @@ function connect() {
   socket.on('group:removed', ({ gid }) => {
     const g = S.groups[gid]; delete S.groups[gid];
     if ($('.gset') && gsGid === gid) closeSettings();
-    if (g && V.room && g.channels.some(c => c.id === V.room)) leaveVoice();
+    if (g && V.room && g.channels.some(c => c.id === V.room)) leaveVoice('você não está mais no grupo');
     if (S.view.kind === 'group' && S.view.gid === gid) { S.view = { kind: 'friends', tab: 'online' }; if (g) toast(`Você não está mais em "${g.name}".`); }
     render();
   });
@@ -547,7 +575,7 @@ function connect() {
   socket.on('call:ended', ({ dmId }) => { if (incoming && incoming.dmId === dmId) closeRing(); });
   socket.on('call:declined', ({ dmId, by }) => {
     if (incoming && incoming.dmId === dmId && by === S.me.id) closeRing();
-    if (V.room === dmId && by !== S.me.id && (S.voice[dmId] || []).length <= 1) { ring(false); toast(`${nameOf(by)} recusou a chamada.`); leaveVoice(); }
+    if (V.room === dmId && by !== S.me.id && (S.voice[dmId] || []).length <= 1) { ring(false); toast(`${nameOf(by)} recusou a chamada.`); leaveVoice('a pessoa recusou a chamada'); }
   });
   socket.on('notify', n => {
     if (n.type === 'friend-request') { SOUNDS.req(); toast(`${nameOf(n.from)} te enviou um pedido de amizade.`); notifyDesktop('Pedido de amizade', `${nameOf(n.from)} quer ser seu amigo no Discordia.`); }
@@ -1735,7 +1763,17 @@ function drawSettings() {
         <label class="field">Câmera<select id="dCam"><option value="">Padrão do sistema</option></select></label>
         ${setRow('Qualidade da tela compartilhada', 'Mais qualidade usa mais internet.', seg('vQ', [['720p30', '720p'], ['1080p30', '1080p'], ['1080p60', '1080p 60fps']], prefs.quality))}
       </div>
-      <div class="set-card"><h3>Sons</h3>${setRow('Sons de entrar e sair', 'Tocar um som quando alguém entra ou sai da call.', sw('vJs', prefs.joinSounds))}</div>`;
+      <div class="set-card"><h3>Sons</h3>${setRow('Sons de entrar e sair', 'Tocar um som quando alguém entra ou sai da call.', sw('vJs', prefs.joinSounds))}</div>
+      <div class="set-card"><h3>Registro da call</h3>
+        <p class="muted small" style="margin:0">Anota o que acontece nas calls: quando você entra e sai, quando cai, o motivo da queda e como o áudio com cada pessoa está conectado. Fica só neste aparelho.</p>
+        <div class="clog-last" id="clogLast"></div>
+        <div class="clog" id="clogBox"></div>
+        <div class="set-row"><span class="muted small">Mais recente em cima.</span><div style="display:flex;gap:6px"><button class="btn sm" id="clogCopy">Copiar</button><button class="btn sm" id="clogSave">Salvar arquivo</button><button class="btn sm ghost" id="clogClear">Limpar</button></div></div>
+      </div>`;
+    drawCallLog();
+    $('#clogCopy').onclick = async () => { try { await navigator.clipboard.writeText(clogText()); toast('Registro copiado.'); } catch { toast('Não consegui copiar.', true); } };
+    $('#clogSave').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([clogText()], { type: 'text/plain;charset=utf-8' })); a.download = `discordia-registro-call-${new Date().toISOString().slice(0, 10)}.txt`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); };
+    $('#clogClear').onclick = () => { CLOG = []; clogSave(); drawCallLog(); };
     fillDevices();
     const restart = () => { if (V.room) restartMic(); };
     $('#dMic').onchange = e => { prefs.micId = e.target.value; savePrefs(); restart(); if (micTest) { stopMicTest(); toggleMicTest(); } };
@@ -1928,8 +1966,53 @@ setInterval(() => {
 }, 40);
 
 /* =============== voz, vídeo e tela (WebRTC) =============== */
-const V = { room: null, mic: null, screen: null, cam: null, peers: new Map(), muted: false, deaf: false, ice: [], pttDown: false, calling: false, levels: new Map(), videoCache: new Map() };
+const V = { room: null, mic: null, screen: null, cam: null, peers: new Map(), muted: false, deaf: false, ice: [], pttDown: false, calling: false, levels: new Map(), videoCache: new Map(), rejoin: null };
 const SB = { playing: new Map(), cache: new Map(), last: 0 }; // Central de Áudio (sons tocando, áudios já baixados)
+
+/* =============== registro da call: o que aconteceu e por que caiu ===============
+   Fica salvo neste aparelho (últimas 500 linhas). Aparece em Configurações > Voz e vídeo. */
+const CLOG_KEY = 'discordia:calllog';
+let CLOG = []; try { CLOG = JSON.parse(localStorage.getItem(CLOG_KEY) || '[]'); if (!Array.isArray(CLOG)) CLOG = []; } catch { CLOG = []; }
+let clogT = null;
+const clogSave = () => { try { localStorage.setItem(CLOG_KEY, JSON.stringify(CLOG)); } catch {} };
+function clog(msg, lvl = '') { // lvl: 'erro' (caiu), 'aviso' (problema), '' (normal)
+  CLOG.push({ t: Date.now(), m: String(msg), l: lvl });
+  if (CLOG.length > 600) CLOG = CLOG.slice(-500);
+  clearTimeout(clogT); clogT = setTimeout(clogSave, 400);
+  if (document.getElementById('clogBox')) drawCallLog();
+}
+window.addEventListener('pagehide', clogSave);
+const DROP_WHY = {
+  'ping timeout': 'o servidor parou de responder por mais de 45 s (a internet travou, o PC ficou suspenso ou o servidor caiu)',
+  'transport close': 'a conexão fechou (a internet caiu, trocou de rede/Wi-Fi ou o servidor reiniciou)',
+  'transport error': 'erro na conexão com o servidor (internet instável)',
+  'io server disconnect': 'o servidor encerrou sua conexão (login em outro lugar ou sessão encerrada)',
+  'io client disconnect': 'o próprio app fechou a conexão'
+};
+const clogTime = t => { const d = new Date(t); const p = n => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+const clogText = () => CLOG.map(x => `[${clogTime(x.t)}]${x.l ? ' ' + x.l.toUpperCase() + ':' : ''} ${x.m}`).join('\n');
+function drawCallLog() {
+  const box = document.getElementById('clogBox'); if (!box) return;
+  const last = [...CLOG].reverse().find(x => x.l === 'erro');
+  const sum = document.getElementById('clogLast');
+  if (sum) sum.innerHTML = last ? `<b>Última queda:</b> ${esc(clogTime(last.t))}: ${esc(last.m)}` : 'Nenhuma queda registrada.';
+  box.innerHTML = CLOG.slice(-200).reverse().map(x => `<div class="clog-l ${x.l}"><time>${clogTime(x.t)}</time><span>${esc(x.m)}</span></div>`).join('') || '<div class="muted small">Nada registrado ainda. Entre numa call para começar.</div>';
+}
+const clogRoom = id => { if (!id) return '?'; const dm = S.dms[id]; if (dm) return 'chamada com ' + dm.members.filter(m => m !== S.me.id).map(nameOf).join(', '); for (const g of Object.values(S.groups)) { const c = g.channels.find(c => c.id === id); if (c) return `${g.name} › ${c.name}`; } return 'sala'; };
+// internet do aparelho, PC suspenso/travado e tempo de resposta do servidor (só durante a call)
+window.addEventListener('offline', () => clog('O Windows avisou que a internet deste PC caiu.', V.room ? 'aviso' : ''));
+window.addEventListener('online', () => clog('A internet deste PC voltou.'));
+let clogTick = Date.now(), rttBusy = false;
+setInterval(async () => {
+  const now = Date.now(), gap = now - clogTick; clogTick = now;
+  if (gap > 20000 && (V.room || V.rejoin)) clog(`O app ficou ${Math.round(gap / 1000)} s parado (PC suspenso, travado ou muito ocupado).`, 'aviso');
+  if (!V.room || rttBusy || !socket || !socket.connected) return;
+  rttBusy = true; const t0 = performance.now();
+  const r = await emit('rtt');
+  const ms = Math.round(performance.now() - t0); rttBusy = false;
+  if (!r.ok) clog(`O servidor não respondeu em 10 s (${r.erro || 'sem resposta'}).`, 'aviso');
+  else if (ms > 1500) clog(`O servidor demorou ${ms} ms para responder (internet lenta ou instável).`, 'aviso');
+}, 5000);
 const audioConstraints = () => ({ deviceId: prefs.micId ? { exact: prefs.micId } : undefined, noiseSuppression: prefs.ns, echoCancellation: prefs.ec, autoGainControl: prefs.agc, channelCount: { ideal: 1 }, sampleRate: { ideal: 48000 } });
 
 /* ---- qualidade de áudio e vídeo ----
@@ -1972,8 +2055,8 @@ function applyMicGate() {
 async function joinVoice(roomId, opts = {}) {
   if (!secureOk()) { modal(`<div class="modal-h"><h2>Conexão não segura</h2><p>O navegador só libera microfone e tela em endereços <b>https://</b> ou em <b>localhost</b>. Abra o Discordia pelo link https que aparece na janela do servidor, ou pelo link público.</p></div><div class="modal-f"><button class="btn primary" data-close>Entendi</button></div>`); return false; }
   if (V.room === roomId) { openStage(); return true; }
-  if (V.room) leaveVoice();
-  V.jt = Date.now() * 1000 + Math.floor(Math.random() * 1000); // sessão nova desta entrada na call
+  if (V.room) leaveVoice('trocou de sala');
+  V.jt =Date.now() * 1000 + Math.floor(Math.random() * 1000); // sessão nova desta entrada na call
   audioCtx();
   try { V.mic = await getMic(); }
   catch (e) { stopMic(); toast('Sem acesso ao microfone. Você entra só ouvindo.', true); }
@@ -1982,8 +2065,11 @@ async function joinVoice(roomId, opts = {}) {
   // já marca a sala antes da resposta: os sinais de conexão que chegam nesse meio-tempo não se perdem
   V.room = roomId;
   const r = await emit('voice:join', { roomId, muted: V.muted || !V.mic, deafened: V.deaf });
-  if (!r.ok) { V.room = null; stopMic(); toast(r.erro, true); return false; }
+  if (!r.ok) { V.room = null; stopMic(); toast(r.erro, true); clog(`Não consegui entrar na call: ${r.erro}`, 'aviso'); return false; }
+  V.rejoin = null;
   V.ice = r.iceServers || V.ice; V.calling = !!opts.calling;
+  clog(`Entrou na call (${clogRoom(roomId)}). ${r.peers.length ? r.peers.length + ' pessoa(s) já estavam lá.' : 'Ninguém mais na sala.'} ${V.mic ? 'Microfone ok.' : 'Sem microfone.'} ${hasTurn() ? 'Servidor TURN disponível.' : 'Sem servidor TURN.'}`);
+  if (V.mic) V.mic.getAudioTracks().forEach(t => t.addEventListener('ended', () => { if (V.mic && V.mic.getTracks().includes(t)) clog('O microfone parou de mandar som (foi desconectado ou outro programa pegou ele).', 'aviso'); }));
   if (V.mic) watchLevel(S.mySid, V.mic);
   r.peers.forEach(p => getPeer(p.sid));
   SOUNDS.join();
@@ -1999,9 +2085,11 @@ function cleanupVoice() {
   [...V.levels.keys()].forEach(dropLevel); V.videoCache.clear(); dropAudio(() => true); $('#audioSink').innerHTML = '';
   ring(false); mixerSync(); render();
 }
-function leaveVoice() {
+function leaveVoice(why = 'você saiu') {
+  V.rejoin = null;
   if (!V.room) return;
   const room = V.room;
+  clog(`Saiu da call (${clogRoom(room)}): ${typeof why === 'string' ? why : 'você saiu'}.`);
   if (V.calling && S.dms[room] && (S.voice[room] || []).length <= 1) socket.emit('call:decline', { dmId: room });
   emit('voice:leave'); SOUNDS.leave(); cleanupVoice();
 }
@@ -2060,12 +2148,29 @@ function getPeer(sid) {
     catch (e) { console.warn(e); } finally { p.makingOffer = false; }
   };
   pc.onicecandidate = ({ candidate }) => { if (candidate) sendSig(p, { candidate }); };
-  pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') pc.restartIce(); if (pc.iceConnectionState === 'connected') tuneSenders(pc); };
+  pc.oniceconnectionstatechange = () => {
+    if (pc.iceConnectionState === 'failed') { clog(`Áudio com ${nameOf(peerInfo(sid)?.uid)} falhou. Tentando reconectar (reinício do ICE)...`, 'aviso'); pc.restartIce(); }
+    if (pc.iceConnectionState === 'connected') tuneSenders(pc);
+  };
   // estado da conexão de áudio com essa pessoa (aparece no mixer); se não conectar, avisa o motivo
   pc.onconnectionstatechange = () => {
+    const prev = p.state;
     p.state = pc.connectionState; mixerSync();
-    if (pc.connectionState === 'connected') { p.warned = false; clearTimeout(p.connT); }
-    if (pc.connectionState === 'failed') connWarn(p);
+    const who = nameOf(peerInfo(sid)?.uid);
+    if (pc.connectionState === 'connected') {
+      p.warned = false; clearTimeout(p.connT);
+      // por onde o áudio passa: direto (rede local/internet) ou pelo servidor TURN
+      pc.getStats().then(st => {
+        let pair = null; st.forEach(x => { if (x.type === 'transport' && x.selectedCandidatePairId) pair = st.get(x.selectedCandidatePairId); });
+        if (!pair) st.forEach(x => { if (x.type === 'candidate-pair' && x.nominated && x.state === 'succeeded') pair = x; });
+        const loc = pair && st.get(pair.localCandidateId), rem = pair && st.get(pair.remoteCandidateId);
+        const via = [loc, rem].some(c => c && c.candidateType === 'relay') ? 'pelo servidor TURN' : [loc, rem].some(c => c && c.candidateType === 'srflx' || c && c.candidateType === 'prflx') ? 'direto pela internet' : 'direto pela rede local';
+        const rtt = pair && pair.currentRoundTripTime ? `, ${Math.round(pair.currentRoundTripTime * 1000)} ms` : '';
+        clog(`Áudio com ${who} ${prev === 'disconnected' || prev === 'failed' ? 'voltou' : 'conectado'} (${via}${rtt}).`);
+      }).catch(() => clog(`Áudio com ${who} conectado.`));
+    }
+    if (pc.connectionState === 'disconnected') clog(`Áudio com ${who} travou (a internet de um de vocês oscilou). Esperando voltar...`, 'aviso');
+    if (pc.connectionState === 'failed') { clog(`Áudio com ${who} caiu e não voltou sozinho.`, 'erro'); connWarn(p); }
   };
   p.state = pc.connectionState;
   p.connT = setTimeout(() => { if (V.peers.get(sid) === p && pc.connectionState !== 'connected') connWarn(p); }, 15000);
@@ -2175,7 +2280,12 @@ function voiceMenu(uid, anchor) {
 const volTag = uid => (prefs.umute && prefs.umute[uid]) ? '<span class="vol-tag" title="Silenciado para você">🔇</span>' : (prefs.vol && prefs.vol[uid] !== undefined) ? `<span class="vol-tag" title="Volume para você">${prefs.vol[uid]}%</span>` : '';
 
 function onVoiceRoom({ roomId, peers }) {
-  const before = (S.voice[roomId] || []).map(p => p.sid);
+  const beforeInfo = S.voice[roomId] || [];
+  const before = beforeInfo.map(p => p.sid);
+  if (roomId === V.room) {
+    peers.filter(p => !before.includes(p.sid) && p.sid !== S.mySid).forEach(p => clog(`${nameOf(p.uid)} entrou na call.`));
+    beforeInfo.filter(p => !peers.some(x => x.sid === p.sid) && p.sid !== S.mySid).forEach(p => clog(`${nameOf(p.uid)} saiu da call.`));
+  }
   if (peers.length) S.voice[roomId] = peers; else delete S.voice[roomId];
   if (roomId === V.room) {
     const now = peers.map(p => p.sid);
@@ -2337,7 +2447,7 @@ async function startCall(dmId, video) {
   if ((S.voice[dmId] || []).length <= 1) {
     socket.emit('call:ring', { dmId }); ring(true, true);
     clearTimeout(ringTimeout);
-    ringTimeout = setTimeout(() => { if (V.room === dmId && V.calling) { toast('Ninguém atendeu.'); leaveVoice(); } }, 35000);
+    ringTimeout = setTimeout(() => { if (V.room === dmId && V.calling) { toast('Ninguém atendeu.'); leaveVoice('ninguém atendeu a chamada'); } }, 35000);
   }
   go({ kind: 'dm', id: dmId });
 }
