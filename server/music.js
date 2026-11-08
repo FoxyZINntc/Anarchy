@@ -81,7 +81,10 @@ function createMusic({ log = () => {} } = {}) {
     if (process.env.DJ_SEM_YTDLP) throw new Error('neste servidor só funcionam links diretos de áudio (mp3, ogg...)');
     await ensure();
     const target = isUrl(q) ? q : 'ytsearch1:' + q;
-    const out = await run([...jsArgs, '-J', '--no-playlist', '--no-warnings', '-f', 'bestaudio[ext=m4a]/bestaudio[acodec=opus]/bestaudio/best', target]);
+    const args = ['-J', '--no-playlist', '--no-warnings', '-f', 'bestaudio[ext=m4a]/bestaudio[acodec=opus]/bestaudio/best', target];
+    let out;
+    try { out = await run([...jsArgs, ...args]); }
+    catch (e) { if (/js-runtimes|no such option/i.test(e.message)) out = await run(args); else throw e; } // yt-dlp antigo, sem essa opção
     let j = JSON.parse(out);
     if (j && Array.isArray(j.entries)) j = j.entries.find(Boolean);
     if (!j) throw new Error('não achei nenhuma música com esse nome');
