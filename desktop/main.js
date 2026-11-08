@@ -351,6 +351,41 @@ function askSource() {
   });
 }
 
+/* ---------- som do compartilhamento de tela, sem o eco da call ----------
+   Igual ao Discord: o somtela.exe usa a "process loopback" do Windows 10 2004+ / 11.
+   Tela inteira: som de tudo MENOS o Discordia (as vozes da call não voltam para quem falou).
+   Janela: só o som do programa daquela janela. */
+const SOMTELA = app.isPackaged ? path.join(process.resourcesPath, 'somtela.exe') : path.join(__dirname, 'native', 'somtela.exe');
+const somtelaOk = process.platform === 'win32' && +(require('os').release().split('.')[2] || 0) >= 19041 && fs.existsSync(SOMTELA);
+let lastShare = null, somProc = null;
+function somStop() { const p = somProc; somProc = null; if (p) { try { p.stdin.end(); } catch {} try { p.kill(); } catch {} } }
+ipcMain.handle('somtela:start', e => new Promise(resolve => {
+  somStop();
+  if (!somtelaOk || !lastShare || Date.now() - lastShare.at > 60000) return resolve(false);
+  // janela do próprio Discordia: o som dela são as vozes da call, então vai sem som
+  if (BrowserWindow.getAllWindows().some(w => { try { return w.getMediaSourceId() === lastShare.id; } catch { return false; } })) return resolve(false);
+  const m = /^window:(\d+):/.exec(lastShare.id);
+  const args = m ? ['janela', m[1]] : ['excluir', String(process.pid)];
+  let p;
+  try { p = spawn(SOMTELA, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }); } catch { return resolve(false); }
+  somProc = p;
+  const wc = e.sender; let ok = false, done = false;
+  const finish = v => { if (done) return; done = true; clearTimeout(t); if (!v && somProc === p) somStop(); resolve(v); };
+  const t = setTimeout(() => finish(false), 4000);
+  p.stderr.on('data', d => { const s = String(d); if (/^ok/m.test(s)) { ok = true; finish(true); } else if (/erro/.test(s)) finish(false); });
+  // junta em pedaços de ~20 ms antes de mandar para a janela
+  let parts = [], len = 0;
+  p.stdout.on('data', d => {
+    if (somProc !== p) return;
+    parts.push(d); len += d.length;
+    if (len >= 3840) { if (!wc.isDestroyed()) wc.send('somtela:data', Buffer.concat(parts, len)); parts = []; len = 0; }
+  });
+  p.on('error', () => finish(false));
+  p.on('exit', () => { finish(false); if (somProc === p) { somProc = null; if (ok && !wc.isDestroyed()) wc.send('somtela:end'); } });
+}));
+ipcMain.handle('somtela:stop', () => somStop());
+app.on('will-quit', somStop);
+
 /* ---------- início ---------- */
 app.on('second-instance', showMain);
 app.on('certificate-error', (e, wc, url, err, cert, cb) => {
@@ -373,8 +408,10 @@ app.whenReady().then(() => {
     }
     if (!src) return cb({});
     const grant = { video: src };
-    // tela inteira no Windows: manda o som do computador junto (se o Windows deixar)
-    if (req.audioRequested && !noLoopback && process.platform === 'win32' && src.id.startsWith('screen')) grant.audio = 'loopback';
+    lastShare = { id: src.id, at: Date.now() };
+    // O som vai pelo somtela.exe (sem o eco da call). O 'loopback' do Chromium pegava o som do PC
+    // inteiro, vozes da call incluídas: só fica para quem não tem o somtela (outros sistemas).
+    if (req.audioRequested && !somtelaOk && !noLoopback && process.platform !== 'win32' && src.id.startsWith('screen')) grant.audio = 'loopback';
     cb(grant);
   });
   buildTray();

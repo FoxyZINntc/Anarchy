@@ -1,7 +1,7 @@
 {
   "name": "discordia",
   "productName": "Discordia",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Discordia: chat, grupos, amigos, calls e compartilhamento de tela",
   "author": "Lucas",
   "license": "UNLICENSED",
@@ -10,8 +10,9 @@
   "scripts": {
     "start": "node server/server.js",
     "app": "electron .",
-    "dist:win": "electron-builder --win",
-    "dist:cliente": "electron-builder --win --config electron-builder.cliente.json"
+    "dist:win": "npm run nativo && electron-builder --win",
+    "dist:cliente": "npm run nativo && electron-builder --win --config electron-builder.cliente.json",
+    "nativo": "desktop\\\\native\\\\compilar.cmd"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",
@@ -30,7 +31,8 @@
       "!server/dados/**",
       "!**/.env",
       "package.json",
-      "!desktop/servidor-padrao.json"
+      "!desktop/servidor-padrao.json",
+      "!desktop/native/**"
     ],
     "directories": {
       "output": "dist",
@@ -56,7 +58,13 @@
       "shortcutName": "Discordia",
       "artifactName": "Discordia Setup.${ext}",
       "deleteAppDataOnUninstall": false
-    }
+    },
+    "extraResources": [
+      {
+        "from": "desktop/native/somtela.exe",
+        "to": "somtela.exe"
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^45.2.3",

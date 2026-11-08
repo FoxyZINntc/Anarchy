@@ -67,3 +67,11 @@ Camadas dentro do próprio avatar, com `isolation: isolate`, para que nada vaze 
 - Dependências do servidor sem vulnerabilidades conhecidas (`npm audit`). Electron e electron-builder precisam de atualização maior (ver pendências).
 - Supabase: RLS ligado em todas as tabelas, sem políticas (só o servidor acessa); Storage sem políticas (ninguém lista nem envia com a chave pública); buckets limitam tipo e tamanho.
 - Desempenho: respostas comprimidas (gzip) e app.js/css com versão no endereço, guardados por 1 ano no navegador e baixados de novo só quando mudam.
+
+## Som do compartilhamento de tela sem eco (app 1.3.0)
+- Antes o app pedia ao Chromium o `loopback`, que captura o som do PC inteiro, vozes da call incluidas: quem falava se ouvia na tela dos outros.
+- Agora o `desktop/native/somtela.exe` (C#, compilado com o csc do .NET Framework que vem no Windows: `npm run nativo`) usa a "process loopback" do Windows 10 2004+ / 11, como o Discord:
+  - tela inteira: som de tudo **menos** o processo do Discordia e os filhos dele;
+  - janela: so o som do programa daquela janela (janela do proprio Discordia vai sem som).
+- `main.js` (`somtela:start/stop`) roda o exe e manda o PCM (16 bits, 48 kHz, estereo) para a janela em pedacos de ~20 ms; o `preload.js` monta a faixa com `MediaStreamTrackGenerator` e coloca no stream da tela. Parar a tela fecha o exe.
+- Windows antigo (antes do 2004): compartilha sem som e mostra o aviso.

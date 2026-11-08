@@ -9,3 +9,4 @@ dados/
 logs/
 .DS_Store
 desktop/servidor-padrao.json
+desktop/native/*.exe

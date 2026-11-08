@@ -7,14 +7,28 @@
     "package.json",
     "!desktop/servidor-padrao.json",
     "!desktop/build/**",
-    "!**/node_modules/**"
+    "!**/node_modules/**",
+    "!desktop/native/**"
+  ],
+  "extraResources": [
+    {
+      "from": "desktop/native/somtela.exe",
+      "to": "somtela.exe"
+    }
   ],
   "directories": {
     "output": "dist-cliente",
     "buildResources": "desktop/assets"
   },
   "win": {
-    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
     "icon": "desktop/build/icon.ico"
   },
   "nsis": {
