@@ -1191,6 +1191,8 @@ function userMenu(uid, x, y, anchor) {
     <button data-m="pf">Ver perfil ${I('user')}</button>
     ${me ? `<button data-m="edit">Editar perfil ${I('edit')}</button>` : u.bot ? `<button data-m="djset">Comandos e configurações do DJ</button>` : `<button data-m="dm">Enviar mensagem ${I('msg')}</button><button data-m="call">Iniciar chamada ${I('phone')}</button><button data-m="vid">Chamada de vídeo ${I('cam')}</button>`}
     ${canMention ? `<button data-m="men">Mencionar</button>` : ''}
+    ${u.bot ? `<hr><div class="um-vol"><label>Volume do DJ para você <output>${prefs.djVol ?? 70}%</output></label><input type="range" min="0" max="100" step="5" value="${prefs.djVol ?? 70}" data-m="djvol"></div>
+      <button data-m="djmute">${prefs.djOn === false ? 'Voltar a ouvir o DJ' : 'Silenciar o DJ para mim'} ${I(prefs.djOn === false ? 'voice' : 'micOff')}</button>` : ''}
     ${inVoice ? `<hr><div class="um-vol"><label>Volume para você <output>${volOf(uid, 'voice')}%</output></label><input type="range" min="0" max="200" step="5" value="${volOf(uid, 'voice')}" data-m="vol"></div>
       <button data-m="mute">${prefs.umute && prefs.umute[uid] ? 'Voltar a ouvir' : 'Silenciar para mim'} ${I(prefs.umute && prefs.umute[uid] ? 'voice' : 'micOff')}</button>` : ''}
     ${me || u.bot ? '' : `<hr>${fr ? '<button data-m="unf" class="danger">Desfazer amizade</button>' : inc ? '<button data-m="acc">Aceitar pedido de amizade</button>' : out ? '<button disabled>Pedido de amizade enviado</button>' : '<button data-m="add">Adicionar amigo</button>'}
@@ -1200,10 +1202,14 @@ function userMenu(uid, x, y, anchor) {
   const vol = $('[data-m="vol"]', p);
   if (vol) vol.oninput = () => { vol.previousElementSibling.querySelector('output').textContent = vol.value + '%'; prefs.vol = { ...(prefs.vol || {}) }; if (+vol.value === 100) delete prefs.vol[uid]; else prefs.vol[uid] = +vol.value; savePrefs(); applyVolumes(); };
   if (vol) vol.onchange = () => { renderSide(); renderStageSlot(); };
+  // DJ: volume só para você (o mesmo do cartão "Tocando agora")
+  const djv = $('[data-m="djvol"]', p);
+  if (djv) djv.oninput = () => { djv.previousElementSibling.querySelector('output').textContent = djv.value + '%'; prefs.djVol = +djv.value; if (prefs.djOn === false && +djv.value > 0) prefs.djOn = true; savePrefs(); musicVol(); $$('[data-djvol]').forEach(x => x.value = djv.value); };
   p.onclick = async e => {
     const m = e.target.closest('button[data-m]')?.dataset.m; if (!m) return; closePops();
     if (m === 'pf') openFullProfile(uid);
     if (m === 'edit') openSettings('perfil');
+    if (m === 'djmute') { prefs.djOn = prefs.djOn === false; savePrefs(); musicVol(); toast(prefs.djOn ? 'Você voltou a ouvir o DJ.' : 'DJ silenciado só para você.'); }
     if (m === 'djset') { const bg = Object.values(S.groups).find(x => x.djId === uid); if (bg) openGroupSettings(bg.id, 'dj'); }
     if (m === 'dm') openDm(uid);
     if (m === 'call' || m === 'vid') { const d = await openDm(uid); if (d) startCall(d, m === 'vid'); }
