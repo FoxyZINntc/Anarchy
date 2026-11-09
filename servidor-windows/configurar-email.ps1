@@ -10,9 +10,12 @@ Set-Location $Raiz
 # pede administrador (abre de novo com permissão)
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin -and -not $SoTestar) {
-  Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+  # o "-WindowStyle Hidden" vai DENTRO dos argumentos (esconde só a tela preta). No Start-Process ele escondia a janela inteira.
+  Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`""
   exit 0
 }
+# fecha cópias antigas deste configurador que ficaram abertas e invisíveis
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match 'configurar-email\.ps1' -and $_.CommandLine -notmatch 'SoTestar' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
