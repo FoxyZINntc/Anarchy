@@ -1071,7 +1071,7 @@ async function sendImage(file) {
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
   { id: '2026-11-08-android', date: '08/11/2026', title: 'Anarchy no celular (Android)', emoji: '📱', items: [
-    'Agora tem app para Android: baixe o <b>Anarchy.apk</b> em github.com/FoxyZINntc/Anarchy/releases.',
+    'Agora tem app para Android: no celular, abra <a href="https://github.com/FoxyZINntc/Discordia/releases/latest/download/Anarchy.apk" target="_blank" rel="noopener">este link para baixar o Anarchy.apk</a> e instale.',
     'Chat, calls de voz e vídeo, DJ, figurinhas e temas, tudo igual ao do PC.',
     'A call continua com a tela apagada (fica uma notificação "Na call").',
     'Avisa de mensagens e chamadas quando o app está em segundo plano.',
@@ -2025,7 +2025,8 @@ function drawSettings() {
     b.innerHTML = `<h2>Aplicativo</h2>
       <div class="set-card"><h3>Versão</h3>${setRow(DROID ? 'Anarchy para Android ' + esc(droid('version') || '') : 'Anarchy no navegador', 'Interface ' + esc(UPD.build || '?') + '. Quando o servidor recebe uma versão nova, aparece a barra Atualizar no topo.', '<button class="btn" id="wRl">Recarregar</button>')}</div>
       <div class="set-card"><h3>Idioma</h3>${setRow('Português (Brasil)', 'É o único idioma disponível por enquanto.', '')}</div>
-      <div class="set-card"><h3>App de computador</h3><p class="muted small" style="margin:0">O app para Windows abre sozinho com o PC, fica perto do relógio e se atualiza sozinho. Baixe em github.com/FoxyZINntc/Anarchy/releases.</p></div>`;
+      <div class="set-card"><h3>App de computador</h3><p class="muted small" style="margin:0">O app para Windows abre sozinho com o PC, fica perto do relógio e se atualiza sozinho. Baixe em github.com/FoxyZINntc/Discordia/releases.</p></div>
+      ${DROID ? '' : `<div class="set-card"><h3>App de celular (Android)</h3><p class="muted small" style="margin:0">Chat e calls no celular, com a call continuando de tela apagada. No celular, baixe o <a href="https://github.com/FoxyZINntc/Discordia/releases/latest/download/Anarchy.apk" target="_blank" rel="noopener">Anarchy.apk</a> e instale (permita fontes desconhecidas).</p></div>`}`;
     $('#wRl').onclick = () => location.reload();
   }
   else if (setTab === 'app' && DESK) {
