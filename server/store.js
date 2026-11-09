@@ -7,7 +7,7 @@ const path = require('path');
 const EMPTY = () => ({ users: {}, sessions: {}, friends: {}, requests: [], groups: {}, dms: {}, messages: {} });
 
 // campos que vão na coluna "extra" (JSON) de cada tabela
-const USER_X = ['pronouns', 'theme', 'accent', 'frame', 'effect', 'favs', 'blocked', 'privacy', 'bot', 'botGid'];
+const USER_X = ['pronouns', 'theme', 'accent', 'frame', 'effect', 'favs', 'blocked', 'privacy', 'bot', 'botGid', 'email', 'emailAt', 'emailAsked', 'resetHash', 'resetExp'];
 const GROUP_X = ['description', 'banner', 'roles', 'memberRoles', 'bans', 'welcomeCid', 'systemJoin', 'djId'];
 const CHAN_X = ['topic', 'slowmode'];
 const MSG_X = ['system', 'sticker', 'gif', 'imageName', 'pinned', 'mentions', 'everyone', 'music'];

@@ -205,7 +205,8 @@ function rank(g, uid) {
   return idx.length ? Math.min(...idx) : g.roles.length;
 }
 const above = (g, uid, target) => rank(g, uid) < rank(g, target);
-function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online', blocked: u.blocked || [], favs: u.favs || null, privacy: u.privacy || {} }; }
+// o email da conta só vai para o próprio dono (nunca no publicUser)
+function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online', blocked: u.blocked || [], favs: u.favs || null, privacy: u.privacy || {}, email: u.email || null, emailAsked: u.emailAsked || 0, mailOn: mailOn() }; }
 // bloqueio vale nos dois sentidos: quem bloqueou e quem foi bloqueado não se alcançam
 const blockedBetween = (a, b) => !!((db.users[a] && (db.users[a].blocked || []).includes(b)) || (db.users[b] && (db.users[b].blocked || []).includes(a)));
 
@@ -612,6 +613,78 @@ app.post('/api/password', auth, (req, res) => {
   (online.get(u.id) || new Set()).forEach(sid => { const s = sockets.get(sid); if (s && s.data.token !== keep) s.disconnect(true); });
   save(); res.json({ ok: true });
 });
+/* ---------- email da conta e recuperação de senha ----------
+   A pessoa liga um email à conta confirmando um código de 6 dígitos que chega nele.
+   "Esqueci a senha" manda para esse email um link que vale 30 minutos e uma vez só.
+   No banco fica só o "hash" do link (quem vê o banco não consegue usar o link). */
+const { createMailer } = require('./mail');
+const mailer = createMailer({ log });
+const EMAIL_RE = /^[^\s@<>()",;:\\]{1,64}@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,24}$/i;
+const sha256 = s => crypto.createHash('sha256').update(String(s)).digest('hex');
+const emailCodes = new Map(); // uid -> { email, hash, exp, tries } (código para confirmar o email)
+function publicBase() {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/+$/, '');
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'desktop', 'servidor.json'), 'utf8')).url.replace(/\/+$/, ''); } catch { return null; }
+}
+function mailOn() { return mailer.ready && !!publicBase(); }
+const maskEmail = e => { const [a, d] = String(e).split('@'); return (a.length <= 2 ? a[0] + '*' : a.slice(0, 2) + '*'.repeat(Math.min(6, a.length - 2))) + '@' + d; };
+const RESET_MIN = 30;
+
+app.post('/api/forgot', async (req, res) => {
+  if (!mailOn()) return res.status(503).json({ erro: 'Este servidor ainda não manda emails. Peça ajuda para quem cuida do servidor.' });
+  const login = str(req.body.login, 200).trim().toLowerCase().replace(/^@/, '');
+  if (limited('forgot-ip:' + ipOf(req), 6, 15 * 60e3) || limited('forgot:' + login, 3, 3600e3)) return res.status(429).json({ erro: 'Muitos pedidos. Espere um pouco e tente de novo.' });
+  // sempre a mesma resposta: ninguém descobre por aqui se um usuário ou email existe
+  res.json({ ok: true });
+  const list = Object.values(db.users).filter(u => !u.bot && u.email && (login.includes('@') ? u.email === login : u.username === login));
+  if (!list.length) return;
+  const byEmail = new Map();
+  for (const u of list) {
+    const token = crypto.randomBytes(32).toString('base64url');
+    u.resetHash = sha256(token); u.resetExp = now() + RESET_MIN * 60e3;
+    if (!byEmail.has(u.email)) byEmail.set(u.email, []);
+    byEmail.get(u.email).push({ u, url: `${publicBase()}/?reset=${token}` });
+  }
+  save();
+  for (const [to, items] of byEmail) {
+    const one = items.length === 1;
+    const text = items.map(i => `Conta @${i.u.username}: ${i.url}`).join('\n');
+    const html = mailer.html('Criar uma senha nova', [
+      one ? `Alguém (tomara que você!) pediu para trocar a senha da conta <b>@${escH(items[0].u.username)}</b> no Anarchy.` : `Pediram para trocar a senha das suas contas no Anarchy. Escolha a conta:`,
+      ...(one ? [] : items.map(i => `<a href="${escH(i.url)}">@${escH(i.u.username)}</a>`)),
+      `O link vale por ${RESET_MIN} minutos e só funciona uma vez.`
+    ], one ? { url: items[0].url, label: 'Criar senha nova' } : null);
+    mailer.send(to, 'Anarchy: trocar sua senha', `Para criar uma senha nova no Anarchy, abra o link (vale ${RESET_MIN} minutos):\n\n${text}\n\nSe não foi você, ignore este email.`, html)
+      .then(() => log(`   Email: link de nova senha enviado para ${maskEmail(to)}.`))
+      .catch(e => log(`   Email: não consegui enviar para ${maskEmail(to)} (${e.message}).`));
+  }
+  function escH(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+});
+const userByReset = token => { const h = sha256(str(token, 200)); return Object.values(db.users).find(u => u.resetHash && u.resetHash === h && u.resetExp > now()) || null; };
+app.post('/api/reset/check', (req, res) => {
+  if (limited('reset-ip:' + ipOf(req), 20, 15 * 60e3)) return res.status(429).json({ erro: 'Muitas tentativas. Espere 15 minutos.' });
+  const u = userByReset(req.body.token);
+  if (!u) return res.status(400).json({ erro: 'Esse link venceu ou já foi usado. Peça outro em "Esqueci a senha".' });
+  res.json({ ok: true, username: u.username, displayName: u.displayName });
+});
+app.post('/api/reset', (req, res) => {
+  if (limited('reset-ip:' + ipOf(req), 20, 15 * 60e3)) return res.status(429).json({ erro: 'Muitas tentativas. Espere 15 minutos.' });
+  const u = userByReset(req.body.token);
+  if (!u) return res.status(400).json({ erro: 'Esse link venceu ou já foi usado. Peça outro em "Esqueci a senha".' });
+  const nova = str(req.body.password, 200);
+  if (nova.length < MIN_PW) return res.status(400).json({ erro: `A senha precisa ter pelo menos ${MIN_PW} caracteres.` });
+  if (nova.toLowerCase().includes(u.username)) return res.status(400).json({ erro: 'A senha não pode conter o nome de usuário.' });
+  u.salt = crypto.randomBytes(16).toString('hex'); u.passHash = hashPw(nova, u.salt);
+  delete u.resetHash; delete u.resetExp;
+  // senha nova: todos os aparelhos saem (se alguém tinha a conta, perde o acesso)
+  for (const [t, id] of Object.entries(db.sessions)) if (id === u.id) delete db.sessions[t];
+  (online.get(u.id) || new Set()).forEach(sid => sockets.get(sid)?.disconnect(true));
+  hits.delete('login-user:' + u.username);
+  const token = newSession(u.id); setSession(req, res, token);
+  log(`   Conta @${u.username}: senha trocada pelo link do email.`);
+  res.json({ token, username: u.username, displayName: u.displayName });
+});
+
 app.post('/api/upload', auth, (req, res) => {
   const m = /^data:image\/(png|jpe?g|gif|webp);base64,(.+)$/.exec(str(req.body.data, 12 * 1024 * 1024));
   if (!m) return res.status(400).json({ erro: 'Envie uma imagem PNG, JPG, GIF ou WEBP.' });
@@ -740,6 +813,39 @@ function onConnection(socket) {
     save(); pushFriends(uid); toUser(uid, 'me:update', selfUser(u)); ok(cb);
   });
   // aparelhos com login (cada login é um token) e janelas abertas agora
+  // email da conta: manda um código de 6 dígitos e só grava depois que a pessoa confirma
+  on('email:start', async (d, cb) => {
+    if (!mailOn()) return fail(cb, 'Este servidor ainda não manda emails.');
+    const email = str(d.email, 254).trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return fail(cb, 'Esse email não parece certo. Confira e tente de novo.');
+    if (limited('email-start:' + uid, 5, 3600e3) || limited('email-to:' + email, 3, 3600e3)) return fail(cb, 'Muitos códigos pedidos. Espere um pouco.');
+    const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
+    emailCodes.set(uid, { email, hash: sha256(uid + ':' + code), exp: now() + 15 * 60e3, tries: 0 });
+    try {
+      await mailer.send(email, `Anarchy: seu código é ${code}`, `Seu código para confirmar o email no Anarchy: ${code}\n\nEle vale 15 minutos. Se não foi você, ignore este email.`,
+        mailer.html('Confirme seu email', [`Use este código no Anarchy para ligar este email à conta <b>@${me().username}</b>:`, `<span style="display:inline-block;font-size:30px;font-weight:bold;letter-spacing:8px;background:#f2f3f5;padding:10px 18px;border-radius:10px">${code}</span>`, 'Ele vale 15 minutos. Com o email confirmado, você consegue criar uma senha nova se esquecer a sua.']));
+    } catch (e) { emailCodes.delete(uid); log(`   Email: não consegui enviar o código para ${maskEmail(email)} (${e.message}).`); return fail(cb, 'Não consegui enviar o email agora. Tente de novo daqui a pouco.'); }
+    ok(cb, { masked: maskEmail(email) });
+  });
+  on('email:confirm', (d, cb) => {
+    const p = emailCodes.get(uid);
+    if (!p || p.exp < now()) { emailCodes.delete(uid); return fail(cb, 'O código venceu. Peça outro.'); }
+    if (++p.tries > 5) { emailCodes.delete(uid); return fail(cb, 'Muitas tentativas erradas. Peça outro código.'); }
+    if (sha256(uid + ':' + str(d.code, 12).replace(/\D/g, '')) !== p.hash) return fail(cb, 'Código errado. Confira no email e tente de novo.');
+    emailCodes.delete(uid);
+    const u = me(); u.email = p.email; u.emailAt = now(); save();
+    log(`   Conta @${u.username}: email de recuperação confirmado (${maskEmail(p.email)}).`);
+    ok(cb, { me: selfUser(u) });
+  });
+  // "agora não": pergunta de novo em alguns dias
+  on('email:later', (_, cb) => { me().emailAsked = now(); save(); ok(cb, {}); });
+  on('email:remove', (d, cb) => {
+    const u = me();
+    if (limited('pw:' + uid, 6, 15 * 60e3)) return fail(cb, 'Muitas tentativas. Espere 15 minutos.');
+    if (!pwOk(u, str(d.password, 200))) return fail(cb, 'Senha errada.');
+    delete u.email; delete u.emailAt; delete u.resetHash; delete u.resetExp; u.emailAsked = now(); save();
+    ok(cb, { me: selfUser(u) });
+  });
   on('sessions:info', (_, cb) => ok(cb, { sessions: Object.values(db.sessions).filter(x => x === uid).length, online: (online.get(uid) || new Set()).size }));
   on('sessions:revokeOthers', (_, cb) => {
     for (const [t, u] of Object.entries(db.sessions)) if (u === uid && t !== socket.data.token) delete db.sessions[t];

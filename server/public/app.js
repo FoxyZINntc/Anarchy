@@ -376,33 +376,94 @@ function ask(step) {
   const cfg = {
     user: ['Nome de usuário', 'seu nome de usuário', 'text', 'username'],
     name: ['Nome de exibição', 'como a galera vai te ver', 'text', 'nickname'],
-    pass: ['Senha', reg ? 'mínimo 8 caracteres' : 'sua senha', 'password', reg ? 'new-password' : 'current-password']
+    pass: ['Senha', reg ? 'mínimo 8 caracteres' : 'sua senha', 'password', reg ? 'new-password' : 'current-password'],
+    login: ['Usuário ou email', 'seu usuário ou o email da conta', 'text', 'username'],
+    newpass: ['Nova senha', 'mínimo 8 caracteres', 'password', 'new-password']
   }[step];
   $('#authLabel').textContent = cfg[0]; inp.placeholder = cfg[1]; inp.type = cfg[2]; inp.autocomplete = cfg[3];
-  inp.value = step === 'user' ? (AU.data.username || '') : step === 'name' ? (AU.data.displayName || '') : '';
+  inp.value = step === 'user' ? (AU.data.username || '') : step === 'name' ? (AU.data.displayName || '') : step === 'login' ? (AU.data.username || '') : '';
   inp.maxLength = step === 'user' ? 20 : step === 'name' ? 32 : 200;
-  const peek = $('#authPeek'); peek.hidden = step !== 'pass'; peek.setAttribute('aria-pressed', 'false');
-  if (step === 'pass') ptMood('shy', 'de olhos fechados 🙈'); else ptMood('look', 'online');
+  const secret = step === 'pass' || step === 'newpass';
+  const peek = $('#authPeek'); peek.hidden = !secret; peek.setAttribute('aria-pressed', 'false');
+  if (secret) ptMood('shy', 'de olhos fechados 🙈'); else ptMood('look', 'online');
   $('#authForm').classList.remove('bad', 'good');
 }
-async function authStart(mode = AU.mode) {
-  AU.gen++; AU.mode = mode; AU.data = {}; AU.busy = false;
+async function authStart(mode = AU.mode, keep = {}) {
+  AU.gen++; AU.mode = mode; AU.data = { ...keep }; AU.busy = false;
   const reg = mode === 'register';
-  $('#authSwitch').textContent = reg ? 'Já tenho conta' : 'Criar conta';
+  $('#authSwitch').textContent = mode === 'login' ? 'Criar conta' : 'Já tenho conta';
   $('#authLog').innerHTML = '<div class="au-day">HOJE</div>';
+  if (mode === 'forgot') {
+    ask('login');
+    await bot(['Esqueceu a senha? Acontece nas melhores famílias 😅', 'Me diz seu nome de usuário ou o email da conta que eu mando um link pra você criar uma senha nova.'], { chips: [['Lembrei! Voltar', () => authStart('login')]] });
+    return;
+  }
   ask('user');
   if (reg) await bot(['Gente nova! Adoro 🎉', 'Escolhe um nome de usuário. É com ele que os amigos vão te achar (3 a 20 caracteres: letras minúsculas, números, ponto ou _).']);
-  else await bot(['Opa! Eu sou o Porteiro do Anarchy 👋', 'Ninguém entra sem se identificar. Qual é o seu nome de usuário?']);
+  else await bot(['Opa! Eu sou o Porteiro do Anarchy 👋', 'Ninguém entra sem se identificar. Qual é o seu nome de usuário?'], { chips: [['Esqueci a senha', () => authStart('forgot')]] });
+}
+// link do email "criar senha nova" (?reset=...): o Porteiro pede a senha nova
+async function authReset(token) {
+  AU.gen++; AU.mode = 'reset'; AU.data = { token }; AU.busy = false;
+  $('#authSwitch').textContent = 'Já tenho conta';
+  $('#authLog').innerHTML = '<div class="au-day">HOJE</div>';
+  ask('newpass');
+  try {
+    const r = await api('/api/reset/check', { token });
+    AU.data.username = r.username; AU.data.displayName = r.displayName;
+    await bot([`Oi, @${r.username}! Chegou pelo link do email, né? 📬`, 'Inventa uma senha nova (mínimo 8 caracteres). Fecho os olhos de novo 🙈']);
+  } catch (e) {
+    ptMood('sad', 'meio triste');
+    await bot(e.message, { err: true, chips: [['Pedir outro link', () => authStart('forgot')], ['Entrar', () => authStart('login')]] });
+  }
 }
 function showAuth() {
   $('#app').hidden = true; $('#auth').hidden = false;
-  authStart('login'); ptEnter(); ptActivity();
+  const reset = new URLSearchParams(location.search).get('reset');
+  if (reset) { history.replaceState(null, '', location.pathname); authReset(reset); }
+  else authStart('login');
+  ptEnter(); ptActivity();
 }
 function authBad(msg) {
   $('#authForm').classList.remove('bad'); void $('#authForm').offsetWidth; $('#authForm').classList.add('bad');
   ptAnim('shake'); return bot(msg, { err: true });
 }
 $('#authSwitch').onclick = () => authStart(AU.mode === 'login' ? 'register' : 'login');
+// "esqueci a senha": manda o link por email
+async function authForgot(val) {
+  AU.busy = true; $('#authBtn').disabled = true; $('#ptStatus').textContent = 'escrevendo o email...';
+  const g = AU.gen;
+  try {
+    await api('/api/forgot', { login: val });
+    if (g !== AU.gen) return;
+    AU.busy = false; ptMood('happy', 'online'); ptAnim('jump');
+    await bot(['Pronto! Se essa conta tiver um email confirmado, o link já está a caminho 📬', 'Olhe a caixa de entrada (e o spam). O link vale 30 minutos.'], { chips: [['Voltar para entrar', () => authStart('login', { username: val.includes('@') ? '' : val.replace(/^@/, '') })], ['Mandar de novo', () => authStart('forgot')]] });
+    ptMood('look', 'online');
+  } catch (e) {
+    if (g !== AU.gen) return;
+    AU.busy = false; ptMood('sad', 'meio triste');
+    await authBad(`Eita! ${e.message}`);
+    ask('login');
+  }
+}
+// senha nova pelo link do email
+async function authNewPass(val) {
+  if (val.length < 8) { await authBad('Curtinha demais! A senha precisa de pelo menos 8 caracteres.'); ask('newpass'); return; }
+  AU.busy = true; $('#authBtn').disabled = true; $('#ptStatus').textContent = 'trocando a fechadura...';
+  const g = AU.gen;
+  try {
+    const r = await api('/api/reset', { token: AU.data.token, password: val });
+    if (g !== AU.gen) return;
+    AU.busy = false; AU.data.displayName = r.displayName; AU.data.username = r.username;
+    await authWin(r.token);
+  } catch (e) {
+    if (g !== AU.gen) return;
+    AU.busy = false; ptMood('sad', 'meio triste');
+    await authBad(`Eita! ${e.message}`);
+    if (/venceu|usado/i.test(e.message)) await bot('Quer outro link?', { chips: [['Pedir outro link', () => authStart('forgot')], ['Entrar', () => authStart('login')]] });
+    else ask('newpass');
+  }
+}
 $('#authPeek').onclick = () => {
   const inp = $('#authInput'), on = inp.type === 'password';
   inp.type = on ? 'text' : 'password'; $('#authPeek').setAttribute('aria-pressed', String(on));
@@ -415,11 +476,14 @@ $('#authForm').onsubmit = async e => {
   e.preventDefault(); audioCtx();
   if (AU.busy) return;
   const inp = $('#authInput'), raw = inp.value, reg = AU.mode === 'register';
-  const val = AU.step === 'pass' ? raw : raw.trim();
+  const secret = AU.step === 'pass' || AU.step === 'newpass';
+  const val = secret ? raw : raw.trim();
   if (!val && AU.step !== 'name') { ptAnim('boop'); inp.focus(); return; }
   $('#authForm').classList.remove('bad'); $$('#authLog .au-chips').forEach(c => c.remove());
-  authAdd(AU.step === 'pass' ? '•'.repeat(Math.min(val.length, 12)) : esc(val || '(pulei)'), 'au-msg me' + (AU.step === 'pass' ? ' secret' : ''));
+  authAdd(secret ? '•'.repeat(Math.min(val.length, 12)) : esc(val || '(pulei)'), 'au-msg me' + (secret ? ' secret' : ''));
   inp.value = '';
+  if (AU.step === 'login') return authForgot(val.toLowerCase());
+  if (AU.step === 'newpass') return authNewPass(val);
   if (AU.step === 'user') {
     const u = val.toLowerCase().replace(/^@/, '');
     if (!/^[a-z0-9_.]{3,20}$/.test(u)) { ptMood('sus', 'desconfiado 🤨'); await authBad('Esse nome não passa na porta 😬 Use de 3 a 20 caracteres: letras minúsculas, números, ponto ou _.'); ask('user'); return; }
@@ -443,7 +507,7 @@ $('#authForm').onsubmit = async e => {
     if (reg && /usu[aá]rio/i.test(err.message)) { await authBad(`Eita! ${err.message} Escolhe outro?`); ask('user'); return; }
     await authBad(`Eita! ${err.message}`);
     ask('pass');
-    await bot('Bora de novo? Manda a senha.', { chips: [['Trocar usuário', () => authStart(AU.mode)], ...(reg ? [] : [['Criar conta', () => authStart('register')]])] });
+    await bot('Bora de novo? Manda a senha.', { chips: [['Trocar usuário', () => authStart(AU.mode)], ...(reg ? [] : [['Esqueci a senha', () => authStart('forgot', { username: AU.data.username })], ['Criar conta', () => authStart('register')]])] });
   }
 };
 async function goPass() {
@@ -455,7 +519,7 @@ async function authWin(token) {
   clearTimeout(ptIdle1); clearTimeout(ptIdle2);
   ptMood('happy', 'comemorando 🎉'); ptAnim('jump'); setTimeout(ptWave, 500); $('#authForm').classList.add('good');
   $('#authInput').blur(); $('#authBtn').disabled = true;
-  authAdd(esc(AU.mode === 'register' ? `Prontinho, ${name}! Conta criada. Seja bem-vindo 🎉` : `Achei você, ${name}! Pode entrar, a galera tá te esperando 🎉`), 'au-msg');
+  authAdd(esc(AU.mode === 'register' ? `Prontinho, ${name}! Conta criada. Seja bem-vindo 🎉` : AU.mode === 'reset' ? `Senha nova guardada, ${name}! Os outros aparelhos saíram da conta por segurança. Pode entrar 🎉` : `Achei você, ${name}! Pode entrar, a galera tá te esperando 🎉`), 'au-msg');
   tone([[523, .1], [659, .1], [784, .1], [1047, .25]], 'triangle', .08);
   confetti();
   await authWait(reduceMotion() ? 200 : 1300);
@@ -523,6 +587,52 @@ async function logout() {
   if (socket) socket.disconnect(); socket = null; closeSettings(); showAuth();
 }
 
+/* =============== email de recuperação =============== */
+// quem ainda não tem email ganha o pedido ao entrar; "agora não" pergunta de novo em 3 dias
+const EMAIL_ASK_EVERY = 3 * 864e5;
+function maybeAskEmail(tries = 0) {
+  const me = S.me; if (!me || !me.mailOn || me.email) return;
+  if (me.emailAsked && Date.now() - me.emailAsked < EMAIL_ASK_EVERY) return;
+  if ($('#modalRoot .modal-back')) { if (tries < 30) setTimeout(() => maybeAskEmail(tries + 1), 3000); return; } // espera as Novidades fecharem
+  emailModal(true);
+}
+function emailModal(first) {
+  modal(`<div class="modal-h"><div class="em-ic">📬</div><h2>${first ? 'Proteja sua conta' : 'Email de recuperação'}</h2><p>Ligue um email à sua conta para conseguir criar uma senha nova se um dia esquecer a sua. Ninguém mais vê esse email.</p></div>
+    <div class="modal-b em-b"><div id="emS1"><label class="field">Seu email<input type="email" id="emE" autocomplete="email" placeholder="voce@exemplo.com" maxlength="254" value="${esc(S.me.email || '')}"></label></div>
+      <div id="emS2" hidden><p class="muted small" id="emTo"></p><label class="field">Código de 6 dígitos<input id="emC" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" class="em-code"></label>
+      <button class="btn ghost sm" id="emBack" type="button">Trocar o email ou mandar outro código</button></div>
+      <p class="form-err" id="emErr"></p></div>
+    <div class="modal-f"><button class="btn ghost" id="emLater">${first ? 'Agora não' : 'Cancelar'}</button><button class="btn primary" id="emGo">Enviar código</button></div>`, (m, close) => {
+    let step = 1;
+    const err = t => { $('#emErr', m).textContent = t || ''; };
+    const go = $('#emGo', m);
+    $('#emLater', m).onclick = () => { if (first) { emit('email:later'); S.me.emailAsked = Date.now(); } close(); };
+    $('#emBack', m).onclick = () => { step = 1; $('#emS1', m).hidden = false; $('#emS2', m).hidden = true; go.textContent = 'Enviar código'; err(); $('#emE', m).focus(); };
+    const submit = async () => {
+      if (go.disabled) return;
+      err(); go.disabled = true;
+      try {
+        if (step === 1) {
+          const r = await emit('email:start', { email: $('#emE', m).value });
+          if (!r.ok) return err(r.erro);
+          step = 2; $('#emS1', m).hidden = true; $('#emS2', m).hidden = false; go.textContent = 'Confirmar';
+          $('#emTo', m).innerHTML = `Mandamos um código para <b>${esc(r.masked)}</b>. Pode levar um minutinho (olhe também o spam).`;
+          $('#emC', m).value = ''; $('#emC', m).focus();
+        } else {
+          const r = await emit('email:confirm', { code: $('#emC', m).value });
+          if (!r.ok) return err(r.erro);
+          S.me = { ...S.me, ...r.me }; S.users[S.me.id] = S.me; close();
+          toast('Email confirmado! Se esquecer a senha, dá para criar outra por ele.');
+          if ($('#setBody') && setTab === 'conta') drawSettings();
+        }
+      } finally { go.disabled = false; }
+    };
+    go.onclick = submit;
+    m.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('#emE, #emC')) { e.preventDefault(); submit(); } });
+    $('#emC', m).oninput = e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6); if (e.target.value.length === 6) submit(); };
+  });
+}
+
 /* =============== conexão =============== */
 function connect() {
   if (socket) socket.disconnect();
@@ -543,7 +653,7 @@ function connect() {
     if (r.started) srvStarted = r.started;
     clog(`Conectado ao servidor (${socket.io.engine?.transport?.name || '?'}).`);
     // novidades desde a última vez (só uma vez por abertura do app)
-    if (!connect.news) { connect.news = true; setTimeout(() => showNews(false), 1200); }
+    if (!connect.news) { connect.news = true; setTimeout(() => showNews(false), 1200); setTimeout(maybeAskEmail, 2500); }
     // caiu no meio da call: volta sozinho para a mesma sala
     const rj = V.rejoin; V.rejoin = null;
     if (rj && !V.room) {
@@ -1070,6 +1180,12 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-09-email', date: '09/11/2026', title: 'Recuperar a senha por email', emoji: '📬', items: [
+    'Agora dá para ligar um email à sua conta (o app pede ao entrar, ou em Configurações › Minha conta).',
+    'Esqueceu a senha? Na tela de entrar, toque em <b>Esqueci a senha</b>: chega um link no email para criar uma senha nova.',
+    'O link vale 30 minutos e só funciona uma vez. Ao trocar a senha, os outros aparelhos saem da conta.',
+    'Seu email fica só com você: ninguém mais vê.'
+  ] },
   { id: '2026-11-09-dj-playlist', date: '09/11/2026', title: 'DJ: playlists, álbuns e volume fino', emoji: '🎧', items: [
     'Mande o link de uma <b>playlist</b> ou <b>álbum</b> (YouTube, YouTube Music, SoundCloud, Spotify) no <b>/music</b> e todas as músicas entram na fila de uma vez.',
     'Novo <b>/album nome do álbum</b>: o DJ procura o álbum e põe ele inteiro na fila.',
@@ -1858,11 +1974,25 @@ function drawSettings() {
         <label class="field">Nova senha<input type="password" id="pwN" autocomplete="new-password" placeholder="pelo menos 8 caracteres"></label></div>
         <p class="form-err" id="pwE"></p>
         <div style="display:flex;justify-content:flex-end"><button class="btn primary" id="pwOk">Trocar senha</button></div></div>
+      <div class="set-card"><h3>Email de recuperação</h3>
+        ${S.me.email ? setRow(esc(S.me.email), 'Esqueceu a senha? Na tela de entrar, toque em "Esqueci a senha" e o link chega neste email.', '<div style="display:flex;gap:8px"><button class="btn sm" id="emCh">Trocar</button><button class="btn sm ghost" id="emRm">Tirar</button></div>')
+          : S.me.mailOn ? setRow('Nenhum email ligado', 'Sem email, não tem como recuperar a conta se você esquecer a senha.', '<button class="btn sm primary" id="emAdd">Adicionar email</button>')
+          : '<p class="muted small" style="margin:0">Este servidor ainda não manda emails, então recuperar a senha por email está desligado por enquanto.</p>'}</div>
       <div class="set-card"><h3>Dispositivos conectados</h3><div id="sesBox" class="muted">Carregando...</div></div>
       <div class="set-card">${setRow('Sair da conta', 'Desconecta este aparelho.', '<button class="btn danger" id="lo">Sair</button>')}</div>`;
     $('#acId').onclick = () => copy(S.me.id, 'ID copiado.');
     $('#pwOk').onclick = async () => { try { await api('/api/password', { atual: $('#pwA').value, nova: $('#pwN').value }); $('#pwE').textContent = ''; $('#pwA').value = $('#pwN').value = ''; toast('Senha trocada.'); } catch (e) { $('#pwE').textContent = e.message; } };
     $('#lo').onclick = () => logout();
+    [$('#emAdd'), $('#emCh')].forEach(x => x && (x.onclick = () => emailModal(false)));
+    if ($('#emRm')) $('#emRm').onclick = () => modal(`<div class="modal-h"><h2>Tirar o email?</h2><p>Sem email, você não consegue recuperar a conta se esquecer a senha. Para confirmar, digite sua senha.</p></div>
+      <div class="modal-b"><label class="field">Senha<input type="password" id="emPw" autocomplete="current-password"></label><p class="form-err" id="emRmE"></p></div>
+      <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" id="emRmOk">Tirar email</button></div>`, (m, close) => {
+      $('#emRmOk', m).onclick = async () => {
+        const r = await emit('email:remove', { password: $('#emPw', m).value });
+        if (!r.ok) { $('#emRmE', m).textContent = r.erro; return; }
+        S.me = { ...S.me, ...r.me }; S.users[S.me.id] = S.me; close(); toast('Email tirado da conta.'); drawSettings();
+      };
+    });
     const ses = async () => {
       const r = await emit('sessions:info'); const box = $('#sesBox'); if (!box) return;
       if (!r.ok) { box.textContent = r.erro || 'Não consegui carregar.'; return; }
@@ -3685,6 +3815,8 @@ window.addEventListener('beforeunload', () => { if (V.room) socket?.emit('voice:
 /* =============== início =============== */
 // quem entrou numa versão antiga tem o token guardado no navegador: troca por cookie (sem precisar entrar de novo)
 (async () => {
+  // abriu o link "criar senha nova" do email: vai direto para o Porteiro (mesmo se já estava logado aqui)
+  if (new URLSearchParams(location.search).get('reset')) { showAuth(); return; }
   let old = null; try { old = localStorage.getItem('discordia:token'); } catch {}
   if (old) {
     try {

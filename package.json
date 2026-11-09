@@ -13,12 +13,13 @@
     "dist:win": "npm run nativo && electron-builder --win",
     "dist:cliente": "npm run nativo && electron-builder --win --config electron-builder.cliente.json",
     "dist:android": "powershell -ExecutionPolicy Bypass -File android\\gerar-apk.ps1",
-    "nativo":"desktop\\\\native\\\\compilar.cmd"
+    "nativo": "desktop\\\\native\\\\compilar.cmd"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",
     "compression": "^1.8.1",
     "express": "^4.22.3",
+    "nodemailer": "^6.9.16",
     "selfsigned": "^2.4.1",
     "socket.io": "^4.8.1"
   },
