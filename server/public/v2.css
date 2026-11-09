@@ -634,3 +634,5 @@
 }
 /* no app Android não dá para compartilhar a tela */
 .android [data-act="toggleScreen"] { display: none; }
+.dj-vol output { min-width: 34px; text-align: right; font-size: .8em; font-variant-numeric: tabular-nums; }
+.um-vol output { font-variant-numeric: tabular-nums; }

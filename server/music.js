@@ -102,6 +102,82 @@ function createMusic({ log = () => {} } = {}) {
       at: Date.now()
     };
   }
-  return { resolve, ensure, publicUrl };
+  /* ---------- playlists e álbuns ----------
+     A lista vem "rasa" (só nome, duração e link de cada música), o que é rápido mesmo com 200 músicas.
+     O áudio de cada uma só é buscado perto da hora de tocar. */
+  const MAX_LIST = 200;
+  // o link é de uma playlist/álbum? (mix automático do YouTube, list=RD..., conta como música só)
+  function isList(q) {
+    if (!isUrl(q)) return false;
+    let u; try { u = new URL(q); } catch { return false; }
+    const h = u.hostname.replace(/^(www|m|music)\./, ''), list = u.searchParams.get('list') || '';
+    if (/(^|\.)youtube\.com$|^youtu\.be$/.test(h)) return (!!list && !/^RD/.test(list)) || /^\/browse\/MPRE/.test(u.pathname) || /^\/playlist/.test(u.pathname);
+    if (h === 'soundcloud.com') return /\/sets\//.test(u.pathname);
+    if (/bandcamp\.com$/.test(h)) return /^\/album\//.test(u.pathname);
+    if (h === 'open.spotify.com') return /^\/(intl-[a-z]+\/)?(album|playlist)\//.test(u.pathname);
+    return false;
+  }
+  const isSpotify = q => { try { return new URL(q).hostname === 'open.spotify.com'; } catch { return false; } };
+  const ytThumb = id => id && /^[\w-]{11}$/.test(id) ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null;
+  async function flat(target, extra = []) {
+    await ensure();
+    const args = ['-J', '--flat-playlist', '--no-warnings', '--playlist-end', String(MAX_LIST), ...extra, target];
+    let out;
+    try { out = await run([...jsArgs, ...args], 60000); }
+    catch (e) { if (/js-runtimes|no such option/i.test(e.message)) out = await run(args, 60000); else throw e; }
+    return JSON.parse(out);
+  }
+  function fromFlat(e) {
+    const url = e.url && isUrl(e.url) ? e.url : e.ie_key === 'Youtube' || /^[\w-]{11}$/.test(e.id || '') ? 'https://www.youtube.com/watch?v=' + e.id : e.webpage_url || null;
+    if (!url || e.availability === 'private' || /^\[(Private|Deleted)/i.test(e.title || '')) return null;
+    const th = Array.isArray(e.thumbnails) && e.thumbnails.length ? e.thumbnails[e.thumbnails.length - 1].url : e.thumbnail;
+    return {
+      title: String(e.title || 'Sem título').slice(0, 200), by: String(e.channel || e.uploader || e.artist || '').slice(0, 100),
+      page: url.slice(0, 500), dur: Math.round(+e.duration || 0),
+      thumb: th && /^https:\/\//.test(th) ? String(th).slice(0, 500) : ytThumb(e.id), q: url
+    };
+  }
+  // Spotify não deixa baixar o áudio: pega a lista de músicas da página pública e cada uma é buscada no YouTube
+  async function spotify(q) {
+    const u = await publicUrl(q);
+    const m = /\/(album|playlist|track)\/([A-Za-z0-9]+)/.exec(u.pathname);
+    if (!m) throw new Error('link do Spotify não reconhecido');
+    const r = await fetch(`https://open.spotify.com/embed/${m[1]}/${m[2]}`, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept-Language': 'pt-BR,pt;q=0.9' } });
+    if (!r.ok) throw new Error('o Spotify não respondeu (HTTP ' + r.status + ')');
+    const html = await r.text();
+    const js = /<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/.exec(html);
+    if (!js) throw new Error('não consegui ler a página do Spotify');
+    const ent = JSON.parse(js[1])?.props?.pageProps?.state?.data?.entity;
+    if (!ent) throw new Error('não consegui ler a página do Spotify');
+    const cover = (ent.coverArt?.sources || ent.visualIdentity?.image || []).slice(-1)[0]?.url || null;
+    const items = m[1] === 'track' ? [{ title: ent.name || ent.title, subtitle: (ent.artists || []).map(a => a.name).join(', '), duration: ent.duration }] : (ent.trackList || []);
+    const tracks = items.slice(0, MAX_LIST).filter(t => t && t.title).map(t => ({
+      title: String(t.title).slice(0, 200), by: String(t.subtitle || '').replace(/ /g, ' ').slice(0, 100), page: null,
+      dur: Math.round((+t.duration || 0) / 1000), thumb: cover && /^https:\/\//.test(cover) ? cover : null,
+      q: `${t.title} ${String(t.subtitle || '').replace(/ /g, ' ')} audio`.slice(0, 200), keep: true
+    }));
+    if (!tracks.length) throw new Error('essa lista do Spotify está vazia');
+    return { title: String(ent.name || ent.title || 'Spotify').slice(0, 200), tracks, single: m[1] === 'track' };
+  }
+  // playlist ou álbum por link; ou "álbum NOME": procura no YouTube a playlist do álbum
+  async function resolveList(q, { album = false } = {}) {
+    if (process.env.DJ_SEM_YTDLP) throw new Error('neste servidor só funcionam links diretos de áudio (mp3, ogg...)');
+    if (isUrl(q) && isSpotify(q)) return spotify(q);
+    let target = q;
+    if (album) {
+      // filtro "playlists" da busca do YouTube: os álbuns aparecem como playlists (OLAK5uy_...)
+      const s = await flat('https://www.youtube.com/results?search_query=' + encodeURIComponent(q + ' album') + '&sp=EgIQAw%253D%253D', ['--playlist-end', '8']);
+      const hits = (s.entries || []).filter(e => e && (e.url || '').includes('list='));
+      const pick = hits.find(e => /list=OLAK5uy_/.test(e.url)) || hits[0];
+      if (!pick) throw new Error('não achei nenhum álbum com esse nome');
+      target = pick.url;
+    } else await publicUrl(q);
+    const j = await flat(target);
+    const tracks = (j.entries || []).filter(Boolean).map(fromFlat).filter(Boolean);
+    if (!tracks.length) throw new Error('essa playlist está vazia ou é privada');
+    return { title: String(j.title || 'Playlist').replace(/^Album - /, '').slice(0, 200), tracks, single: false };
+  }
+
+  return { resolve, resolveList, isList, isSpotify, ensure, publicUrl, _spotify: spotify };
 }
 module.exports = { createMusic };

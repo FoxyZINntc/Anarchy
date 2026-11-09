@@ -1070,6 +1070,13 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-09-dj-playlist', date: '09/11/2026', title: 'DJ: playlists, álbuns e volume fino', emoji: '🎧', items: [
+    'Mande o link de uma <b>playlist</b> ou <b>álbum</b> (YouTube, YouTube Music, SoundCloud, Spotify) no <b>/music</b> e todas as músicas entram na fila de uma vez.',
+    'Novo <b>/album nome do álbum</b>: o DJ procura o álbum e põe ele inteiro na fila.',
+    'A próxima música já fica carregada enquanto a atual toca, sem espera na troca.',
+    'O volume do DJ agora vai de 1 em 1% e segue o ouvido: os volumes baixinhos finalmente dá para usar.',
+    'Dá para mudar o volume com a rodinha do mouse em cima da barra.'
+  ] },
   { id: '2026-11-08-android', date: '08/11/2026', title: 'Anarchy no celular (Android)', emoji: '📱', items: [
     'Agora tem app para Android: no celular, abra <a href="https://github.com/FoxyZINntc/Discordia/releases/latest/download/Anarchy.apk" target="_blank" rel="noopener">este link para baixar o Anarchy.apk</a> e instale.',
     'Chat, calls de voz e vídeo, DJ, figurinhas e temas, tudo igual ao do PC.',
@@ -1336,7 +1343,7 @@ function userMenu(uid, x, y, anchor) {
     <button data-m="pf">Ver perfil ${I('user')}</button>
     ${me ? `<button data-m="edit">Editar perfil ${I('edit')}</button>` : u.bot ? `<button data-m="djset">Comandos e configurações do DJ</button>` : `<button data-m="dm">Enviar mensagem ${I('msg')}</button><button data-m="call">Iniciar chamada ${I('phone')}</button><button data-m="vid">Chamada de vídeo ${I('cam')}</button>`}
     ${canMention ? `<button data-m="men">Mencionar</button>` : ''}
-    ${u.bot ? `<hr><div class="um-vol"><label>Volume do DJ para você <output>${prefs.djVol ?? 70}%</output></label><input type="range" min="0" max="100" step="5" value="${prefs.djVol ?? 70}" data-m="djvol"></div>
+    ${u.bot ? `<hr><div class="um-vol"><label>Volume do DJ para você <output>${prefs.djVol ?? 70}%</output></label><input type="range" min="0" max="100" step="1" value="${prefs.djVol ?? 70}" data-m="djvol"></div>
       <button data-m="djmute">${prefs.djOn === false ? 'Voltar a ouvir o DJ' : 'Silenciar o DJ para mim'} ${I(prefs.djOn === false ? 'voice' : 'micOff')}</button>` : ''}
     ${inVoice ? `<hr><div class="um-vol"><label>Volume para você <output>${volOf(uid, 'voice')}%</output></label><input type="range" min="0" max="200" step="5" value="${volOf(uid, 'voice')}" data-m="vol"></div>
       <button data-m="mute">${prefs.umute && prefs.umute[uid] ? 'Voltar a ouvir' : 'Silenciar para mim'} ${I(prefs.umute && prefs.umute[uid] ? 'voice' : 'micOff')}</button>` : ''}
@@ -1349,7 +1356,7 @@ function userMenu(uid, x, y, anchor) {
   if (vol) vol.onchange = () => { renderSide(); renderStageSlot(); };
   // DJ: volume só para você (o mesmo do cartão "Tocando agora")
   const djv = $('[data-m="djvol"]', p);
-  if (djv) djv.oninput = () => { djv.previousElementSibling.querySelector('output').textContent = djv.value + '%'; prefs.djVol = +djv.value; if (prefs.djOn === false && +djv.value > 0) prefs.djOn = true; savePrefs(); musicVol(); $$('[data-djvol]').forEach(x => x.value = djv.value); };
+  if (djv) djv.oninput = () => setDjVol(djv.value);
   p.onclick = async e => {
     const m = e.target.closest('button[data-m]')?.dataset.m; if (!m) return; closePops();
     if (m === 'pf') openFullProfile(uid);
@@ -2528,9 +2535,12 @@ function musicSync() {
   if (Math.abs((MU.el.currentTime || 0) - pos) > 0.8) try { MU.el.currentTime = pos; } catch {}
   if (MU.el.paused) MU.el.play().catch(() => toast('Clique em qualquer lugar para ouvir o DJ.'));
 }
+// o ouvido percebe volume em curva: com a barra em linha reta, 5% ainda soava alto e depois só vinha o 0.
+// Elevando ao quadrado, cada pedacinho da barra muda o volume de um jeito que dá para sentir (50% = 1/4 da força).
+const djGain = v => Math.pow(clamp(+v || 0, 0, 100) / 100, 2);
 function musicVol() {
   const st = djState(); if (!MU.el || !st) return;
-  const v = V.deaf || prefs.djOn === false ? 0 : (st.vol / 100) * clamp(prefs.djVol ?? 70, 0, 100) / 100 * clamp(prefs.outVol ?? 100, 0, 200) / 100;
+  const v = V.deaf || prefs.djOn === false ? 0 : djGain(st.vol) * djGain(prefs.djVol ?? 70) * clamp(prefs.outVol ?? 100, 0, 200) / 100;
   MU.el.volume = clamp(v, 0, 1); MU.el.muted = v === 0;
 }
 // fica conferindo se está no ponto certo (o áudio pode atrasar ao carregar); atualiza a barra de tempo
@@ -2544,28 +2554,41 @@ setInterval(() => {
 function fmtDur(s) { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = String(s % 60).padStart(2, '0'); return h ? `${h}:${String(m).padStart(2, '0')}:${x}` : `${m}:${x}`; }
 // cartão "Tocando agora" (no palco da call)
 function djCard(roomId) {
-  const st = S.music[roomId]; if (!st || !st.cur) return '';
-  const c = st.cur, paused = st.pausedAt !== null, inRoom = V.room === roomId;
+  const st = S.music[roomId]; if (!st || !(st.cur || st.loading)) return '';
+  const c = st.cur || st.loading, loading = !st.cur, paused = st.pausedAt !== null, inRoom = V.room === roomId;
   const thumb = c.thumb ? `<img src="${esc(c.thumb)}" alt="" loading="lazy">` : `<div class="dj-noart">🎵</div>`;
   const b = (a, icon, tip, on) => `<button class="dj-b ${on ? 'on' : ''}" data-act="djCtl" data-a="${a}" data-room="${roomId}" title="${tip}" ${inRoom ? '' : 'disabled'}>${icon}</button>`;
   return `<div class="dj-card" data-room="${roomId}">
     <div class="dj-art">${thumb}</div>
     <div class="dj-main">
-      <div class="dj-top">${av(st.botId, 20, false)}<span class="dj-bot">${esc(nameOf(st.botId))}</span><span class="bot-tag">BOT</span><span class="dj-state">${paused ? 'Pausado' : 'Tocando agora'}</span></div>
+      <div class="dj-top">${av(st.botId, 20, false)}<span class="dj-bot">${esc(nameOf(st.botId))}</span><span class="bot-tag">BOT</span><span class="dj-state">${loading ? 'Carregando...' : paused ? 'Pausado' : 'Tocando agora'}</span></div>
       <div class="dj-title" title="${esc(c.title)}">${c.page ? `<a href="${esc(c.page)}" target="_blank" rel="noopener">${esc(c.title)}</a>` : esc(c.title)}</div>
       <div class="dj-sub">${esc(c.by || '')}${c.by ? ' · ' : ''}pedido por ${esc(nameOf(c.who))}${st.queue.length ? ` · ${st.queue.length} na fila` : ''}${st.loop ? ' · 🔁 repetindo' : ''}</div>
       <div class="dj-prog"><i></i></div>
       <div class="dj-row">
         ${b(paused ? 'continuar' : 'pausar', paused ? '▶' : '⏸', paused ? 'Continuar' : 'Pausar')}${b('pular', '⏭', 'Pular')}${b('parar', '⏹', 'Parar e limpar a fila')}${b('repetir', '🔁', 'Repetir esta música', st.loop)}
-        <span class="dj-time">0:00</span>
-        <label class="dj-vol" title="Volume do DJ só para você">${ic('voice')}<input type="range" min="0" max="100" step="5" value="${prefs.djVol ?? 70}" data-djvol="1"></label>
+        <span class="dj-time">${loading ? '' : '0:00'}</span>
+        <label class="dj-vol" title="Volume do DJ só para você (dá para usar a rodinha do mouse)">${ic('voice')}<input type="range" min="0" max="100" step="1" value="${prefs.djVol ?? 70}" data-djvol="1" aria-label="Volume do DJ para você"><output>${prefs.djVol ?? 70}%</output></label>
       </div>
       ${st.queue.length ? `<details class="dj-q"><summary>Próximas (${st.queue.length})</summary>${st.queue.slice(0, 15).map((t, i) => `<div class="dj-qi"><span>${i + 1}.</span><b title="${esc(t.title)}">${esc(t.title)}</b><span class="muted">${t.dur ? fmtDur(t.dur) : ''}</span>${inRoom ? `<button class="icon-btn" data-act="djCtl" data-a="tirar" data-v="${i + 1}" data-room="${roomId}" title="Tirar da fila">${ic('x')}</button>` : ''}</div>`).join('')}</details>` : ''}
     </div></div>`;
 }
-document.addEventListener('input', e => { if (e.target.dataset && e.target.dataset.djvol) { prefs.djVol = +e.target.value; savePrefs(); musicVol(); } });
+// volume do DJ só para você: todas as barras (cartão da call e menu do botão direito) andam juntas
+function setDjVol(v) {
+  v = clamp(Math.round(+v || 0), 0, 100); prefs.djVol = v;
+  if (prefs.djOn === false && v > 0) prefs.djOn = true;
+  savePrefs(); musicVol();
+  $$('[data-djvol], [data-m="djvol"]').forEach(x => { if (+x.value !== v) x.value = v; const o = x.parentElement.querySelector('output'); if (o) o.textContent = v + '%'; });
+}
+document.addEventListener('input', e => { if (e.target.dataset && e.target.dataset.djvol) setDjVol(e.target.value); });
+// rodinha do mouse em cima da barra: 1% por vez (com Shift, 5%)
+document.addEventListener('wheel', e => {
+  const r = e.target.closest && e.target.closest('[data-djvol], [data-m="djvol"], .dj-vol');
+  if (!r) return; e.preventDefault();
+  setDjVol((prefs.djVol ?? 70) + (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 5 : 1));
+}, { passive: false });
 // comandos com / no campo de mensagem (só nos grupos com DJ)
-const DJ_CMDS = [['music', 'nome ou link', 'Toca uma música ou põe na fila'], ['pular', '', 'Pula para a próxima'], ['pausar', '', 'Pausa a música'], ['continuar', '', 'Continua de onde parou'], ['parar', '', 'Para tudo e limpa a fila'], ['fila', '', 'Mostra a fila'], ['agora', '', 'O que está tocando'], ['volume', '0 a 100', 'Volume do DJ para todo mundo'], ['repetir', '', 'Repete a música atual'], ['tirar', 'número', 'Tira uma música da fila'], ['embaralhar', '', 'Embaralha a fila'], ['ajuda', '', 'Lista os comandos']];
+const DJ_CMDS = [['music', 'nome ou link', 'Toca uma música, playlist ou álbum (YouTube, Spotify...)'], ['album', 'nome do álbum', 'Procura o álbum e põe ele inteiro na fila'],['pular', '', 'Pula para a próxima'], ['pausar', '', 'Pausa a música'], ['continuar', '', 'Continua de onde parou'], ['parar', '', 'Para tudo e limpa a fila'], ['fila', '', 'Mostra a fila'], ['agora', '', 'O que está tocando'], ['volume', '0 a 100', 'Volume do DJ para todo mundo'], ['repetir', '', 'Repete a música atual'], ['tirar', 'número', 'Tira uma música da fila'], ['embaralhar', '', 'Embaralha a fila'], ['ajuda', '', 'Lista os comandos']];
 const groupDj = g => g && g.djId && g.members.includes(g.djId) && user(g.djId).bot ? g.djId : null;
 function cmdAC(ta) {
   let box = null, items = [], sel = 0;

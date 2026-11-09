@@ -291,7 +291,8 @@ const mdSafe = s => String(s).replace(/([*_~`|\\])/g, '\\$1');
 function musicView(st) {
   if (!st) return null;
   const t = x => x && { id: x.id, title: x.title, by: x.by, page: x.page, dur: x.dur, thumb: x.thumb, who: x.who };
-  return { roomId: st.roomId, gid: st.gid, botId: st.botId, cur: t(st.cur), queue: st.queue.map(t), startedAt: st.startedAt, pausedAt: st.pausedAt, vol: st.vol, loop: st.loop, serverNow: now() };
+  // enquanto o áudio da música atual está sendo buscado, os apps não tocam nada
+  return { roomId: st.roomId, gid: st.gid, botId: st.botId, cur: st.cur && st.cur.src && !st.cur.loading ? t(st.cur) : null, loading: st.cur && (!st.cur.src || st.cur.loading) ? t(st.cur) : null, queue: st.queue.map(t), startedAt: st.startedAt, pausedAt: st.pausedAt, vol: st.vol, loop: st.loop, serverNow: now() };
 }
 function pushMusic(roomId) {
   const info = channelInfo(roomId); if (!info) return;
@@ -322,12 +323,35 @@ async function nextTrack(roomId, { skipped = false, msg = null } = {}) {
   else if (prev) setTimeout(() => { if (![...music.values()].some(s => s.cur === prev || s.queue.includes(prev))) tracks.delete(prev.id); }, 60e3).unref();
   st.cur = st.queue.shift() || null;
   if (!st.cur) return stopMusic(roomId, 'fim', msg);
-  // o endereço do áudio do YouTube vence em algumas horas: busca de novo se a faixa ficou velha na fila
-  if (now() - st.cur.at > 4 * 3600e3 && st.cur.q) { try { Object.assign(st.cur, await dj.resolve(st.cur.q)); } catch {} }
+  const seq = st.seq = (st.seq || 0) + 1, t = st.cur;
+  // música de playlist (ainda sem áudio) ou endereço velho (o do YouTube vence em algumas horas): busca agora
+  if (needSrc(t) || t.loading) {
+    clearTimeout(st.timer);
+    const p = t.loading || loadSrc(t); pushMusic(roomId); // enquanto busca, ninguém toca nada (a anterior já acabou)
+    try { await p; }
+    catch (e) {
+      if (st.seq !== seq || music.get(roomId) !== st) return;
+      const g = db.groups[st.gid]; if (g) botSay(g, st.cid, `⚠️ Pulei **${mdSafe(t.title)}**: ${mdSafe(e.message)}.`);
+      tracks.delete(t.id);
+      return nextTrack(roomId, { skipped: true, msg });
+    }
+    if (st.seq !== seq || music.get(roomId) !== st) return; // alguém pulou ou parou enquanto buscava
+  }
   st.startedAt = now() + 1500; st.pausedAt = null; // 1,5 s para todo mundo carregar e começar junto
   scheduleEnd(st); pushMusic(roomId);
   const g = db.groups[st.gid];
   if (g && !(st.loop && prev === st.cur)) botEdit(g, msg, `🎵 Tocando agora: **${mdSafe(st.cur.title)}**${st.cur.dur ? ` (${fmtDur(st.cur.dur)})` : ''} · pedido por ${mdSafe(uname(st.cur.who))}`, { music: card(st.cur), cid: st.cid });
+  // já deixa a próxima pronta, para a troca de música não ter espera
+  const nx = st.queue[0]; if (nx && needSrc(nx)) loadSrc(nx).catch(() => {});
+}
+// faixa sem áudio ainda (veio de playlist) ou com o endereço vencido
+const needSrc = t => !t.src || (t.q && now() - (t.at || 0) > 4 * 3600e3);
+function loadSrc(t) {
+  if (!t.loading) t.loading = dj.resolve(t.q).then(r => {
+    // da playlist do Spotify ficam o nome e a capa de lá (a busca no YouTube só fornece o áudio)
+    Object.assign(t, t.keep ? { src: r.src, at: r.at, page: r.page, dur: r.dur || t.dur } : r);
+  }).finally(() => { t.loading = null; });
+  return t.loading;
 }
 function stopMusic(roomId, why, msg = null) {
   const st = music.get(roomId); if (!st) return;
@@ -345,14 +369,15 @@ function roomOfUser(g, uid) {
   return null;
 }
 const CMDS = {
-  music: ['music', 'm', 'tocar', 'play', 'p'], pular: ['pular', 'skip', 's', 'proxima'], pausar: ['pausar', 'pause'], continuar: ['continuar', 'resume', 'voltar'],
+  music: ['music', 'm', 'tocar', 'play', 'p'], album: ['album', 'álbum', 'disco', 'playlist'], pular: ['pular', 'skip', 's', 'proxima'], pausar: ['pausar', 'pause'], continuar: ['continuar', 'resume', 'voltar'],
   parar: ['parar', 'stop', 'sair'], fila: ['fila', 'queue', 'q'], agora: ['agora', 'np', 'tocando'], volume: ['volume', 'vol', 'v'], repetir: ['repetir', 'loop', 'r'],
   tirar: ['tirar', 'remover', 'remove'], embaralhar: ['embaralhar', 'shuffle', 'misturar'], ajuda: ['ajuda', 'help', 'comandos']
 };
 const CMD_OF = Object.fromEntries(Object.entries(CMDS).flatMap(([k, l]) => l.map(a => [a, k])));
 const HELP = [
   '**Comandos do DJ** 🎧 (entre numa sala de voz do grupo antes)',
-  '`/music nome ou link` toca ou põe na fila (YouTube, SoundCloud, link de mp3...)',
+  '`/music nome ou link` toca ou põe na fila (YouTube, SoundCloud, Spotify, link de mp3...)',
+  '`/music link da playlist ou do álbum` põe todas as músicas na fila de uma vez · `/album nome do álbum` procura o álbum inteiro',
   '`/pular` próxima música · `/pausar` · `/continuar` · `/parar` para tudo e limpa a fila',
   '`/fila` mostra a fila · `/agora` o que está tocando · `/tirar 2` tira a 2ª da fila · `/embaralhar`',
   '`/volume 80` volume do DJ para todo mundo (0 a 100) · `/repetir` repete a música atual',
@@ -394,7 +419,37 @@ function djAction(g, uid, room, action, arg) {
   }
   return null;
 }
+const MAX_QUEUE = 300;
+function djState(g, cid, room) {
+  let st = music.get(room);
+  if (!st) { st = { roomId: room, gid: g.id, cid, botId: g.djId, cur: null, queue: [], startedAt: 0, pausedAt: null, vol: 100, loop: false, timer: null }; music.set(room, st); }
+  st.cid = cid; return st;
+}
+// playlist, álbum (link ou "/album nome") ou Spotify: põe todas na fila de uma vez; o áudio de cada uma vem na hora de tocar
+async function djPlayList(g, cid, uid, room, q, album) {
+  const msg = botSay(g, cid, album ? `🔎 Procurando o álbum **${mdSafe(q.slice(0, 120))}**...` : '🔎 Lendo a lista de músicas...');
+  let r;
+  try { r = await dj.resolveList(q, { album }); }
+  catch (e) { return botEdit(g, msg, `😕 Não consegui ${album ? `achar o álbum **${mdSafe(q.slice(0, 120))}**` : 'abrir essa lista'}: ${mdSafe(e.message)}.`, { cid }); }
+  if (!djOf(g) || !voice.get(room)) return botEdit(g, msg, 'Achei as músicas, mas a sala de voz ficou vazia.', { cid });
+  const st = djState(g, cid, room);
+  const free = MAX_QUEUE - st.queue.length;
+  if (free <= 0) return botEdit(g, msg, `A fila está cheia (${MAX_QUEUE} músicas). Use \`/parar\` ou espere algumas tocarem.`, { cid });
+  const add = r.tracks.slice(0, free).map(x => ({ id: newId(), ...x, who: uid, roomId: room }));
+  add.forEach(t => tracks.set(t.id, t));
+  st.queue.push(...add);
+  const total = add.reduce((s, t) => s + (t.dur || 0), 0);
+  const cut = r.tracks.length > add.length ? ` (a fila só tinha espaço para ${add.length} de ${r.tracks.length})` : '';
+  const first = add[0];
+  if (r.single && !st.cur) return nextTrack(room, { msg }); // música só, nada tocando: o "procurando" vira o "tocando agora"
+  if (r.single) botEdit(g, msg, `➕ Na fila: **${mdSafe(first.title)}**${first.by ? ` · ${mdSafe(first.by)}` : ''}`, { cid });
+  else botEdit(g, msg, `📃 ${mdSafe(uname(uid))} pôs **${add.length} músicas** de **${mdSafe(r.title)}** na fila${total ? ` (${fmtDur(total)})` : ''}${cut}.`, { music: { title: r.title, by: `${add.length} músicas`, page: /^https?:/.test(q) ? q : null, thumb: first.thumb, dur: total }, cid });
+  if (!st.cur) return nextTrack(room);
+  pushMusic(room);
+  const nx = st.queue[0]; if (nx && needSrc(nx)) loadSrc(nx).catch(() => {});
+}
 async function djPlay(g, cid, uid, room, q) {
+  if (dj.isList(q) || dj.isSpotify(q)) return djPlayList(g, cid, uid, room, q, false);
   const msg = botSay(g, cid, `🔎 Procurando **${mdSafe(q.slice(0, 120))}**...`);
   let r;
   try { r = await dj.resolve(q); }
@@ -402,10 +457,8 @@ async function djPlay(g, cid, uid, room, q) {
   if (!djOf(g) || !voice.get(room)) return botEdit(g, msg, 'Achei a música, mas a sala de voz ficou vazia.', { cid });
   const t = { id: newId(), ...r, who: uid, q, roomId: room };
   tracks.set(t.id, t);
-  let st = music.get(room);
-  if (!st) { st = { roomId: room, gid: g.id, cid, botId: g.djId, cur: null, queue: [], startedAt: 0, pausedAt: null, vol: 100, loop: false, timer: null }; music.set(room, st); }
-  st.cid = cid;
-  if (st.queue.length >= 100) { tracks.delete(t.id); return botEdit(g, msg, 'A fila está cheia (100 músicas). Espere algumas tocarem.', { cid }); }
+  const st = djState(g, cid, room);
+  if (st.queue.length >= MAX_QUEUE) { tracks.delete(t.id); return botEdit(g, msg, `A fila está cheia (${MAX_QUEUE} músicas). Espere algumas tocarem.`, { cid }); }
   st.queue.push(t);
   if (!st.cur) return nextTrack(room, { msg });
   pushMusic(room);
@@ -419,10 +472,16 @@ function djCommand(g, cid, uid, text) {
   if (action === 'ajuda') { botSay(g, cid, HELP); return true; }
   const room = roomOfUser(g, uid);
   if (!room) { botSay(g, cid, `${mdSafe(uname(uid))}, entre numa sala de voz do grupo primeiro. 🎧`); return true; }
-  if (action === 'music') {
-    if (!arg) { botSay(g, cid, 'Diga a música: `/music nome da música` ou `/music link`.'); return true; }
+  if (action === 'music' || action === 'album') {
+    if (!arg) { botSay(g, cid, action === 'album' ? 'Diga o álbum: `/album nome do álbum e artista`.' : 'Diga a música: `/music nome da música` ou `/music link`.'); return true; }
     if (limited('dj:' + uid, 8, 60e3)) { botSay(g, cid, 'Calma! Muitos pedidos seguidos. Espere um pouquinho.'); return true; }
-    djPlay(g, cid, uid, room, arg.slice(0, 300));
+    // "/music album Nevermind" também vale
+    const al = /^(álbum|album)\s+(.+)$/i.exec(arg);
+    if (action === 'album' || al) {
+      const q = (al ? al[2] : arg).slice(0, 300);
+      if (/^https?:\/\//i.test(q)) djPlay(g, cid, uid, room, q);
+      else djPlayList(g, cid, uid, room, q, true);
+    } else djPlay(g, cid, uid, room, arg.slice(0, 300));
     return true;
   }
   const st = music.get(room); if (st) st.cid = cid;
@@ -443,7 +502,7 @@ try { app.use(require('compression')()); } catch { log('   Aviso: pacote "compre
 const CSP = [
   "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
-  "img-src 'self' data: blob: https://*.supabase.co https://*.giphy.com https://media.tenor.com https://i.ytimg.com https://*.sndcdn.com",
+  "img-src 'self' data: blob: https://*.supabase.co https://*.giphy.com https://media.tenor.com https://i.ytimg.com https://*.sndcdn.com https://*.spotifycdn.com https://i.scdn.co https://*.bcbits.com",
   "media-src 'self' blob: https://*.supabase.co",
   "connect-src 'self' https://*.supabase.co https://*.giphy.com https://media.tenor.com",
   "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"
@@ -599,7 +658,7 @@ app.get('/api/config', (req, res) => res.json({ iceServers: cfg.iceServers, buil
 // áudio do DJ: o servidor busca no site de origem e repassa (aceita "Range", para o app pular para o ponto certo)
 app.get('/api/music/:id', auth, async (req, res) => {
   const t = tracks.get(req.params.id);
-  if (!t || !canAccess(req.uid, t.roomId)) return res.status(404).end();
+  if (!t || !t.src || !canAccess(req.uid, t.roomId)) return res.status(404).end();
   const ac = new AbortController(); res.on('close', () => ac.abort());
   try {
     const headers = { ...t.src.headers, 'Accept-Encoding': 'identity' };
