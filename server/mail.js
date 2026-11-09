@@ -52,6 +52,8 @@ ${button ? `<p style="margin:22px 0"><a href="${esc(button.url)}" style="display
     await transport.sendMail({ from, to, subject, text, html: htmlBody });
     return true;
   }
-  return { ready, send, html };
+  // confere se o servidor de email aceita o login (usado pelo configurar-email do servidor)
+  async function check() { if (!transport) throw new Error('faltam SMTP_HOST, SMTP_USER ou SMTP_PASS'); await transport.verify(); return true; }
+  return { ready, send, html, check };
 }
 module.exports = { createMailer };
