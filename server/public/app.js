@@ -59,7 +59,6 @@ const P = {
   sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>'
 };
 const ic = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
-const EMOJIS = '😀 😂 🥹 😍 😎 🤔 😭 😡 👍 👎 👏 🙏 🔥 💯 ❤️ 💜 🎉 🎮 🏍️ ⚡ 🍕 ☕ 🐱 🐶 👀 💀 ✅ ❌ ⭐ 🌙 🚀 🎵'.split(' ');
 const QUICK = ['👍', '😂', '❤️', '🔥', '😮', '😢'];
 const GROUP_EMOJIS = '🎮 🏍️ 🎧 🍕 🔥 ⚡ 🌙 🚀 🐉 🎵 📚 💻 🏆 🌿 🦊 👾'.split(' ');
 const COLORS = ['#6c7cff', '#ff6b8b', '#3ee0c5', '#f5b83d', '#b07cff', '#4fc3f7', '#7bd88f', '#ff8a4c', '#e0517f', '#f2545b'];
@@ -1063,6 +1062,13 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-08-emojis', date: '08/11/2026', title: 'Painel de emojis novo', emoji: '😄', items: [
+    'O painel de emojis não corta mais a última coluna.',
+    'Agora são mais de 400 emojis, separados por categoria.',
+    'Dá pra procurar em português: "rir", "fogo", "gato", "pizza"...',
+    'Os que você mais usa aparecem primeiro em "Usados recentemente".',
+    'Segure Shift ao clicar para escolher vários de uma vez.'
+  ] },
   { id: '2026-11-08-temas', date: '08/11/2026', title: 'Temas animados', emoji: '🌆', items: [
     'Em <b>Configurações › Aparência › Temas animados</b>: uma cena animada no fundo do app e detalhes no visual.',
     '<b>Neon City</b> (cyberpunk com chuva neon e glitch), <b>Pôr do sol retrô</b>, <b>Terminal</b>, <b>Sakura ao vento</b>, <b>Galáxia</b> e <b>Brasas</b>.',
@@ -1142,9 +1148,65 @@ function reposPop(p) {
 }
 document.addEventListener('mousedown', e => { if (!e.target.closest('.pop') && !e.target.closest('[data-act]')) closePops(); });
 
+/* painel de emojis: categorias, busca em português e usados recentemente */
+const EP_DATA = [
+  ['car', '😀', 'Carinhas', `😀:sorriso/feliz 😃:feliz/alegre 😄:rindo/feliz 😁:sorrisao/dentes 😆:rindo/haha 😅:nervoso/suor 🤣:kkk/rolando/rir 😂:kkk/rir/chorando 🙂:sorriso 🙃:ironia/invertido 😉:piscada 😊:fofo/timido 😇:anjo/inocente 🥰:apaixonado/amor 😍:amor/apaixonado 🤩:uau/estrelas 😘:beijo 😗:beijo 😚:beijo 😋:delicia/gostoso 😛:lingua 😜:zoeira/lingua 🤪:doido/maluco 😝:lingua 🤑:dinheiro/rico 🤗:abraco 🤭:ops/risadinha 🤫:silencio/segredo 🤔:pensando/hmm 🤐:calado/boca 🤨:desconfiado 😐:neutro/serio 😑:serio 😶:mudo 😏:malicioso/sarcastico 😒:entediado/aff 🙄:aff/revirando 😬:eita/constrangido 😮‍💨:suspiro/alivio 🤥:mentira/mentiroso 😌:calmo/aliviado 😔:triste/pensativo 😪:sono 🤤:babando 😴:dormindo/sono 😷:mascara/doente 🤒:doente/febre 🤕:machucado 🤢:enjoo/nojo 🤮:vomito/nojo 🤧:espirro/gripe 🥵:calor/quente 🥶:frio/gelado 🥴:tonto/bebado 😵‍💫:tonto/confuso 🤯:explodindo/mente 🤠:cowboy 🥳:festa/aniversario 🥸:disfarce 😎:oculos/estilo/brabo 🤓:nerd 🧐:analisando/monoculo 😕:confuso 🫤:meh/confuso 😟:preocupado 🙁:triste 😮:surpreso/uau 😲:chocado 😳:vergonha/corado 🥺:pidao/fofo/porfavor 🥹:emocionado 😨:medo 😰:ansioso/suor 😥:triste/alivio 😢:triste/chorando 😭:chorando/choro 😱:grito/medo 😖:confuso 😞:decepcionado 😓:cansado/suor 😩:cansado/exausto 🥱:bocejo/sono 😤:bufando/raiva 😡:raiva/bravo 😠:bravo/raiva 🤬:xingando/palavrao 😈:diabo/malvado 👿:diabo 💀:caveira/morri 💩:coco 🤡:palhaco 👻:fantasma 👽:alien/et 🤖:robo/bot 😺:gato 😹:gato/kkk 😻:gato/amor 🙈:macaco/vergonha 🙉:macaco 🙊:macaco/segredo`],
+  ['pes', '👍', 'Gestos e pessoas', `👍:joinha/like/sim 👎:deslike/nao 👌:ok/perfeito 🤌:italiano 🤏:pouquinho ✌️:paz/vitoria 🤞:sorte/dedos 🤟:amo 🤘:rock 🤙:beleza/liga 👈:esquerda 👉:direita 👆:cima 👇:baixo ☝️:um/cima 👋:tchau/oi/ola ✋:pare/mao 🖖:vulcano 👏:palmas/aplausos 🙌:celebrar/aleluia 🤲:maos 🤝:acordo/aperto 🙏:obrigado/porfavor/reza 💪:forte/musculo 🦾:forte/robotico 🫡:continencia/sentido 🫶:maos/coracao/amor 👀:olhando/olhos 👁️:olho 👄:boca 🧠:cerebro/inteligente 🫠:derretendo 🗣️:falando/grito 👥:pessoas/grupo 🧑‍💻:programador/pc 🧑‍🎤:cantor/rock 🕺:danca 💃:danca 🏃:correndo 🧘:meditando/calma 🤷:seila/naosei 🤦:facepalm/vergonha 🙋:eu/mao 🙅:nao 🙆:ok 🧑‍🍳:cozinheiro 🥷:ninja 🧙:mago 🧛:vampiro 🧟:zumbi 🦸:heroi 🦹:vilao 👑:coroa/rei 💅:chique/unha`],
+  ['sim', '❤️', 'Corações e símbolos', `❤️:coracao/amor/vermelho 🧡:coracao/laranja 💛:coracao/amarelo 💚:coracao/verde 💙:coracao/azul 💜:coracao/roxo 🖤:coracao/preto 🤍:coracao/branco 🤎:coracao/marrom 💔:partido/triste ❤️‍🔥:paixao/fogo 💕:coracoes 💞:coracoes 💖:brilho/amor 💘:cupido/flecha 💯:cem/100/perfeito Ⓐ:anarquia/anarchy 💢:raiva 💥:explosao/boom 💫:tonto/estrela 💦:gotas/suor 💨:vento/rapido 💬:mensagem/fala 💭:pensamento 💤:sono/zzz ✅:certo/sim/check ❌:errado/nao/x ⚠️:aviso/cuidado ⛔:proibido 🚫:proibido ❓:pergunta/duvida ❗:importante/exclamacao ‼️:exclamacao ⁉️:oque ➕:mais ➖:menos ♾️:infinito ⭐:estrela 🌟:estrela/brilho ✨:brilho/magia ⚡:raio/energia 🔥:fogo/brabo/top 🆗:ok 🆕:novo 🆒:legal 🔞:mais18 ♻️:reciclar ☮️:paz 🏳️‍🌈:orgulho/arcoiris 🏴‍☠️:pirata 🇧🇷:brasil 🔴:vermelho 🟢:verde 🔵:azul 🟡:amarelo ⚫:preto ⚪:branco`],
+  ['nat', '🐱', 'Animais e natureza', `🐶:cachorro/dog 🐱:gato/cat 🐭:rato 🐹:hamster 🐰:coelho 🦊:raposa 🐻:urso 🐼:panda 🐨:coala 🐯:tigre 🦁:leao 🐮:vaca 🐷:porco 🐸:sapo 🐵:macaco 🐔:galinha 🐧:pinguim 🐦:passaro 🦆:pato 🦅:aguia 🦉:coruja 🦇:morcego 🐺:lobo 🐴:cavalo 🦄:unicornio 🐝:abelha 🦋:borboleta 🐌:lesma 🐞:joaninha 🐢:tartaruga 🐍:cobra 🦎:lagarto 🐙:polvo 🦀:caranguejo 🐠:peixe 🐬:golfinho 🐳:baleia 🦈:tubarao 🐊:jacare 🦖:dinossauro/trex 🐉:dragao 🌵:cacto 🎄:natal/arvore 🌲:pinheiro 🌴:palmeira/praia 🌱:planta/broto 🌿:folha/erva 🍀:trevo/sorte 🍁:outono/folha 🍄:cogumelo 🌷:flor/tulipa 🌹:rosa/flor 🌻:girassol/flor 🌸:sakura/flor/cerejeira 🌞:sol 🌙:lua/noite 🌎:mundo/terra 🌈:arcoiris ☀️:sol ⛅:nublado 🌧️:chuva ⛈️:tempestade/raio ❄️:neve/frio 🌊:onda/mar 🌋:vulcao`],
+  ['com', '🍕', 'Comidas e bebidas', `🍎:maca 🍊:laranja 🍋:limao 🍌:banana 🍉:melancia 🍇:uva 🍓:morango 🍒:cereja 🍑:pessego 🥭:manga 🍍:abacaxi 🥥:coco 🥑:abacate 🍅:tomate 🌽:milho 🌶️:pimenta 🥕:cenoura 🥔:batata 🍞:pao 🧀:queijo 🥚:ovo 🍳:ovo/frito 🥓:bacon 🍔:hamburguer/lanche 🍟:batata/fritas 🍕:pizza 🌭:hotdog/cachorroquente 🌮:taco 🌯:burrito 🥪:sanduiche 🍝:macarrao 🍜:lamen/miojo 🍣:sushi 🍙:oniguiri 🍗:frango 🥩:carne/churrasco 🥗:salada 🍿:pipoca 🍩:rosquinha/donut 🍪:biscoito/cookie 🎂:bolo/aniversario 🍰:bolo 🧁:cupcake 🍫:chocolate 🍬:bala/doce 🍭:pirulito 🍦:sorvete ☕:cafe 🍵:cha 🧋:bubbletea/cha 🥤:refri 🧃:suco 🍺:cerveja/breja 🍻:brinde/cerveja 🍷:vinho 🥂:brinde/champanhe 🍸:drink 🥃:whisky/dose 🧊:gelo`],
+  ['atv', '🎮', 'Jogos e atividades', `🎮:jogo/game/controle 🕹️:joystick/arcade 👾:game/retro/alien 🎲:dado 🧩:puzzle/quebracabeca ♟️:xadrez 🎯:alvo/mira 🎳:boliche 🃏:carta/coringa ⚽:futebol/bola 🏀:basquete 🏈:americano 🎾:tenis 🏐:volei 🏓:pingpong 🥊:boxe/luta 🥋:luta/judo 🏆:trofeu/campeao 🥇:ouro/primeiro 🥈:prata/segundo 🥉:bronze/terceiro 🏅:medalha 🎉:festa/parabens 🎊:festa/confete 🎈:balao 🎁:presente 🎨:arte/pintura 🎬:filme/cinema 🎤:microfone/karaoke 🎧:fone/musica 🎵:musica/nota 🎶:musica 🎸:guitarra/rock 🥁:bateria 🎹:piano/teclado 🎺:trompete 🎻:violino 🏍️:moto 🚗:carro 🏎️:corrida/carro 🛹:skate 🏄:surf 🚴:bike/bicicleta 🏋️:academia/treino 🎣:pesca ⛺:camping/barraca`],
+  ['obj', '💡', 'Objetos e lugares', `💻:pc/computador/notebook 🖥️:monitor/pc ⌨️:teclado 🖱️:mouse 📱:celular 🔋:bateria 🔌:tomada 💡:ideia/lampada 📷:camera/foto 🎥:video/camera 📺:tv 📻:radio ⏰:alarme/despertador ⌛:tempo/ampulheta 📅:calendario/data 📌:fixar/pin 📎:clipe/anexo ✏️:lapis/editar 📝:nota/anotar 📚:livros/estudar 📖:livro 🔒:trancado/cadeado 🔓:aberto 🔑:chave 🔨:martelo 🛠️:ferramentas ⚙️:engrenagem/config 🧲:ima 💣:bomba 🔪:faca 🗡️:espada 🛡️:escudo 🏹:arco 💊:remedio 💉:vacina/injecao 🧪:ciencia/teste 🔭:telescopio 💰:dinheiro/grana 💸:dinheiro/gastando 💳:cartao 💎:diamante/joia 🏠:casa 🏢:predio/trabalho 🏫:escola 🏥:hospital 🏰:castelo ✈️:aviao/viagem 🚀:foguete/rapido 🛸:ovni/disco 🚓:policia 🚑:ambulancia 🚌:onibus 🗺️:mapa 🧭:bussola 🏖️:praia/ferias 🗿:moai/serio 🎃:abobora/halloween 🎅:natal/noel`]
+];
+const EP = EP_DATA.map(([id, icon, name, s]) => ({ id, icon, name, items: s.trim().split(/\s+/).map(t => { const [e, k = ''] = t.split(':'); return { e, k: k.replace(/\//g, ' ') }; }) }));
+const EP_ALL = new Map(); EP.forEach(c => c.items.forEach(i => EP_ALL.has(i.e) || EP_ALL.set(i.e, i)));
+const EP_REC = 'discordia:emoji-rec';
+const epRecent = () => { try { const r = JSON.parse(localStorage.getItem(EP_REC)); return Array.isArray(r) ? r : []; } catch { return []; } };
+const epUse = e => { try { localStorage.setItem(EP_REC, JSON.stringify([e, ...epRecent().filter(x => x !== e)].slice(0, 18))); } catch {} };
+const fold = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 function emojiPicker(anchor, onPick) {
-  const p = pop(`<div class="emoji-grid">${EMOJIS.map(e => `<button data-e="${e}">${e}</button>`).join('')}</div>`, anchor, 'emoji', 'above');
-  p.onclick = e => { const b = e.target.closest('[data-e]'); if (b) { onPick(b.dataset.e); closePops(); } };
+  const rec = epRecent();
+  const cats = [...(rec.length ? [{ id: 'rec', icon: '🕘', name: 'Usados recentemente', items: rec.map(e => EP_ALL.get(e) || { e, k: '' }) }] : []), ...EP];
+  const btn = i => `<button type="button" data-e="${esc(i.e)}" data-k="${esc(i.k)}">${esc(i.e)}</button>`;
+  const p = pop(`<div class="pk-h"><input class="input pk-q ep-q" placeholder="Procurar emoji (rir, fogo, gato...)" autocomplete="off" spellcheck="false" aria-label="Procurar emoji"></div>
+    <div class="ep-tabs">${cats.map((c, i) => `<button type="button" data-tab="${c.id}" class="${i ? '' : 'on'}" title="${esc(c.name)}">${c.icon}</button>`).join('')}</div>
+    <div class="ep-body">${cats.map(c => `<section data-cat="${c.id}"><h4>${esc(c.name)}</h4><div class="ep-grid">${c.items.map(btn).join('')}</div></section>`).join('')}
+      <section class="ep-res" hidden><h4>Resultados</h4><div class="ep-grid"></div><p class="muted small ep-none" hidden>Nenhum emoji com esse nome.</p></section></div>
+    <div class="ep-foot"><span class="ep-big">${cats[0].items[0].e}</span><span class="ep-name">Shift + clique escolhe vários de uma vez</span></div>`, anchor, 'picker emoji', 'above');
+  const q = $('.ep-q', p), body = $('.ep-body', p), res = $('.ep-res', p), resGrid = $('.ep-grid', res), tabs = $$('.ep-tabs button', p), secs = $$('section[data-cat]', p);
+  const big = $('.ep-big', p), name = $('.ep-name', p), hint = name.textContent;
+  const pick = (e, keep) => { epUse(e); onPick(e); if (!keep) closePops(); };
+  p.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-e]'); if (b) return pick(b.dataset.e, ev.shiftKey);
+    const t = ev.target.closest('[data-tab]'); if (!t) return;
+    q.value = ''; search();
+    const s = secs.find(x => x.dataset.cat === t.dataset.tab); body.scrollTop = s ? s.offsetTop : 0;
+  });
+  p.addEventListener('mouseover', ev => { const b = ev.target.closest('[data-e]'); if (!b) return; big.textContent = b.dataset.e; const k = b.dataset.k.split(' ')[0]; name.textContent = k ? ':' + k + ':' : ''; });
+  p.addEventListener('mouseleave', () => { name.textContent = hint; });
+  body.addEventListener('scroll', () => {
+    if (!res.hidden) return;
+    let cur = secs[0]; for (const s of secs) if (s.offsetTop - 8 <= body.scrollTop) cur = s;
+    tabs.forEach(t => t.classList.toggle('on', t.dataset.tab === cur.dataset.cat));
+  }, { passive: true });
+  function search() {
+    const v = fold(q.value.trim());
+    res.hidden = !v; secs.forEach(s => s.hidden = !!v);
+    if (!v) { body.dispatchEvent(new Event('scroll')); return; }
+    tabs.forEach(t => t.classList.remove('on'));
+    const words = v.split(/\s+/);
+    const hits = [...EP_ALL.values()].filter(i => { const ks = (i.k + ' ' + fold(EP.find(c => c.items.includes(i))?.name || '')).split(' '); return words.every(w => ks.some(k => k.startsWith(w))); })
+      .sort((a, b) => (b.k.split(' ')[0].startsWith(v) ? 1 : 0) - (a.k.split(' ')[0].startsWith(v) ? 1 : 0));
+    resGrid.innerHTML = hits.map(btn).join('');
+    $('.ep-none', res).hidden = hits.length > 0;
+    body.scrollTop = 0;
+  }
+  q.addEventListener('input', search);
+  q.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') { ev.stopPropagation(); closePops(); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); const f = $('[data-e]', res.hidden ? body : resGrid); if (f) pick(f.dataset.e, ev.shiftKey); }
+  });
+  if (!matchMedia('(pointer: coarse)').matches) setTimeout(() => q.focus(), 30);
 }
 
 /* =============== perfis =============== */
