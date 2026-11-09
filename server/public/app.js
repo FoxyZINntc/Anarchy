@@ -108,8 +108,12 @@ const BGS = {
 const DEFAULT_PREFS = { theme: 'meia-noite', accent: null, font: 'inter', fontSize: 15, density: 'conf', radius: null, layout: 'padrao', avatars: true, clock24: true, bg: 'none', bgImage: null, glass: 82, anim: true, sounds: true, volume: 60, desktop: false, mentionsOnly: false, micId: '', spkId: '', camId: '', ns: true, ec: true, agc: true, ptt: false, pttKey: 'KeyV', quality: '1080p30', showMembers: true, joinSounds: true, vol: {}, svol: {}, umute: {},
   profileFx: true, lite: false, hidePreview: false, micGain: 100, vadMode: 'auto', vadLevel: 12, outVol: 100, sbVol: 70, sbOn: true };
 let prefs = { ...DEFAULT_PREFS };
-try { const st = JSON.parse(localStorage.getItem('discordia:prefs') || '{}'); prefs = { ...prefs, ...st }; if (window.anarchyDesktop && !('desktop' in st)) prefs.desktop = true; } catch {}
+try { const st = JSON.parse(localStorage.getItem('discordia:prefs') || '{}'); prefs = { ...prefs, ...st }; if ((window.anarchyDesktop || window.AnarchyAndroid) && !('desktop' in st)) prefs.desktop = true; } catch {}
 const DESK = window.anarchyDesktop || null;
+// app de celular (APK): ponte com o Android para notificações, call em segundo plano e botão voltar
+const DROID = window.AnarchyAndroid || null;
+const droid = (fn, ...a) => { try { return DROID && DROID[fn] ? DROID[fn](...a) : undefined; } catch { return undefined; } };
+if (DROID) document.documentElement.classList.add('android');
 function savePrefs() { try { localStorage.setItem('discordia:prefs', JSON.stringify(prefs)); } catch (e) { toast('Não deu para salvar as preferências (imagem de fundo grande demais?).', true); } }
 function applyPrefs() {
   const t = THEMES[prefs.theme] || THEMES['meia-noite'];
@@ -295,6 +299,7 @@ function ring(start, outgoing) {
   pat(); ringTimer = setInterval(pat, outgoing ? 2600 : 1800);
 }
 function notifyDesktop(title, body, icon) {
+  if (DROID) { if (prefs.desktop) droid('notify', String(title || 'Anarchy'), String(body || '')); return; } // o Android só mostra se o app não estiver na tela
   if (!prefs.desktop || !('Notification' in window) || Notification.permission !== 'granted' || (!document.hidden && document.hasFocus())) return;
   try { const n = new Notification(title, { body, icon: icon || undefined, silent: true }); n.onclick = () => { window.focus(); n.close(); }; } catch {}
 }
@@ -824,7 +829,7 @@ function renderHead() {
       ${gManager(g) ? `<button class="icon-btn" data-act="groupSettings" data-tip="Configurações do grupo">${ic('gear')}</button>` : ''}
       <button class="icon-btn" data-act="invite" data-tip="Convidar">${ic('link')}</button>
       ${c.type === 'text' ? `<button class="icon-btn" data-act="pins" data-tip="Mensagens fixadas">${ic('pin')}</button>` : ''}
-      ${c.type === 'text' ? `<button class="icon-btn ${prefs.showMembers ? 'active' : ''}" data-act="toggleMembers" data-tip="${prefs.showMembers ? 'Esconder membros' : 'Mostrar membros'}">${ic('users')}</button>` : ''}`;
+      ${c.type === 'text' ? `<button class="icon-btn ${showMembersNow() ? 'active' : ''}" data-act="toggleMembers" data-tip="${showMembersNow() ? 'Esconder membros' : 'Mostrar membros'}">${ic('users')}</button>` : ''}`;
   }
 }
 
@@ -861,10 +866,13 @@ function renderFriends() {
     : `<div class="empty"><div class="ill">${tab === 'online' ? '🌙' : '🫂'}</div><p>${tab === 'online' ? 'Nenhum amigo online agora.' : 'Você ainda não adicionou ninguém.'}</p><button class="btn primary" data-act="ftab" data-tab="add">Adicionar amigo</button></div>`;
 }
 
+// no celular a lista de membros cobre o chat: começa fechada e só abre pelo botão (sem mexer na preferência do PC)
+const narrowScreen = () => matchMedia('(max-width: 860px)').matches;
+const showMembersNow = () => narrowScreen() ? !!S.mobMembers : prefs.showMembers;
 function renderMembers() {
   const m = $('#members');
   const v = S.view; const g = v.kind === 'group' && S.groups[v.gid];
-  if (!g || !prefs.showMembers || chan(v.gid, v.cid)?.type !== 'text') { m.hidden = true; return; }
+  if (!g || !showMembersNow() ||chan(v.gid, v.cid)?.type !== 'text') { m.hidden = true; return; }
   m.hidden = false;
   const ord = { online: 0, ocupado: 1, ausente: 2, offline: 3 };
   const list = g.members.slice().sort((a, b) => (ord[user(a).status] ?? 3) - (ord[user(b).status] ?? 3) || nameOf(a).localeCompare(nameOf(b)));
@@ -1062,6 +1070,13 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-08-android', date: '08/11/2026', title: 'Anarchy no celular (Android)', emoji: '📱', items: [
+    'Agora tem app para Android: baixe o <b>Anarchy.apk</b> em github.com/FoxyZINntc/Anarchy/releases.',
+    'Chat, calls de voz e vídeo, DJ, figurinhas e temas, tudo igual ao do PC.',
+    'A call continua com a tela apagada (fica uma notificação "Na call").',
+    'Avisa de mensagens e chamadas quando o app está em segundo plano.',
+    'No celular dá para assistir telas compartilhadas, mas ainda não para compartilhar a sua.'
+  ] },
   { id: '2026-11-08-emojis', date: '08/11/2026', title: 'Painel de emojis novo', emoji: '😄', items: [
     'O painel de emojis não corta mais a última coluna.',
     'Agora são mais de 400 emojis, separados por categoria.',
@@ -1172,7 +1187,7 @@ function emojiPicker(anchor, onPick) {
     <div class="ep-tabs">${cats.map((c, i) => `<button type="button" data-tab="${c.id}" class="${i ? '' : 'on'}" title="${esc(c.name)}">${c.icon}</button>`).join('')}</div>
     <div class="ep-body">${cats.map(c => `<section data-cat="${c.id}"><h4>${esc(c.name)}</h4><div class="ep-grid">${c.items.map(btn).join('')}</div></section>`).join('')}
       <section class="ep-res" hidden><h4>Resultados</h4><div class="ep-grid"></div><p class="muted small ep-none" hidden>Nenhum emoji com esse nome.</p></section></div>
-    <div class="ep-foot"><span class="ep-big">${cats[0].items[0].e}</span><span class="ep-name">Shift + clique escolhe vários de uma vez</span></div>`, anchor, 'picker emoji', 'above');
+    <div class="ep-foot"><span class="ep-big">${cats[0].items[0].e}</span><span class="ep-name">${matchMedia('(pointer: coarse)').matches ? 'Toque para escolher' : 'Shift + clique escolhe vários de uma vez'}</span></div>`, anchor, 'picker emoji', 'above');
   const q = $('.ep-q', p), body = $('.ep-body', p), res = $('.ep-res', p), resGrid = $('.ep-grid', res), tabs = $$('.ep-tabs button', p), secs = $$('section[data-cat]', p);
   const big = $('.ep-big', p), name = $('.ep-name', p), hint = name.textContent;
   const pick = (e, keep) => { epUse(e); onPick(e); if (!keep) closePops(); };
@@ -1998,7 +2013,8 @@ function drawSettings() {
     $('#nM').onchange = e => { prefs.mentionsOnly = e.target.checked; savePrefs(); };
     $('#nT').onclick = () => SOUNDS.msg();
     $('#nD').onchange = async e => {
-      if (e.target.checked && 'Notification' in window && Notification.permission !== 'granted') {
+      if (e.target.checked && DROID) droid('askNotify');
+      else if (e.target.checked && 'Notification' in window && Notification.permission !== 'granted') {
         const p = await Notification.requestPermission().catch(() => 'denied');
         if (p !== 'granted') { e.target.checked = false; toast('O navegador bloqueou as notificações. Libere nas configurações do site.', true); return; }
       }
@@ -2007,7 +2023,7 @@ function drawSettings() {
   }
   else if (setTab === 'app' && !DESK) {
     b.innerHTML = `<h2>Aplicativo</h2>
-      <div class="set-card"><h3>Versão</h3>${setRow('Anarchy no navegador', 'Interface ' + esc(UPD.build || '?') + '. Quando o servidor recebe uma versão nova, aparece a barra Atualizar no topo.', '<button class="btn" id="wRl">Recarregar</button>')}</div>
+      <div class="set-card"><h3>Versão</h3>${setRow(DROID ? 'Anarchy para Android ' + esc(droid('version') || '') : 'Anarchy no navegador', 'Interface ' + esc(UPD.build || '?') + '. Quando o servidor recebe uma versão nova, aparece a barra Atualizar no topo.', '<button class="btn" id="wRl">Recarregar</button>')}</div>
       <div class="set-card"><h3>Idioma</h3>${setRow('Português (Brasil)', 'É o único idioma disponível por enquanto.', '')}</div>
       <div class="set-card"><h3>App de computador</h3><p class="muted small" style="margin:0">O app para Windows abre sozinho com o PC, fica perto do relógio e se atualiza sozinho. Baixe em github.com/FoxyZINntc/Anarchy/releases.</p></div>`;
     $('#wRl').onclick = () => location.reload();
@@ -2302,6 +2318,7 @@ async function joinVoice(roomId, opts = {}) {
   if (opts.video) toggleCam();
   if (prefs.mixerOpen) mixerOpen();
   musicSync(); // o DJ já estava tocando nesta sala: entra ouvindo do ponto certo
+  droid('call', true, clogRoom(roomId)); // no celular: mantém a call viva com a tela desligada
   render(); return true;
 }
 function cleanupVoice() {
@@ -2311,6 +2328,7 @@ function cleanupVoice() {
   V.screen = V.cam = null; V.room = null; SB.playing.forEach(x => { try { x.src.stop(); } catch {} }); SB.playing.clear(); V.calling = false; S.focusTile = null;
   [...V.levels.keys()].forEach(dropLevel); V.videoCache.clear(); dropAudio(() => true); $('#audioSink').innerHTML = '';
   ring(false); musicSync(); mixerSync(); render();
+  droid('call', false, '');
 }
 function leaveVoice(why = 'você saiu') {
   V.rejoin = null;
@@ -2642,7 +2660,7 @@ function toggleDeaf() {
 async function toggleScreen() {
   if (!V.room) return;
   if (V.screen) return stopStream('screen');
-  if (!navigator.mediaDevices.getDisplayMedia) return toast('Este navegador não consegue compartilhar a tela.', true);
+  if (!navigator.mediaDevices.getDisplayMedia) return toast(DROID ? 'No celular ainda não dá para compartilhar a tela. Você consegue assistir a tela dos outros normalmente.' : 'Este navegador não consegue compartilhar a tela.', true);
   const q = { '720p30': [1280, 720, 30], '1080p30': [1920, 1080, 30], '1080p60': [1920, 1080, 60] }[prefs.quality] || [1920, 1080, 30];
   const ask = audio => navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: q[0] }, height: { ideal: q[1] }, frameRate: { ideal: q[2] } }, audio });
   const fail = e => { if (e && e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast('Não consegui compartilhar a tela: ' + (e.message || e.name), true); };
@@ -3474,10 +3492,20 @@ function mentionAC(ta) {
 }
 
 /* =============== navegação =============== */
+// botão voltar do Android: fecha o que estiver aberto por cima; devolve false quando não há nada (o app vai para o fundo)
+window.anarchyBack = () => {
+  if ($('#popRoot').children.length) { closePops(); return true; }
+  const m = $$('#modalRoot .modal-back').pop();
+  if (m) { m.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); if (m.isConnected) m.remove(); return true; }
+  if ($('#app').classList.contains('drawer')) { $('#app').classList.remove('drawer'); $('#scrim').hidden = true; return true; }
+  if (S.mobMembers && !$('#members').hidden) { S.mobMembers = false; render(); return true; }
+  if (window.matchMedia('(max-width: 860px)').matches && !$('#app').classList.contains('drawer') && !$('#app').hidden) { $('#app').classList.add('drawer'); $('#scrim').hidden = false; return true; }
+  return false;
+};
 function go(view) {
   S.view = view;
   if (view.kind === 'group') S.lastCh[view.gid] = view.cid;
-  $('#app').classList.remove('drawer'); $('#scrim').hidden = true;
+  $('#app').classList.remove('drawer'); $('#scrim').hidden = true; S.mobMembers = false;
   closePops(); render();
   const cid = viewingCid(); if (cid) setTimeout(() => markRead(cid), 50);
 }
@@ -3579,7 +3607,7 @@ const A = {
   fullscreen: (el, e) => { e.stopPropagation(); const v = el.closest('.tile').querySelector('video'); (v?.requestFullscreen ? v.requestFullscreen() : el.closest('.tile').requestFullscreen?.())?.catch?.(() => {}); },
   acceptCall: async () => { const d = incoming?.dmId; closeRing(); ring(false); if (d) { await joinVoice(d); go({ kind: 'dm', id: d }); } },
   declineCall: () => { const d = incoming?.dmId; closeRing(); ring(false); if (d) socket.emit('call:decline', { dmId: d }); },
-  toggleMembers: () => { prefs.showMembers = !prefs.showMembers; savePrefs(); render(); },
+  toggleMembers: () => { if (narrowScreen()) S.mobMembers = !S.mobMembers; else { prefs.showMembers = !prefs.showMembers; savePrefs(); } render(); },
   drawer: () => { const on = !$('#app').classList.contains('drawer'); $('#app').classList.toggle('drawer', on); $('#scrim').hidden = !on; },
   attach: async () => { const f = await pickFile(); if (f) sendImage(f); },
   emojiPick: el => emojiPicker(el, e => { const ta = $('#composer'); const p = ta.selectionStart; ta.value = ta.value.slice(0, p) + e + ta.value.slice(ta.selectionEnd); ta.focus(); ta.selectionStart = ta.selectionEnd = p + e.length; }),

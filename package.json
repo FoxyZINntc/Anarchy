@@ -12,7 +12,8 @@
     "app": "electron .",
     "dist:win": "npm run nativo && electron-builder --win",
     "dist:cliente": "npm run nativo && electron-builder --win --config electron-builder.cliente.json",
-    "nativo": "desktop\\\\native\\\\compilar.cmd"
+    "dist:android": "powershell -ExecutionPolicy Bypass -File android\\gerar-apk.ps1",
+    "nativo":"desktop\\\\native\\\\compilar.cmd"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",

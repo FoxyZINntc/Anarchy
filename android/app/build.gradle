@@ -1,0 +1,58 @@
+import groovy.json.JsonSlurper
+
+plugins {
+    id 'com.android.application'
+}
+
+// endereço do servidor: o mesmo do app de computador (desktop/servidor.json).
+// Para testar com um servidor local: gradlew assembleDebug -PserverUrl=http://localhost:3555 (e adb reverse tcp:3555 tcp:3555)
+def servidor = new JsonSlurper().parse(rootProject.file('../desktop/servidor.json'))
+def serverUrl = project.findProperty('serverUrl') ?: servidor.url
+// versão: a mesma do package.json
+def pkg = new JsonSlurper().parse(rootProject.file('../package.json'))
+def (maj, min, pat) = pkg.version.tokenize('.').collect { it as int }
+
+// chave de assinatura: fica fora do git (android/keystore.properties aponta para o arquivo .jks)
+def keyProps = new Properties()
+def keyFile = rootProject.file('keystore.properties')
+if (keyFile.exists()) keyFile.withInputStream { keyProps.load(it) }
+
+android {
+    namespace 'com.anarchy.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.anarchy.app'
+        minSdk 26
+        targetSdk 34
+        versionCode maj * 10000 + min * 100 + pat
+        versionName pkg.version
+        buildConfigField 'String', 'SERVER_URL', "\"${serverUrl}\""
+        manifestPlaceholders = [cleartext: serverUrl.startsWith('http:') ? 'true' : 'false']
+    }
+
+    buildFeatures { buildConfig true }
+
+    signingConfigs {
+        release {
+            if (keyFile.exists()) {
+                storeFile file(keyProps.storeFile)
+                storePassword keyProps.storePassword
+                keyAlias keyProps.keyAlias
+                keyPassword keyProps.keyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keyFile.exists()) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

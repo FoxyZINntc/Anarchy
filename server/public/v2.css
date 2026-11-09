@@ -621,3 +621,16 @@
 .ep-foot { display: flex; align-items: center; gap: 10px; padding: 8px 4px 10px; border-top: 1px solid var(--line); min-height: 40px; }
 .ep-big { font-size: 26px; line-height: 1; font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
 .ep-name { font-size: .82em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.news-it li { overflow-wrap: anywhere; }
+
+/* call no celular: a barra de botões quebra linha em vez de empurrar a tela para o lado */
+@media (max-width: 560px) {
+  .stage, .stage-ctrls { min-width: 0; }
+  .stage-pill { flex-wrap: wrap; justify-content: center; gap: 6px; border-radius: 26px; max-width: 100%; }
+  .stage-pill .ctrl { width: 44px; height: 44px; }
+  .stage-pill .ctrl svg { width: 22px; height: 22px; }
+  .stage-pill .ctrl.hang { width: 56px; }
+  .stage-pill .ctrl-sep { display: none; }
+}
+/* no app Android não dá para compartilhar a tela */
+.android [data-act="toggleScreen"] { display: none; }

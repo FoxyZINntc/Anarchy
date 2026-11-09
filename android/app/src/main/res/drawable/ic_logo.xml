@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- frente do ícone adaptativo: o A de anarquia vermelho (o fundo branco vem do ic_launcher) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="512" android:viewportHeight="512">
+    <group android:pivotX="256" android:pivotY="262" android:scaleX="0.62" android:scaleY="0.62" android:translateY="9">
+        <path android:pathData="M92,276 a164,164 0 1,0 328,0 a164,164 0 1,0 -328,0"
+            android:strokeColor="#D7141F" android:strokeWidth="38" android:fillColor="#00000000" />
+        <path android:pathData="M104,470 L256,74 L408,470"
+            android:strokeColor="#D7141F" android:strokeWidth="48" android:fillColor="#00000000"
+            android:strokeLineJoin="miter" android:strokeMiterLimit="10" />
+        <path android:pathData="M58,340 L454,340"
+            android:strokeColor="#D7141F" android:strokeWidth="46" />
+    </group>
+</vector>

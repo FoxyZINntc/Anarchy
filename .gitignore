@@ -11,3 +11,10 @@ logs/
 desktop/servidor-padrao.json
 desktop/native/*.exe
 server/bin/
+android/local.properties
+android/keystore.properties
+android/.gradle/
+android/build/
+android/app/build/
+*.jks
+*.keystore
