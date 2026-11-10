@@ -9,7 +9,9 @@
 const fs = require('fs');
 const path = require('path');
 
-function createMailer({ log = () => {} } = {}) {
+// Sem SMTP no .env, o envio vai pela função "anarchy-mail" do Supabase (segredos BREVO_API_KEY e EMAIL_FROM
+// em Supabase > Edge Functions > Secrets). O servidor confere a cada minuto se ela já está configurada.
+function createMailer({ log = () => {}, supabaseUrl = '', supabaseToken = '' } = {}) {
   const host = process.env.SMTP_HOST, user = process.env.SMTP_USER, pass = process.env.SMTP_PASS;
   const testDir = process.env.EMAIL_TESTE_PASTA;
   const from = process.env.EMAIL_FROM || (user ? `Anarchy <${user}>` : 'Anarchy <anarchy@localhost>');
@@ -22,8 +24,26 @@ function createMailer({ log = () => {} } = {}) {
       transport.verify().then(() => log('   Email: pronto para enviar (' + host + ').')).catch(e => log('   Email: o servidor de email recusou o login (' + e.message + '). Confira SMTP_USER/SMTP_PASS no .env.'));
     } catch (e) { log('   Email: pacote "nodemailer" não instalado; rode npm install. Sem envio de email.'); }
   }
-  const ready = !!(transport || testDir);
-  if (!ready) log('   Email: não configurado (SMTP_HOST/SMTP_USER/SMTP_PASS no .env). Recuperar senha por email fica desligado.');
+  let ready = !!(transport || testDir);
+  // envio pelo Supabase (função anarchy-mail)
+  const edgeUrl = !ready && supabaseUrl && supabaseToken ? supabaseUrl.replace(/\/$/, '') + '/functions/v1/anarchy-mail' : null;
+  async function edge(body) {
+    const r = await fetch(edgeUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-anarchy-token': supabaseToken }, body: JSON.stringify(body), signal: AbortSignal.timeout(20000) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || j.message || ('erro ' + r.status));
+    return j;
+  }
+  let lastWhy = null;
+  async function edgeCheck() {
+    let why;
+    try { const s = await edge({ op: 'status' }); if (s.configured) { if (!ready) log('   Email: pronto para enviar pelo Supabase (remetente ' + s.from + ').'); ready = true; lastWhy = null; return; } why = s.falta ? 'falta o segredo ' + s.falta + ' no Supabase' : s.erro || 'não configurado'; }
+    catch (e) { why = /404|not found/i.test(e.message) ? 'a função anarchy-mail ainda não existe no Supabase' : e.message; }
+    if (ready) log('   Email: o envio pelo Supabase parou (' + why + ').');
+    else if (why !== lastWhy) log('   Email: ainda desligado (' + why + '). Confiro de novo a cada minuto.');
+    ready = false; lastWhy = why;
+  }
+  if (edgeUrl) { edgeCheck(); setInterval(() => { if (!ready) edgeCheck(); }, 60e3).unref(); setInterval(() => { if (ready) edgeCheck(); }, 30 * 60e3).unref(); }
+  else if (!ready) log('   Email: não configurado (SMTP_HOST/SMTP_USER/SMTP_PASS no .env). Recuperar senha por email fica desligado.');
 
   // layout simples, que funciona em qualquer leitor de email
   function html(title, paragraphs, button) {
@@ -48,12 +68,13 @@ ${button ? `<p style="margin:22px 0"><a href="${esc(button.url)}" style="display
       fs.writeFileSync(f, `Para: ${to}\nAssunto: ${subject}\n\n${text}\n`);
       return true;
     }
+    if (!transport && edgeUrl) { await edge({ op: 'send', to, subject, text, html: htmlBody }); return true; }
     if (!transport) throw new Error('o envio de email não está configurado neste servidor');
     await transport.sendMail({ from, to, subject, text, html: htmlBody });
     return true;
   }
   // confere se o servidor de email aceita o login (usado pelo configurar-email do servidor)
   async function check() { if (!transport) throw new Error('faltam SMTP_HOST, SMTP_USER ou SMTP_PASS'); await transport.verify(); return true; }
-  return { ready, send, html, check };
+  return { get ready() { return ready; }, send, html, check };
 }
 module.exports = { createMailer };
