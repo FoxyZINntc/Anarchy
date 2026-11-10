@@ -1180,6 +1180,10 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-10-dj-soundcloud', date: '10/11/2026', title: 'DJ mais teimoso', emoji: '🎧', items: [
+    'Quando o YouTube bloqueia o servidor ("prove que não é robô"), o DJ procura a mesma música no SoundCloud e toca de lá.',
+    'Se não achar em lugar nenhum, ele avisa em português o que aconteceu.'
+  ] },
   { id: '2026-11-09-email', date: '09/11/2026', title: 'Recuperar a senha por email', emoji: '📬', items: [
     'Agora dá para ligar um email à sua conta (o app pede ao entrar, ou em Configurações › Minha conta).',
     'Esqueceu a senha? Na tela de entrar, toque em <b>Esqueci a senha</b>: chega um link no email para criar uma senha nova.',

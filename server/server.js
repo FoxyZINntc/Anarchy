@@ -341,16 +341,18 @@ async function nextTrack(roomId, { skipped = false, msg = null } = {}) {
   st.startedAt = now() + 1500; st.pausedAt = null; // 1,5 s para todo mundo carregar e começar junto
   scheduleEnd(st); pushMusic(roomId);
   const g = db.groups[st.gid];
-  if (g && !(st.loop && prev === st.cur)) botEdit(g, msg, `🎵 Tocando agora: **${mdSafe(st.cur.title)}**${st.cur.dur ? ` (${fmtDur(st.cur.dur)})` : ''} · pedido por ${mdSafe(uname(st.cur.who))}`, { music: card(st.cur), cid: st.cid });
+  if (g && !(st.loop && prev === st.cur)) botEdit(g, msg, `🎵 Tocando agora: **${mdSafe(st.cur.title)}**${st.cur.dur ? ` (${fmtDur(st.cur.dur)})` : ''} · pedido por ${mdSafe(uname(st.cur.who))}${st.cur.via ? ` · achei no ${st.cur.via} (o YouTube está bloqueando o servidor agora)` : ''}`, { music: card(st.cur), cid: st.cid });
   // já deixa a próxima pronta, para a troca de música não ter espera
   const nx = st.queue[0]; if (nx && needSrc(nx)) loadSrc(nx).catch(() => {});
 }
 // faixa sem áudio ainda (veio de playlist) ou com o endereço vencido
 const needSrc = t => !t.src || (t.q && now() - (t.at || 0) > 4 * 3600e3);
 function loadSrc(t) {
-  if (!t.loading) t.loading = dj.resolve(t.q).then(r => {
+  // o nome vai junto: se o YouTube estiver bloqueando, o DJ procura pelo nome no SoundCloud
+  const name = t.title ? (t.keep && t.by ? `${t.title} ${t.by}` : t.title) : null;
+  if (!t.loading) t.loading = dj.resolve(t.q, { name }).then(r => {
     // da playlist do Spotify ficam o nome e a capa de lá (a busca no YouTube só fornece o áudio)
-    Object.assign(t, t.keep ? { src: r.src, at: r.at, page: r.page, dur: r.dur || t.dur } : r);
+    Object.assign(t, t.keep ? { src: r.src, at: r.at, page: r.page, dur: r.dur || t.dur, via: r.via } : r);
   }).finally(() => { t.loading = null; });
   return t.loading;
 }
@@ -463,7 +465,7 @@ async function djPlay(g, cid, uid, room, q) {
   st.queue.push(t);
   if (!st.cur) return nextTrack(room, { msg });
   pushMusic(room);
-  botEdit(g, msg, `➕ Na fila (#${st.queue.length}): **${mdSafe(t.title)}**${t.dur ? ` (${fmtDur(t.dur)})` : ''} · pedido por ${mdSafe(uname(uid))}`, { music: card(t), cid });
+  botEdit(g, msg, `➕ Na fila (#${st.queue.length}): **${mdSafe(t.title)}**${t.dur ? ` (${fmtDur(t.dur)})` : ''} · pedido por ${mdSafe(uname(uid))}${t.via ? ` · achei no ${t.via} (o YouTube está bloqueando o servidor agora)` : ''}`, { music: card(t), cid });
 }
 // mensagem que começa com / num grupo com DJ: é comando? (true = tratou, não vira mensagem normal)
 function djCommand(g, cid, uid, text) {
