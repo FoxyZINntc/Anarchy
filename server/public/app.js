@@ -654,6 +654,8 @@ function connect() {
     clog(`Conectado ao servidor (${socket.io.engine?.transport?.name || '?'}).`);
     // novidades desde a última vez (só uma vez por abertura do app)
     if (!connect.news) { connect.news = true; setTimeout(() => showNews(false), 1200); setTimeout(maybeAskEmail, 2500); }
+    // presentes que chegaram enquanto estava fora
+    setTimeout(() => (S.me.items || []).filter(x => x.seen === false).forEach(x => giftQueue(x, S.users[x.from])), 1500);
     // caiu no meio da call: volta sozinho para a mesma sala
     const rj = V.rejoin; V.rejoin = null;
     if (rj && !V.room) {
@@ -682,7 +684,14 @@ function connect() {
     } else clog(`Desconectado do servidor: ${DROP_WHY[reason] || reason}.`);
     render();
   });
-  socket.on('me:update', u => { S.me = u; S.users[u.id] = u; render(); });
+  socket.on('me:update', u => { S.me = u; S.users[u.id] = u; render(); if ($('#setBody') && setTab === 'inventario') drawSettings(); });
+  // ganhou uma placa: notificação diferente (som de presente) e o baú na tela
+  socket.on('inv:gift', ({ entry, from }) => {
+    if (from && !S.users[from.id]) S.users[from.id] = from;
+    const p = PLATES[entry.item]; if (!p) return;
+    notifyDesktop('🎁 Você ganhou um presente!', `${from?.displayName || nameOf(entry.from)} te deu: ${p[0]} (${RAR[p[1]][0]})`);
+    giftQueue(entry, from);
+  });
   socket.on('user:update', u => { S.users[u.id] = u; render(); });
   socket.on('friends:update', f => { S.friends = f; render(); });
   socket.on('group:update', ({ group, users }) => {
@@ -813,8 +822,8 @@ function renderSide() {
       ${dms.length ? dms.map(d => {
         const o = d.members.find(m => m !== S.me.id); const u = user(o);
         const inCall = (S.voice[d.id] || []).length;
-        return `<button class="nav-row ${S.view.kind === 'dm' && S.view.id === d.id ? 'active' : ''} ${S.unread[d.id] ? 'unread' : ''}" data-act="dm" data-id="${d.id}">
-          ${av(o, 32)}<span class="lbl">${esc(u.displayName)}<br><span class="muted small" style="font-weight:400">${inCall ? '🔊 Em chamada' : esc(u.customStatus || STATUS[u.status] || '')}</span></span>
+        return `<button class="nav-row ${S.view.kind === 'dm' && S.view.id === d.id ? 'active' : ''} ${S.unread[d.id] ? 'unread' : ''}${npCls(o)}" data-act="dm" data-id="${d.id}">
+          ${av(o, 32)}<span class="lbl"><span class="np-name">${esc(u.displayName)}</span><br><span class="muted small" style="font-weight:400">${inCall ? '🔊 Em chamada' : esc(u.customStatus || STATUS[u.status] || '')}</span></span>
           ${S.mentions[d.id] ? `<span class="badge" style="border:0">${S.mentions[d.id]}</span>` : ''}</button>`;
       }).join('') : '<p class="muted small" style="padding:4px 10px">Abra uma conversa pela lista de amigos.</p>'}
     </div>`;
@@ -991,7 +1000,7 @@ function renderMembers() {
   const r = id => {
     const u = user(id), call = inCall.has(id);
     const sub = call ? `<span class="mem-s call">${ic('voice')}Em call</span>` : u.customStatus ? `<span class="mem-s">${esc(u.customStatus)}</span>` : '';
-    return `<div class="mem ${u.status === 'offline' ? 'off' : ''}" data-act="profile" data-id="${id}">${av(id, 32, true, 'calm')}<div class="info"><div class="mem-n"><b style="color:${esc(nameColor(id, g))}">${esc(u.displayName)}</b>${u.bot ? '<span class="bot-tag">BOT</span>' : ''}${g.ownerId === id ? '<span class="crown" title="Dono do grupo">👑</span>' : ''}</div>${sub}</div></div>`;
+    return `<div class="mem ${u.status === 'offline' ? 'off' : ''}${npCls(id)}" data-act="profile" data-id="${id}">${av(id, 32, true, 'calm')}<div class="info"><div class="mem-n"><b style="color:${esc(nameColor(id, g))}">${esc(u.displayName)}</b>${u.bot ? '<span class="bot-tag">BOT</span>' : ''}${g.ownerId === id ? '<span class="crown" title="Dono do grupo">👑</span>' : ''}</div>${sub}</div></div>`;
   };
   // como no Discord: quem está online aparece no primeiro cargo "separado" que tiver; offline fica no fim
   const placed = new Set(); let html = '';
@@ -1180,6 +1189,12 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-10-placas', date: '10/11/2026', title: 'Placas de nome animadas e Inventário', emoji: '🎒', items: [
+    'Agora existem <b>16 placas de nome animadas</b> que aparecem na lista de membros: Sakura, Chamas do Inferno, Olhar Escarlate, Fogo de Raposa, Aura Dourada e muito mais.',
+    'Não dá para comprar nem escolher: elas só chegam <b>de presente</b>. Quando você ganha uma, aparece um baú na tela para abrir.',
+    'Tem raridade: Comum, Raro, Épico e Lendário.',
+    'Veja suas placas, equipe e confira o histórico em <b>Configurações › Inventário</b>.'
+  ] },
   { id: '2026-11-10-dj-soundcloud', date: '10/11/2026', title: 'DJ mais teimoso', emoji: '🎧', items: [
     'Quando o YouTube bloqueia o servidor ("prove que não é robô"), o DJ procura a mesma música no SoundCloud e toca de lá.',
     'Se não achar em lugar nenhum, ele avisa em português o que aconteceu.'
@@ -1352,6 +1367,146 @@ function emojiPicker(anchor, onPick) {
 }
 
 /* =============== perfis =============== */
+/* =============== inventário: placas de nome animadas ===============
+   Só o dono do Anarchy dá (e tira). Quem ganha recebe o "baú" na tela e equipa no Inventário. Visual em plates.css. */
+const RAR = { comum: ['Comum', 0], raro: ['Raro', 1], epico: ['Épico', 2], lendario: ['Lendário', 3] };
+const PLATES = {
+  sakura: ['Sakura ao Vento', 'comum', '🌸', 'Pétalas de cerejeira caindo devagar, como no primeiro dia de aula.'],
+  lua: ['Lua Prateada', 'comum', '🌙', 'Uma lua crescente brilhando do lado do seu nome.'],
+  galaxia: ['Céu Estrelado', 'comum', '✨', 'Estrelas piscando num céu roxo e azul.'],
+  shoujo: ['Brilho Shoujo', 'comum', '💖', 'Tons pastel e brilhinhos subindo, direto de um anime de romance.'],
+  chamas: ['Chamas do Inferno', 'raro', '🔥', 'Fogo subindo pela placa e um nome em brasa.'],
+  raio: ['Raio Azul', 'raro', '⚡', 'Relâmpagos que cortam a placa de vez em quando.'],
+  neon: ['Neon de Tóquio', 'raro', '🌃', 'Letreiro neon com falhas, de uma cidade cyberpunk.'],
+  oceano: ['Ondas do Oceano', 'raro', '🌊', 'Ondas correndo embaixo do nome, como uma técnica de água.'],
+  mecha: ['Piloto Mecha', 'raro', '🤖', 'Faixas de alerta e radar de cabine de robô gigante.'],
+  escarlate: ['Olhar Escarlate', 'epico', '👁️', 'Um olho vermelho com três vírgulas girando sem parar.'],
+  kitsune: ['Fogo de Raposa', 'epico', '🦊', 'Chamas azuis de raposa espiritual flutuando.'],
+  ceifador: ['Ceifador', 'epico', '💀', 'Um corte de foice atravessa a placa sob a lua vermelha.'],
+  oni: ['Máscara Oni', 'epico', '👹', 'Fumaça roxa de demônio subindo pelo nome.'],
+  aura: ['Aura Dourada', 'lendario', '💛', 'Energia dourada de quem passou do limite. Poder máximo.'],
+  dragao: ['Dragão Celestial', 'lendario', '🐉', 'Escamas de jade com o brilho de um dragão lendário.'],
+  anarquia: ['Caos da Anarquia', 'lendario', '🏴', 'A placa da casa: listras do caos e o A da anarquia girando.']
+};
+const PLATE_IDS = Object.keys(PLATES).sort((a, b) => RAR[PLATES[b][1]][1] - RAR[PLATES[a][1]][1]);
+// classe da placa de alguém (lista de membros, conversas)
+const npCls = id => { const p = user(id)?.plate; return p && PLATES[p] ? ` np np-${p}` : ''; };
+const plateRow = (uid, pid, name) => `<div class="inv-prev np np-${pid}">${av(uid, 32)}<span class="np-name">${esc(name ?? nameOf(uid))}</span></div>`;
+const fmtWhen = t => new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+// presente chegando: baú no meio da tela, um de cada vez
+const GIFT = { q: [], open: false, shown: new Set() };
+function giftQueue(entry, from) {
+  if (!entry || GIFT.shown.has(entry.id) || !PLATES[entry.item]) return;
+  GIFT.shown.add(entry.id); GIFT.q.push({ entry, from }); if (!GIFT.open) giftNext();
+}
+function giftNext() {
+  const g = GIFT.q.shift();
+  if (!g) { GIFT.open = false; emit('inv:seen'); return; }
+  GIFT.open = true;
+  const [name, rar, emo, desc] = PLATES[g.entry.item];
+  const fromName = g.from?.displayName || nameOf(g.entry.from);
+  const el = document.createElement('div'); el.className = 'gift-back'; el.setAttribute('role', 'dialog');
+  el.innerHTML = `<div class="gift r-${rar}"><div class="gift-from">🎁 <b>${esc(fromName)}</b> te mandou um presente!</div>
+    <button class="gift-box" type="button" aria-label="Abrir presente"><span class="gift-rays"></span>🎁</button>
+    <div class="gift-hint">Clique no presente para abrir</div></div>`;
+  document.body.appendChild(el);
+  tone([[523, .12], [659, .12], [784, .2]], 'triangle', .07);
+  const close = () => { el.remove(); giftNext(); };
+  el.querySelector('.gift-box').onclick = () => {
+    const box = el.querySelector('.gift');
+    box.innerHTML = `<div class="gift-reveal"><div class="gift-rar">${RAR[rar][0]}</div><div class="gift-title">${emo} ${esc(name)}</div>
+      <div class="gift-card">${plateRow(S.me.id, g.entry.item)}<p class="inv-desc" style="margin:10px 0 0">${esc(desc)}</p></div>
+      ${g.entry.msg ? `<div class="gift-msg">“${esc(g.entry.msg)}” — ${esc(fromName)}</div>` : `<div class="gift-msg">Presente de ${esc(fromName)}</div>`}
+      <div class="gift-acts"><button class="btn primary" data-g="eq">Equipar agora</button><button class="btn ghost" data-g="keep" style="color:#fff">Guardar no inventário</button></div></div>`;
+    // fanfarra: quanto mais raro, mais longa
+    const fan = [[[523, .1], [784, .25]], [[523, .1], [659, .1], [988, .3]], [[523, .08], [659, .08], [784, .08], [1047, .35]], [[392, .1], [523, .1], [659, .1], [784, .1], [1047, .12], [1319, .45]]][RAR[rar][1]];
+    tone(fan, 'triangle', .09);
+    giftSparks(box.querySelector('.gift-card'), getComputedStyle(box).getPropertyValue('--rc').trim() || '#ffb300', 30 + RAR[rar][1] * 25);
+    box.onclick = async e => {
+      const b = e.target.closest('[data-g]'); if (!b) return;
+      if (b.dataset.g === 'eq') { const r = await emit('inv:equip', { item: g.entry.item }); if (!r.ok) toast(r.erro, true); else toast(`${name} equipada! Todo mundo vê na lista de membros.`); }
+      close();
+    };
+  };
+  el.addEventListener('keydown', e => { if (e.key === 'Escape' && el.querySelector('.gift-reveal')) close(); });
+}
+function giftSparks(anchor, color, n) {
+  if (reduceMotion() || !anchor) return;
+  const r = anchor.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  for (let i = 0; i < n; i++) {
+    const s = document.createElement('i'); s.className = 'gift-spark';
+    s.style.background = i % 3 ? color : '#fff'; s.style.left = cx + 'px'; s.style.top = cy + 'px'; s.style.boxShadow = `0 0 8px ${color}`;
+    document.body.appendChild(s);
+    const a = Math.random() * Math.PI * 2, v = 120 + Math.random() * 260;
+    s.animate([{ transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }, { transform: `translate(${Math.cos(a) * v}px, ${Math.sin(a) * v}px) scale(.2)`, opacity: 0 }],
+      { duration: 900 + Math.random() * 700, easing: 'cubic-bezier(.2,.8,.3,1)' }).onfinish = () => s.remove();
+  }
+}
+
+// tela Inventário (Configurações)
+const INV = { sel: null, item: null, people: null, q: '' };
+async function drawInventory(b) {
+  const me = S.me, items = me.items || [], owned = new Map(items.map(x => [x.item, x]));
+  const eq = me.plate && PLATES[me.plate] ? me.plate : null;
+  const leg = items.filter(x => PLATES[x.item]?.[1] === 'lendario').length;
+  const card = id => {
+    const [n, r, e, d] = PLATES[id], has = owned.get(id), on = eq === id;
+    return `<button class="inv-card r-${r} ${has ? '' : 'locked'} ${on ? 'on' : ''}" data-inv="${id}" ${has ? '' : 'disabled'} title="${has ? (on ? 'Clique para tirar' : 'Clique para equipar') : 'Bloqueado'}">
+      ${on ? '<span class="inv-tag">EQUIPADO</span>' : has && has.seen === false ? '<span class="inv-tag new">NOVO</span>' : ''}
+      <span class="inv-rar">${RAR[r][0]}</span>
+      ${plateRow(me.id, id, me.displayName)}
+      <span class="inv-name">${e} ${has ? esc(n) : '???'}</span>
+      <span class="inv-desc">${has ? `${esc(d)}<br>De ${esc(nameOf(has.from))} · ${fmtWhen(has.at)}` : 'Ainda não é seu. Só dá para ganhar de presente.'}</span></button>`;
+  };
+  // histórico: tudo que você recebeu, perdeu e (se for o dono) deu
+  const log = [
+    ...items.map(x => ({ at: x.at, ic: '🎁', t: `Você ganhou <b>${esc(PLATES[x.item]?.[0] || x.item)}</b> de ${esc(nameOf(x.from))}${x.msg ? ` — “${esc(x.msg)}”` : ''}` })),
+    ...(me.lost || []).map(x => ({ at: x.at, ic: '💨', t: `<b>${esc(PLATES[x.item]?.[0] || x.item)}</b> foi tirada da sua conta` })),
+    ...(me.given || []).map(x => ({ at: x.at, ic: x.revoked ? '🗑️' : '📤', t: x.revoked ? `Você tirou <b>${esc(PLATES[x.item]?.[0] || x.item)}</b> de ${esc(nameOf(x.to))}` : `Você deu <b>${esc(PLATES[x.item]?.[0] || x.item)}</b> para ${esc(nameOf(x.to))}` }))
+  ].sort((a, b) => b.at - a.at).slice(0, 60);
+  b.innerHTML = `<h2>Inventário</h2>
+    <p class="muted" style="margin-top:-6px">Placas de nome animadas aparecem para todo mundo na lista de membros. Não dá para comprar: só ganhar de presente.</p>
+    <div class="inv-top"><div class="inv-stat"><b>${owned.size}/${PLATE_IDS.length}</b><span>Placas coletadas</span></div><div class="inv-stat"><b>${leg}</b><span>Lendárias</span></div>
+      <div class="inv-stat"><b style="font-size:1em;padding-top:6px">${eq ? `${PLATES[eq][2]} ${esc(PLATES[eq][0])}` : 'Nenhuma'}</b><span>Equipada ${eq ? '· <button class="link" id="invOff">tirar</button>' : ''}</span></div></div>
+    <div class="set-card"><h3>Placas</h3><div class="inv-grid">${PLATE_IDS.map(card).join('')}</div></div>
+    ${me.admin ? `<div class="set-card" id="invAdm"><h3>🎁 Dar presente <span class="muted small" style="font-weight:400">(só você vê isto)</span></h3><div class="inv-give"><p class="muted small">Carregando contas...</p></div></div>` : ''}
+    <div class="set-card"><h3>Histórico</h3>${log.length ? `<div class="inv-log">${log.map(x => `<div class="inv-log-it"><span class="ic">${x.ic}</span><span>${x.t}</span><time>${fmtWhen(x.at)}</time></div>`).join('')}</div>` : '<p class="muted small" style="margin:0">Nada ainda. Quando você ganhar uma placa, ela aparece aqui.</p>'}</div>`;
+  b.onclick = async e => {
+    const c = e.target.closest('[data-inv]');
+    if (c && !c.disabled) { const id = c.dataset.inv; const r = await emit('inv:equip', { item: eq === id ? null : id }); if (!r.ok) toast(r.erro, true); return; }
+    if (e.target.id === 'invOff') { await emit('inv:equip', { item: null }); }
+  };
+  if (items.some(x => x.seen === false)) emit('inv:seen');
+  if (me.admin) drawGive();
+}
+async function drawGive() {
+  const box = $('#invAdm .inv-give'); if (!box) return;
+  if (!INV.people) { const r = await emit('inv:people'); if (!r.ok) { box.innerHTML = `<p class="form-err">${esc(r.erro)}</p>`; return; } INV.people = r.people; }
+  if (!$('#invAdm')) return;
+  const q = INV.q.trim().toLowerCase();
+  const list = INV.people.filter(p => !q || p.displayName.toLowerCase().includes(q) || p.username.includes(q)).sort((a, b) => a.displayName.localeCompare(b.displayName)).slice(0, 80);
+  const sel = INV.people.find(p => p.id === INV.sel);
+  box.innerHTML = `<input class="input" id="invQ" placeholder="Procurar pessoa pelo nome" value="${esc(INV.q)}" autocomplete="off">
+    <div class="inv-people">${list.map(p => `<button type="button" class="inv-person ${p.id === INV.sel ? 'sel' : ''}" data-p="${p.id}">${av(p.id, 28)}<span><b>${esc(p.displayName)}</b> <span class="muted small">@${esc(p.username)}</span></span><small>${p.items.length} placa${p.items.length === 1 ? '' : 's'}</small></button>`).join('') || '<p class="muted small">Ninguém com esse nome.</p>'}</div>
+    ${sel ? `<p style="margin:6px 0 0"><b>Escolha a placa para ${esc(sel.displayName)}:</b></p>
+      <div class="inv-grid">${PLATE_IDS.map(id => { const has = sel.items.includes(id), [n, r, e] = PLATES[id]; return `<button type="button" class="inv-card r-${r} ${INV.item === id ? 'on' : ''}" data-gi="${id}">${has ? '<span class="inv-tag">JÁ TEM</span>' : ''}<span class="inv-rar">${RAR[r][0]}</span>${plateRow(sel.id, id, sel.displayName)}<span class="inv-name">${e} ${esc(n)}</span>${has ? `<span class="link" data-rv="${id}" style="font-size:.8em;color:var(--danger)">Tirar dessa pessoa</span>` : ''}</button>`; }).join('')}</div>
+      <label class="field">Mensagem (opcional)<input class="input" id="invMsg" maxlength="140" placeholder="ex.: Parabéns pelo aniversário!"></label>
+      <div style="display:flex;justify-content:flex-end"><button class="btn primary" id="invGo" ${INV.item && !sel.items.includes(INV.item) ? '' : 'disabled'}>🎁 Dar ${INV.item ? esc(PLATES[INV.item][0]) : 'presente'}</button></div>` : '<p class="muted small" style="margin:0">Escolha uma pessoa na lista.</p>'}`;
+  const qi = $('#invQ'); qi.oninput = () => { INV.q = qi.value; const pos = qi.selectionStart; drawGive().then(() => { const n = $('#invQ'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); };
+  box.onclick = async e => {
+    const p = e.target.closest('[data-p]'); if (p) { INV.sel = p.dataset.p; INV.item = null; return drawGive(); }
+    const rv = e.target.closest('[data-rv]');
+    if (rv) { e.stopPropagation(); if (!await confirmBox('Tirar placa', `Tirar ${PLATES[rv.dataset.rv][0]} de ${sel.displayName}?`, 'Tirar')) return; const r = await emit('inv:revoke', { uid: sel.id, item: rv.dataset.rv }); if (!r.ok) return toast(r.erro, true); sel.items = sel.items.filter(x => x !== rv.dataset.rv); toast('Placa tirada.'); return drawGive(); }
+    const gi = e.target.closest('[data-gi]'); if (gi) { INV.item = gi.dataset.gi; return drawGive(); }
+    if (e.target.id === 'invGo') {
+      const r = await emit('inv:give', { uid: sel.id, item: INV.item, msg: $('#invMsg').value });
+      if (!r.ok) return toast(r.erro, true);
+      sel.items.push(INV.item); toast(`🎁 ${PLATES[INV.item][0]} entregue para ${sel.displayName}!`); INV.item = null; drawGive();
+    }
+  };
+}
+
 const FRAMES = { neon: 'Neon', arco: 'Arco-íris', ouro: 'Ouro', fogo: 'Fogo', gelo: 'Gelo', folhas: 'Folhagem', pixel: 'Pixel', orbita: 'Órbita' };
 const EFFECTS = { estrelas: 'Estrelas', neve: 'Neve', brilho: 'Brilho', bolhas: 'Bolhas', aurora: 'Aurora' };
 const BADGES = {
@@ -1463,6 +1618,7 @@ function userMenu(uid, x, y, anchor) {
     <button data-m="pf">Ver perfil ${I('user')}</button>
     ${me ? `<button data-m="edit">Editar perfil ${I('edit')}</button>` : u.bot ? `<button data-m="djset">Comandos e configurações do DJ</button>` : `<button data-m="dm">Enviar mensagem ${I('msg')}</button><button data-m="call">Iniciar chamada ${I('phone')}</button><button data-m="vid">Chamada de vídeo ${I('cam')}</button>`}
     ${canMention ? `<button data-m="men">Mencionar</button>` : ''}
+    ${S.me.admin && !u.bot ? `<button data-m="gift">🎁 Dar placa de nome</button>` : ''}
     ${u.bot ? `<hr><div class="um-vol"><label>Volume do DJ para você <output>${prefs.djVol ?? 70}%</output></label><input type="range" min="0" max="100" step="1" value="${prefs.djVol ?? 70}" data-m="djvol"></div>
       <button data-m="djmute">${prefs.djOn === false ? 'Voltar a ouvir o DJ' : 'Silenciar o DJ para mim'} ${I(prefs.djOn === false ? 'voice' : 'micOff')}</button>` : ''}
     ${inVoice ? `<hr><div class="um-vol"><label>Volume para você <output>${volOf(uid, 'voice')}%</output></label><input type="range" min="0" max="200" step="5" value="${volOf(uid, 'voice')}" data-m="vol"></div>
@@ -1479,6 +1635,7 @@ function userMenu(uid, x, y, anchor) {
   if (djv) djv.oninput = () => setDjVol(djv.value);
   p.onclick = async e => {
     const m = e.target.closest('button[data-m]')?.dataset.m; if (!m) return; closePops();
+    if (m === 'gift') { INV.sel = uid; INV.item = null; INV.people = null; openSettings('inventario'); setTimeout(() => $('#invAdm')?.scrollIntoView({ behavior: 'smooth' }), 400); return; }
     if (m === 'pf') openFullProfile(uid);
     if (m === 'edit') openSettings('perfil');
     if (m === 'djmute') { prefs.djOn = prefs.djOn === false; savePrefs(); musicVol(); toast(prefs.djOn ? 'Você voltou a ouvir o DJ.' : 'DJ silenciado só para você.'); }
@@ -1871,7 +2028,7 @@ function openSettings(tab) {
   el.innerHTML = `<nav class="set-nav"><div class="set-nav-in">
       <div class="set-me">${av(S.me.id, 40)}<div><b>${esc(S.me.displayName)}</b><button class="link" data-st="perfil">Editar perfil</button></div></div>
       <h4>Configurações de usuário</h4>
-      <button data-st="conta">${I('user')}Minha conta</button><button data-st="perfil">${I('edit')}Perfil</button><button data-st="privacidade">${I('shield')}Privacidade e segurança</button>
+      <button data-st="conta">${I('user')}Minha conta</button><button data-st="perfil">${I('edit')}Perfil</button><button data-st="inventario">🎒 Inventário${(S.me.items || []).some(x => x.seen === false) ? ' <span class="badge" style="border:0;margin-left:auto">!</span>' : ''}</button><button data-st="privacidade">${I('shield')}Privacidade e segurança</button>
       <h4>Configurações do app</h4>
       <button data-st="aparencia">${I('smile')}Aparência</button><button data-st="voz">${I('mic')}Voz e vídeo</button><button data-st="notif">${I('bell')}Notificações</button><button data-st="atalhos">${I('menu')}Atalhos</button><button data-st="app">${I('gear')}Aplicativo</button>
       <button data-st="novidades">✨ Novidades</button>
@@ -1896,7 +2053,9 @@ let capturingKey = false;
 function drawSettings() {
   $$('.set-nav [data-st]').forEach(b => b.classList.toggle('active', b.dataset.st === setTab));
   const b = $('#setBody'); stopMicTest(); stopOutTest(); b.onclick = null;
-  b.closest('.set-body').scrollTop = 0;
+  if (setTab !== drawSettings.last) b.closest('.set-body').scrollTop = 0;
+  drawSettings.last = setTab;
+  if (setTab === 'inventario') return drawInventory(b);
   if (setTab === 'perfil') {
     // rascunho: nada vai para o servidor até clicar em Salvar. A prévia usa só o rascunho (não mexe nos outros).
     const u = S.me;

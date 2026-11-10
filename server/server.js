@@ -141,7 +141,8 @@ function publicUser(u) {
     color: u.color, banner: u.banner, bio: u.bio || '', customStatus: u.customStatus || '',
     pronouns: u.pronouns || '', theme: u.theme || null,
     accent: u.accent || null, frame: u.frame || null, effect: u.effect || null, badges: u.bot ? [] : badgesOf(u),
-    status: on ? (u.status || 'online') : 'offline', createdAt: u.createdAt
+    status: on ? (u.status || 'online') : 'offline', createdAt: u.createdAt,
+    plate: u.plate && PLATES.includes(u.plate) ? u.plate : null
   };
 }
 /* insígnias: calculadas a partir de dados reais da conta (ninguém escolhe a própria) */
@@ -159,6 +160,12 @@ function badgesOf(u) {
 // visuais de perfil que existem no app (o servidor só aceita estes)
 const FRAMES = ['neon', 'arco', 'ouro', 'fogo', 'gelo', 'folhas', 'pixel', 'orbita'];
 const EFFECTS = ['estrelas', 'neve', 'brilho', 'bolhas', 'aurora'];
+// Placas de nome animadas (inventário). Ninguém escolhe: só os donos do Anarchy dão para as pessoas.
+// O visual e o nome de cada uma ficam no app (PLATES em app.js); aqui só a lista do que existe.
+const PLATES = ['sakura', 'lua', 'galaxia', 'shoujo', 'chamas', 'raio', 'neon', 'oceano', 'mecha', 'escarlate', 'kitsune', 'ceifador', 'oni', 'aura', 'dragao', 'anarquia'];
+// quem pode dar itens: ANARCHY_ADMINS no .env (ids ou nomes de usuário, separados por vírgula). Padrão: a conta do Foxy.
+const ADMINS = (process.env.ANARCHY_ADMINS || 'JoREzT59l3Vw').split(',').map(s => s.trim()).filter(Boolean);
+const isAdmin = u => !!u && !u.bot && (ADMINS.includes(u.id) || ADMINS.includes(u.username));
 
 /* ---------- grupos: cargos e permissões ---------- */
 const PERMS = ['admin', 'manageServer', 'manageChannels', 'manageRoles', 'kick', 'ban', 'manageMessages', 'mentionEveryone', 'manageMedia'];
@@ -206,7 +213,8 @@ function rank(g, uid) {
 }
 const above = (g, uid, target) => rank(g, uid) < rank(g, target);
 // o email da conta só vai para o próprio dono (nunca no publicUser)
-function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online', blocked: u.blocked || [], favs: u.favs || null, privacy: u.privacy || {}, email: u.email || null, emailAsked: u.emailAsked || 0, mailOn: mailOn() }; }
+function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online', blocked: u.blocked || [], favs: u.favs || null, privacy: u.privacy || {}, email: u.email || null, emailAsked: u.emailAsked || 0, mailOn: mailOn(),
+  items: u.items || [], lost: (u.lost || []).slice(-100), admin: isAdmin(u), given: isAdmin(u) ? (u.given || []).slice(-300) : [] }; }
 // bloqueio vale nos dois sentidos: quem bloqueou e quem foi bloqueado não se alcançam
 const blockedBetween = (a, b) => !!((db.users[a] && (db.users[a].blocked || []).includes(b)) || (db.users[b] && (db.users[b].blocked || []).includes(a)));
 
@@ -815,6 +823,50 @@ function onConnection(socket) {
     save(); pushFriends(uid); toUser(uid, 'me:update', selfUser(u)); ok(cb);
   });
   // aparelhos com login (cada login é um token) e janelas abertas agora
+  /* inventário: placas de nome. Só administradores dão e tiram; cada um equipa as suas. */
+  on('inv:give', (d, cb) => {
+    const m = me();
+    if (!isAdmin(m)) return fail(cb, 'Só o dono do Anarchy pode dar itens.');
+    const t = db.users[str(d.uid, 40)];
+    if (!t || t.bot) return fail(cb, 'Pessoa não encontrada.');
+    const item = str(d.item, 30);
+    if (!PLATES.includes(item)) return fail(cb, 'Item inválido.');
+    t.items = t.items || [];
+    if (t.items.some(x => x.item === item)) return fail(cb, `${t.displayName} já tem esse item.`);
+    const e = { id: newId(), item, from: uid, at: now(), seen: false, msg: str(d.msg, 140).trim() };
+    t.items.push(e);
+    m.given = m.given || []; m.given.push({ item, to: t.id, at: e.at, msg: e.msg });
+    if (m.given.length > 500) m.given.splice(0, m.given.length - 500);
+    save();
+    toUser(t.id, 'inv:gift', { entry: e, from: publicUser(m) });
+    toUser(t.id, 'me:update', selfUser(t));
+    if (t.id !== uid) toUser(uid, 'me:update', selfUser(m));
+    log(`   Inventário: @${m.username} deu "${item}" para @${t.username}.`);
+    ok(cb, {});
+  });
+  on('inv:revoke', (d, cb) => {
+    const m = me();
+    if (!isAdmin(m)) return fail(cb, 'Só o dono do Anarchy pode tirar itens.');
+    const t = db.users[str(d.uid, 40)], item = str(d.item, 30);
+    if (!t || !(t.items || []).some(x => x.item === item)) return fail(cb, 'Essa pessoa não tem esse item.');
+    t.items = t.items.filter(x => x.item !== item);
+    t.lost = t.lost || []; t.lost.push({ item, by: uid, at: now() }); if (t.lost.length > 200) t.lost.splice(0, t.lost.length - 200);
+    m.given = m.given || []; m.given.push({ item, to: t.id, at: now(), revoked: true });
+    if (t.plate === item) t.plate = null;
+    save(); pushUser(t.id); if (t.id !== uid) toUser(uid, 'me:update', selfUser(m));
+    ok(cb, {});
+  });
+  on('inv:equip', (d, cb) => {
+    const m = me(), item = d.item ? str(d.item, 30) : null;
+    if (item && !(m.items || []).some(x => x.item === item)) return fail(cb, 'Você não tem esse item.');
+    m.plate = item; save(); pushUser(uid); ok(cb, {});
+  });
+  on('inv:seen', (_, cb) => { const m = me(); let n = 0; (m.items || []).forEach(x => { if (x.seen === false) { x.seen = true; n++; } }); if (n) save(); ok(cb, {}); });
+  // para o administrador escolher a quem dar: todas as contas (menos bots)
+  on('inv:people', (_, cb) => {
+    if (!isAdmin(me())) return fail(cb, 'Só o dono do Anarchy.');
+    ok(cb, { people: Object.values(db.users).filter(u => !u.bot).map(u => ({ ...publicUser(u), items: (u.items || []).map(x => x.item) })) });
+  });
   // email da conta: manda um código de 6 dígitos e só grava depois que a pessoa confirma
   on('email:start', async (d, cb) => {
     if (!mailOn()) return fail(cb, 'Este servidor ainda não manda emails.');
