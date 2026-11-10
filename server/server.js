@@ -618,7 +618,7 @@ app.post('/api/password', auth, (req, res) => {
    "Esqueci a senha" manda para esse email um link que vale 30 minutos e uma vez só.
    No banco fica só o "hash" do link (quem vê o banco não consegue usar o link). */
 const { createMailer } = require('./mail');
-const mailer = createMailer({ log });
+const mailer = createMailer({ log, supabaseUrl: cfg.supabaseUrl, supabaseToken: cfg.supabaseToken });
 const EMAIL_RE = /^[^\s@<>()",;:\\]{1,64}@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,24}$/i;
 const sha256 = s => crypto.createHash('sha256').update(String(s)).digest('hex');
 const emailCodes = new Map(); // uid -> { email, hash, exp, tries } (código para confirmar o email)
