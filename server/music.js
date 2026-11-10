@@ -27,7 +27,8 @@ function createMusic({ log = () => {} } = {}) {
   }
   function run(args, ms = 45000) {
     return new Promise((resolve, reject) => {
-      execFile(bin, args, { timeout: ms, maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, out, errOut) => {
+      // PYTHONIOENCODING: no Windows o yt-dlp escrevia os erros com acento estragado ("you�re")
+      execFile(bin, args, { timeout: ms, maxBuffer: 64 * 1024 * 1024, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } }, (err, out, errOut) => {
         if (err) { const why = String(errOut || err.message).split(/\r?\n/).filter(l => /ERROR|error/.test(l)).pop() || err.message; return reject(new Error(why.replace(/^ERROR:\s*/, '').slice(0, 300))); }
         resolve(out);
       });
@@ -75,13 +76,53 @@ function createMusic({ log = () => {} } = {}) {
     return { title: name.slice(0, 200) || 'Áudio', by: u.hostname, page: u.href, dur: 0, thumb: null, src: { url: r && r.url ? r.url : u.href, headers: {}, mime: type || 'audio/mpeg' }, at: Date.now() };
   }
 
+  /* O YouTube às vezes bloqueia o servidor por um tempo ("Sign in to confirm you're not a bot").
+     Quando isso acontece, o DJ procura a mesma música no SoundCloud e, por 15 minutos,
+     as buscas por nome vão direto para o SoundCloud (insistir no YouTube só prolonga o bloqueio). */
+  const isBlock = e => /confirm you.?re not a bot|sign in to confirm|HTTP Error 429|too many requests/i.test(e && e.message || '');
+  let ytBlockedUntil = 0;
+  const isYouTube = q => { try { return /(^|\.)(youtube\.com|youtu\.be)$/.test(new URL(q).hostname); } catch { return false; } };
+  // nome do vídeo pelo oEmbed (funciona mesmo com o YouTube bloqueando o yt-dlp)
+  async function ytName(url) {
+    try {
+      const r = await fetch('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent(url), { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return j.title ? String(j.title).replace(/\((official|oficial)[^)]*\)|\[(official|oficial)[^\]]*\]/ig, '').trim() : null;
+    } catch { return null; }
+  }
+  async function soundcloud(name) {
+    const r = await extract('scsearch1:' + name, name);
+    r.via = 'SoundCloud';
+    return r;
+  }
+
   // pega a música: link (YouTube, SoundCloud, mp3...) ou nome (busca no YouTube). Devolve o endereço do áudio.
-  async function resolve(q) {
+  // name: o nome da música, quando já se sabe (playlists), para procurar em outro lugar se o YouTube bloquear
+  async function resolve(q, { name = null } = {}) {
     if (isUrl(q)) { const u = await publicUrl(q); const d = await direct(u); if (d) return d; }
     if (process.env.DJ_SEM_YTDLP) throw new Error('neste servidor só funcionam links diretos de áudio (mp3, ogg...)');
     await ensure();
-    const target = isUrl(q) ? q : 'ytsearch1:' + q;
-    const args = ['-J', '--no-playlist', '--no-warnings', '-f', 'bestaudio[ext=m4a]/bestaudio[acodec=opus]/bestaudio/best', target];
+    const byName = !isUrl(q), yt = byName || isYouTube(q);
+    // YouTube bloqueado há pouco: busca por nome vai direto para o SoundCloud
+    if (yt && Date.now() < ytBlockedUntil) {
+      const n = name || (byName ? q : await ytName(q));
+      if (n) { try { return await soundcloud(n); } catch {} }
+    }
+    try { return await extract(byName ? 'ytsearch1:' + q : q, q); }
+    catch (e) {
+      if (!yt || !isBlock(e)) throw e;
+      if (Date.now() >= ytBlockedUntil) log('   DJ: o YouTube bloqueou o servidor por um tempo (verificação de robô). Usando o SoundCloud por 15 minutos.');
+      ytBlockedUntil = Date.now() + 15 * 60e3;
+      const n = name || (byName ? q : await ytName(q));
+      if (n) { try { return await soundcloud(n); } catch {} }
+      throw new Error('o YouTube bloqueou o servidor por um tempo (pediu para provar que não é robô) e não achei essa música no SoundCloud. Tente de novo daqui a alguns minutos, ou mande um link do SoundCloud');
+    }
+  }
+  async function extract(target, q) {
+    // prefere arquivo comum (http) a áudio em pedaços (m3u8/HLS), que o app não toca
+    const fmtSel = 'bestaudio[ext=m4a][protocol^=http]/bestaudio[acodec=opus][protocol^=http]/bestaudio[protocol^=http]/bestaudio[ext=m4a]/bestaudio/best';
+    const args = ['-J', '--no-playlist', '--no-warnings', '-f', fmtSel, target];
     let out;
     try { out = await run([...jsArgs, ...args]); }
     catch (e) { if (/js-runtimes|no such option/i.test(e.message)) out = await run(args); else throw e; } // yt-dlp antigo, sem essa opção
