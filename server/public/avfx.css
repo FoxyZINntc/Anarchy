@@ -130,3 +130,8 @@
 .case-res { display: grid; gap: 10px; justify-items: center; text-align: center; animation: giftPop .45s cubic-bezier(.2, 1.6, .4, 1); }
 .case-res .gift-rar { color: var(--rc); text-shadow: 0 0 14px var(--rc); }
 .case-res .av { margin: 18px 0 6px; }
+
+/* saldo no canto de baixo da coluna de grupos */
+.rail-pts { margin-top: auto; flex: none; display: grid; justify-items: center; gap: 2px; width: 52px; padding: 7px 0 6px; border: 1px solid rgba(255, 200, 60, .3); border-radius: 14px; background: rgba(255, 200, 60, .08); color: #ffd36b; font: inherit; font-size: 11px; font-weight: 800; cursor: pointer; transition: background .15s, transform .15s; }
+.rail-pts:hover { background: rgba(255, 200, 60, .16); transform: translateY(-1px); }
+.rail-pts .pts-ic { width: 16px; height: 16px; }
