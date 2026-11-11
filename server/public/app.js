@@ -1212,6 +1212,10 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-12-bolinha', date: '12/11/2026', title: 'Bolinha verde sem piscar', emoji: '🟢', items: [
+    'A bolinha verde de quem está falando não fica mais piscando a cada sílaba.',
+    'A sua acende e apaga junto com o seu microfone: acesa é porque os outros estão te ouvindo.'
+  ] },
   { id: '2026-11-12-chiado', date: '12/11/2026', title: 'Chiado não abre mais o microfone', emoji: '🤫', items: [
     'A detecção de voz agora reconhece chiado pelo "formato" do som e não abre o microfone por causa dele, mesmo quando o chiado aparece de repente, sobe ou fica oscilando.',
     'Depois que você para de falar, o microfone fecha em até 2 segundos, mesmo com barulho de fundo.'
@@ -3286,13 +3290,21 @@ function watchLevel(sid, stream) {
 setInterval(() => {
   if (!V.room) return;
   const room = S.voice[V.room] || [];
+  const now = Date.now();
   V.levels.forEach((l, sid) => {
     l.an.getByteTimeDomainData(l.buf); let m = 0; for (const v of l.buf) m = Math.max(m, Math.abs(v - 128));
     const st = room.find(p => p.sid === sid);
-    const speaking = m > 9 && !(st && (st.muted || st.deafened)) && !(sid === S.mySid && (V.muted || V.deaf || (prefs.ptt && !V.pttDown)));
-    $$(`[data-speak="${sid}"]`).forEach(el => el.classList.toggle('speaking', speaking));
+    if (m > 9) l.at = now;
+    const voz = now - (l.at || 0) < 600; // voz com 600 ms de folga (o mesmo tempo que o microfone segura aberto)
+    let speaking;
+    if (sid === S.mySid) {
+      // a sua bolinha segue o microfone: acende quando ele abre para a call e apaga quando fecha
+      const sending = !V.muted && !V.deaf && (!prefs.ptt || V.pttDown);
+      speaking = sending && (prefs.ptt || prefs.vadMode === 'off' ? voz : MICP.open);
+    } else speaking = voz && !(st && (st.muted || st.deafened)); // a dos outros: sem piscar entre sílabas
+    $$(`[data-speak="${sid}"]`).forEach(el => { if (el.classList.contains('speaking') !== speaking) el.classList.toggle('speaking', speaking); });
   });
-}, 110);
+}, 60);
 
 /* palco (grade de participantes) */
 function openStage() {
