@@ -135,3 +135,81 @@
 .rail-pts { margin-top: auto; flex: none; display: grid; justify-items: center; gap: 2px; width: 52px; padding: 7px 0 6px; border: 1px solid rgba(255, 200, 60, .3); border-radius: 14px; background: rgba(255, 200, 60, .08); color: #ffd36b; font: inherit; font-size: 11px; font-weight: 800; cursor: pointer; transition: background .15s, transform .15s; }
 .rail-pts:hover { background: rgba(255, 200, 60, .16); transform: translateY(-1px); }
 .rail-pts .pts-ic { width: 16px; height: 16px; }
+
+/* ---------- Inventário (tela única): seu visual + carteira em cima, abas embaixo ---------- */
+.iv-hero { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.35fr); gap: 14px; margin-bottom: 18px; }
+.iv-k { font-size: .7em; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.iv-look, .iv-wallet { position: relative; border-radius: 18px; border: 1px solid var(--line); padding: 16px; overflow: hidden; }
+.iv-look { display: grid; gap: 10px; align-content: start; background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 65%), var(--elev); }
+.iv-look-av { display: grid; place-items: center; padding: 14px 0 8px; }
+.iv-look .inv-prev { background: var(--side); }
+.iv-eq { display: grid; gap: 4px; font-size: .82em; }
+.iv-eq > span { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.iv-eq b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iv-eq .link { font-size: .92em; margin-left: auto; flex: none; }
+.iv-wallet { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; min-width: 0; background: radial-gradient(circle at 12% 55%, rgba(255, 170, 0, .2), transparent 55%), linear-gradient(160deg, color-mix(in srgb, #ffb300 6%, var(--elev)), var(--elev)); border-color: rgba(255, 200, 60, .25); }
+.iv-wallet .crate { position: absolute; top: 16px; right: 16px; width: 84px; height: 64px; }
+.iv-wallet .crate::before { top: 20px; height: 9px; }
+.iv-wallet .crate::after { font-size: 21px; }
+.iv-wal-in { display: grid; gap: 4px; min-width: 0; }
+.iv-wal-in > .iv-k, .iv-wal-in > .box-bal { padding-right: 100px; }
+.iv-wal-in .box-bal { flex-wrap: wrap; column-gap: 8px; row-gap: 0; font-size: 1.9em; line-height: 1.1; }
+.iv-wal-in .box-bal .small { flex-basis: 100%; font-size: .4em; letter-spacing: .04em; }
+.iv-wal-in .box-prog { margin-top: 10px; }
+.iv-look { min-width: 0; }
+.btn.primary.iv-open { justify-self: start; max-width: 100%; margin-top: 8px; padding: 10px 16px; font-weight: 800; background: linear-gradient(180deg, #ffcb3d, #f59300); color: #2a1800; border: 0; box-shadow: 0 6px 18px -6px rgba(255, 160, 0, .8); }
+.btn.primary.iv-open:not(:disabled):hover { filter: brightness(1.08); transform: translateY(-1px); }
+.btn.primary.iv-open:disabled { background: var(--side); color: var(--muted); box-shadow: none; }
+.iv-open .pts-ic { background: linear-gradient(135deg, #fff, #ffe9a8); box-shadow: none; }
+
+.iv-tabs { position: sticky; top: -1px; z-index: 3; display: flex; gap: 4px; padding: 4px; margin-bottom: 14px; border-radius: 12px; background: var(--side); border: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.iv-tabs button { position: relative; flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 12px; border: 0; border-radius: 9px; background: none; color: var(--muted); font: inherit; font-size: .88em; font-weight: 700; white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
+.iv-tabs button:hover { color: var(--text); background: var(--hover); }
+.iv-tabs button.on { color: var(--text); background: var(--elev); box-shadow: 0 1px 0 rgba(255, 255, 255, .04), 0 2px 8px -2px rgba(0, 0, 0, .4); }
+.iv-tabs small { font-size: .78em; padding: 1px 6px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); }
+.iv-dot { width: 8px; height: 8px; border-radius: 50%; background: #ff2a55; box-shadow: 0 0 8px #ff2a55; }
+.iv-pane { animation: ivIn .18s ease-out; }
+@keyframes ivIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.iv-note { margin: 0 0 12px; }
+.iv-filter { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.iv-filter button { padding: 4px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--elev); color: var(--muted); font: inherit; font-size: .78em; font-weight: 700; cursor: pointer; }
+.iv-filter button[class*="r-c-"] { border-left: 3px solid var(--rc); }
+.iv-filter button:hover { color: var(--text); }
+.iv-filter button.on { color: var(--text); border-color: var(--rc, var(--accent)); background: color-mix(in srgb, var(--rc, var(--accent)) 20%, var(--elev)); }
+.iv-empty { display: grid; justify-items: center; gap: 4px; padding: 34px 16px; border: 1px dashed var(--line); border-radius: 14px; text-align: center; font-size: 1.8em; }
+.iv-empty b { font-size: .5em; } .iv-empty span { font-size: .45em; color: var(--muted); }
+.inv-log-it[class*="r-c-"] { border-left: 3px solid var(--rc); }
+
+/* dar presentes (dono) e janela de dar pontos */
+.iv-give { display: grid; grid-template-columns: 250px 1fr; gap: 14px; align-items: start; }
+.iv-people-col { display: grid; gap: 8px; position: sticky; top: 56px; padding: 10px; border-radius: 14px; background: var(--elev); border: 1px solid var(--line); }
+.iv-people-col .inv-people { max-height: 420px; }
+.inv-person > span { display: grid; min-width: 0; line-height: 1.2; }
+.inv-person > span b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inv-person small { display: inline-flex; align-items: center; gap: 3px; color: #ffd36b; font-weight: 700; }
+.iv-give-main { display: grid; gap: 12px; min-width: 0; }
+.iv-sec { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: var(--elev); border: 1px solid var(--line); }
+.iv-sec h4 { margin: 0; display: flex; align-items: center; gap: 6px; font-size: .95em; }
+.iv-sec-f { display: flex; justify-content: flex-end; }
+.gp-who { display: flex; align-items: center; gap: 12px; }
+.gp-who > div { display: grid; line-height: 1.25; min-width: 0; }
+.gp-b { display: grid; gap: 14px; }
+.modal-h h2 .pts-ic { width: .9em; height: .9em; vertical-align: -1px; }
+.pts-pick { display: flex; gap: 6px; flex-wrap: wrap; }
+.pts-pick button { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border-radius: 10px; border: 1px solid rgba(255, 200, 60, .3); background: rgba(255, 200, 60, .07); color: #ffd36b; font: inherit; font-weight: 800; cursor: pointer; transition: background .12s, transform .12s; }
+.pts-pick button:hover { background: rgba(255, 200, 60, .15); transform: translateY(-1px); }
+.pts-pick button.on { background: linear-gradient(180deg, #ffcb3d, #f59300); color: #2a1800; border-color: transparent; }
+.pts-pick button.on .pts-ic { background: #fff3c4; box-shadow: none; }
+.pts-pick .input { flex: 1; min-width: 110px; width: auto; }
+.gift-coin { display: grid; place-items: center; width: 120px; height: 120px; margin: 6px 0; border-radius: 50%; background: radial-gradient(circle, rgba(255, 200, 60, .35), transparent 70%); animation: crateFloat 2.4s ease-in-out infinite; }
+.gift-coin .pts-ic { width: 64px; height: 64px; border-radius: 12px; box-shadow: 0 0 30px rgba(255, 180, 0, .9); }
+
+@media (max-width: 760px) {
+  .iv-hero, .iv-give { grid-template-columns: 1fr; }
+  .iv-wallet { grid-template-columns: 1fr; justify-items: start; }
+  .iv-wallet .crate { display: none; }
+  .iv-wal-in > .iv-k, .iv-wal-in > .box-bal { padding-right: 0; }
+  .iv-people-col { position: static; }
+  .iv-people-col .inv-people { max-height: 220px; }
+  .iv-tabs button { flex: none; }
+}

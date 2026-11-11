@@ -236,7 +236,7 @@ const above = (g, uid, target) => rank(g, uid) < rank(g, target);
 // o email da conta só vai para o próprio dono (nunca no publicUser)
 function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online', blocked: u.blocked || [], favs: u.favs || null, privacy: u.privacy || {}, email: u.email || null, emailAsked: u.emailAsked || 0, mailOn: mailOn(),
   items: u.items || [], lost: (u.lost || []).slice(-100), admin: isAdmin(u), given: isAdmin(u) ? (u.given || []).slice(-300) : [],
-  points: u.points || 0, pointsTotal: u.pointsTotal || 0, callAcc: u.callAcc || 0, boxes: u.boxes || 0, boxLog: (u.boxLog || []).slice(-40) }; }
+  points: u.points || 0, pointsTotal: u.pointsTotal || 0, callAcc: u.callAcc || 0, boxes: u.boxes || 0, boxLog: (u.boxLog || []).slice(-40), ptsLog: (u.ptsLog || []).slice(-40) }; }
 // bloqueio vale nos dois sentidos: quem bloqueou e quem foi bloqueado não se alcançam
 const blockedBetween = (a, b) => !!((db.users[a] && (db.users[a].blocked || []).includes(b)) || (db.users[b] && (db.users[b].blocked || []).includes(a)));
 
@@ -933,8 +933,14 @@ function onConnection(socket) {
     const t = db.users[str(d.uid, 40)], n = Math.round(+d.amount || 0);
     if (!t || t.bot) return fail(cb, 'Pessoa não encontrada.');
     if (!n || Math.abs(n) > 1e6) return fail(cb, 'Quantidade inválida.');
+    const msg = str(d.msg, 140).trim(), at = now();
     t.points = Math.max(0, (t.points || 0) + n); if (n > 0) t.pointsTotal = (t.pointsTotal || 0) + n;
-    save(); if (n > 0) toUser(t.id, 'points:gain', { amount: n, points: t.points, from: m.displayName }); toUser(t.id, 'me:update', selfUser(t));
+    t.ptsLog = [...(t.ptsLog || []), { amount: n, from: uid, at, msg }].slice(-60);
+    m.given = [...(m.given || []), { points: n, to: t.id, at, msg }].slice(-500);
+    save();
+    if (n > 0) toUser(t.id, 'points:gift', { amount: n, points: t.points, from: publicUser(m), msg });
+    toUser(t.id, 'me:update', selfUser(t)); if (t.id !== uid) toUser(uid, 'me:update', selfUser(m));
+    log(`   Pontos: @${m.username} deu ${n} para @${t.username}.`);
     ok(cb, { points: t.points });
   });
   // para o administrador escolher a quem dar: todas as contas (menos bots)

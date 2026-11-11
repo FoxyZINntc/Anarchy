@@ -687,11 +687,15 @@ function connect() {
     render();
   });
   socket.on('me:update', u => {
-    const before = S.me && S.me.points;
+    if (!S.users) return; // ainda carregando
     S.me = u; S.users[u.id] = u; render();
     // só redesenha as telas que mostram isso (e não a cada minuto de call se nada mudou na tela)
-    if ($('#setBody') && setTab === 'inventario') drawSettings();
-    if ($('#setBody') && setTab === 'caixas' && !$('.case-back') && before !== u.points) drawSettings();
+    if ($('#setBody') && setTab === 'inventario' && !$('.case-back') && invSig(u) !== drawInventory.sig) drawSettings();
+  });
+  // presente de pontos do dono: abre como presente (igual às placas)
+  socket.on('points:gift', ({ amount, points, from, msg }) => {
+    if (from && !S.users[from.id]) S.users[from.id] = from;
+    GIFT.q.push({ pts: { amount, points, msg }, from }); if (!GIFT.open) giftNext();
   });
   // ganhou AnarchyPoints (10 min de call, ou presente do dono)
   socket.on('points:gain', ({ amount, points, from }) => {
@@ -1208,6 +1212,12 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-11-inventario', date: '11/11/2026', title: 'Inventário novo', emoji: '🎒', items: [
+    'Caixas, efeitos de foto, placas de nome e histórico agora ficam juntos no <b>Inventário</b>, separados em abas.',
+    'No topo você vê como os outros te enxergam (foto e placa) e a sua carteira de pontos, com o botão de abrir caixa.',
+    'O dono do Anarchy agora pode dar AnarchyPoints de presente. Eles chegam num pacote que você abre na tela.',
+    'Os temas animados em Aparência voltaram a aparecer certinho.'
+  ] },
   { id: '2026-11-11-caixas', date: '11/11/2026', title: 'AnarchyPoints e Caixas', emoji: '🎁', items: [
     'Ficou em call com a galera? Ganha <b>100 AnarchyPoints a cada 10 minutos</b> (precisa ter mais alguém na call e estar ouvindo).',
     'Com 300 pontos você abre uma <b>Caixa Anarchy</b>: a roleta gira e sorteia um efeito animado para a sua foto de perfil.',
@@ -1429,6 +1439,7 @@ function giftNext() {
   const g = GIFT.q.shift();
   if (!g) { GIFT.open = false; emit('inv:seen'); return; }
   GIFT.open = true;
+  if (g.pts) return giftPoints(g);
   const [name, rar, emo, desc] = PLATES[g.entry.item];
   const fromName = g.from?.displayName || nameOf(g.entry.from);
   const el = document.createElement('div'); el.className = 'gift-back'; el.setAttribute('role', 'dialog');
@@ -1451,6 +1462,33 @@ function giftNext() {
     box.onclick = async e => {
       const b = e.target.closest('[data-g]'); if (!b) return;
       if (b.dataset.g === 'eq') { const r = await emit('inv:equip', { item: g.entry.item }); if (!r.ok) toast(r.erro, true); else toast(`${name} equipada! Todo mundo vê na lista de membros.`); }
+      close();
+    };
+  };
+  el.addEventListener('keydown', e => { if (e.key === 'Escape' && el.querySelector('.gift-reveal')) close(); });
+}
+// presente de AnarchyPoints: mesmo baú, mas sai uma moeda
+function giftPoints(g) {
+  const { amount, points, msg } = g.pts, fromName = g.from?.displayName || 'O dono do Anarchy';
+  const el = document.createElement('div'); el.className = 'gift-back'; el.setAttribute('role', 'dialog');
+  el.innerHTML = `<div class="gift r-lendario"><div class="gift-from">🎁 <b>${esc(fromName)}</b> te mandou AnarchyPoints!</div>
+    <button class="gift-box" type="button" aria-label="Abrir presente"><span class="gift-rays"></span>🎁</button>
+    <div class="gift-hint">Clique no presente para abrir</div></div>`;
+  document.body.appendChild(el);
+  tone([[523, .12], [659, .12], [784, .2]], 'triangle', .07);
+  const close = () => { el.remove(); giftNext(); };
+  el.querySelector('.gift-box').onclick = () => {
+    const box = el.querySelector('.gift');
+    box.innerHTML = `<div class="gift-reveal"><div class="gift-rar">AnarchyPoints</div><div class="gift-coin"><i class="pts-ic"></i></div>
+      <div class="gift-title">+${amount.toLocaleString('pt-BR')} pontos</div>
+      ${msg ? `<div class="gift-msg">“${esc(msg)}” — ${esc(fromName)}</div>` : `<div class="gift-msg">Presente de ${esc(fromName)}</div>`}
+      <div style="opacity:.8">Seu saldo agora: <b style="color:#ffd36b">${points.toLocaleString('pt-BR')}</b></div>
+      <div class="gift-acts">${points >= BOX_COST ? '<button class="btn primary" data-g="box">🎁 Abrir caixas</button>' : ''}<button class="btn ghost" data-g="ok" style="color:#fff">Valeu!</button></div></div>`;
+    tone([[523, .08], [659, .08], [784, .08], [1047, .35]], 'triangle', .09);
+    giftSparks(box.querySelector('.gift-coin'), '#ffc83c', 50);
+    box.onclick = e => {
+      const b = e.target.closest('[data-g]'); if (!b) return;
+      if (b.dataset.g === 'box') { INV.tab = 'efeitos'; openSettings('inventario'); }
       close();
     };
   };
@@ -1488,29 +1526,6 @@ const BOX_COST = 300;
 const avWith = (fxId, size = 64) => av(S.me.id, size, false, '', { ...S.me, avfx: fxId });
 const ownedFx = () => new Set((S.me.items || []).filter(x => String(x.item).startsWith('av:')).map(x => x.item.slice(3)));
 
-function drawBoxes(b) {
-  const me = S.me, pts = me.points || 0, own = ownedFx();
-  const prog = Math.min(100, Math.round((me.callAcc || 0) / 6000)), left = Math.max(1, Math.ceil((600000 - (me.callAcc || 0)) / 60000));
-  const log = (me.boxLog || []).slice().reverse().slice(0, 15);
-  b.innerHTML = `<h2>Caixas</h2>
-    <div class="box-hero"><div class="crate" aria-hidden="true"></div><div>
-      <h3>Caixa Anarchy</h3>
-      <div class="box-bal"><i class="pts-ic"></i>${pts.toLocaleString('pt-BR')} <span class="muted small" style="font-weight:600">AnarchyPoints</span></div>
-      <div class="box-prog" title="Próximos 100 pontos"><i style="width:${prog}%"></i></div>
-      <span class="muted small">Em call com mais alguém: <b>+100 pontos</b> a cada 10 minutos. Faltam ~${left} min para os próximos.</span>
-      <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap"><button class="btn primary" id="boxGo" ${pts < BOX_COST ? 'disabled' : ''}>Abrir caixa · <i class="pts-ic"></i> ${BOX_COST}</button>${pts < BOX_COST ? `<span class="muted small" style="align-self:center">Faltam ${BOX_COST - pts} pontos.</span>` : ''}</div>
-      <div class="box-odds">${Object.entries(AVR).map(([k, v]) => `<span class="r-c-${k}">${v[0]} ${v[2]}</span>`).join('')}</div>
-    </div></div>
-    <div class="set-card" style="margin-top:16px"><h3>Conteúdo da caixa · ${own.size}/${AVFX_IDS.length} coletados</h3>
-      <p class="muted small" style="margin-top:-4px">Efeitos animados para a sua foto de perfil. Repetiu? Você ganha pontos de volta (30 a 1000, conforme a raridade).</p>
-      <div class="avx-grid">${AVFX_IDS.map(id => { const f = AVFX[id], has = own.has(id), on = me.avfx === id; return `<button class="avx-card r-c-${f.tier} ${has ? '' : 'locked'} ${on ? 'on' : ''}" data-fx="${id}" ${has ? '' : 'disabled'} title="${has ? (on ? 'Clique para tirar' : 'Clique para usar') : 'Ainda não saiu para você'}">${on ? '<span class="inv-tag">USANDO</span>' : ''}${avWith(id, 48)}<b>${esc(f.name)}</b><small>${AVR[f.tier][0]}</small></button>`; }).join('')}</div></div>
-    ${log.length ? `<div class="set-card"><h3>Últimas caixas</h3><div class="inv-log">${log.map(x => `<div class="inv-log-it r-c-${AVFX[x.item]?.tier}"><span class="ic" style="color:var(--rc)">◆</span><span><b style="color:var(--rc)">${esc(AVFX[x.item]?.name || x.item)}</b>${x.dup ? ' <span class="muted small">(repetida, virou pontos)</span>' : ''}</span><time>${fmtWhen(x.at)}</time></div>`).join('')}</div></div>` : ''}`;
-  $('#boxGo').onclick = () => openCase();
-  b.onclick = async e => {
-    const c = e.target.closest('[data-fx]'); if (!c || c.disabled) return;
-    const r = await emit('avfx:equip', { item: me.avfx === c.dataset.fx ? null : c.dataset.fx }); if (!r.ok) toast(r.erro, true);
-  };
-}
 // roleta no estilo das caixas de jogo: as cartas correm e param na que o servidor sorteou
 async function openCase() {
   const r = await emit('box:open');
@@ -1558,65 +1573,165 @@ async function openCase() {
   };
 }
 
-// tela Inventário (Configurações)
-const INV ={ sel: null, item: null, people: null, q: '' };
-async function drawInventory(b) {
-  const me = S.me, items = (me.items || []).filter(x => PLATES[x.item]), owned = new Map(items.map(x => [x.item, x]));
-  const eq = me.plate && PLATES[me.plate] ? me.plate : null;
-  const leg = items.filter(x => PLATES[x.item]?.[1] === 'lendario').length;
-  const card = id => {
-    const [n, r, e, d] = PLATES[id], has = owned.get(id), on = eq === id;
-    return `<button class="inv-card r-${r} ${has ? '' : 'locked'} ${on ? 'on' : ''}" data-inv="${id}" ${has ? '' : 'disabled'} title="${has ? (on ? 'Clique para tirar' : 'Clique para equipar') : 'Bloqueado'}">
-      ${on ? '<span class="inv-tag">EQUIPADO</span>' : has && has.seen === false ? '<span class="inv-tag new">NOVO</span>' : ''}
-      <span class="inv-rar">${RAR[r][0]}</span>
-      ${plateRow(me.id, id, me.displayName)}
-      <span class="inv-name">${e} ${has ? esc(n) : '???'}</span>
-      <span class="inv-desc">${has ? `${esc(d)}<br>De ${esc(nameOf(has.from))} · ${fmtWhen(has.at)}` : 'Ainda não é seu. Só dá para ganhar de presente.'}</span></button>`;
-  };
-  // histórico: tudo que você recebeu, perdeu e (se for o dono) deu
-  const log = [
-    ...items.map(x => ({ at: x.at, ic: '🎁', t: `Você ganhou <b>${esc(PLATES[x.item]?.[0] || x.item)}</b> de ${esc(nameOf(x.from))}${x.msg ? ` — “${esc(x.msg)}”` : ''}` })),
-    ...(me.lost || []).map(x => ({ at: x.at, ic: '💨', t: `<b>${esc(PLATES[x.item]?.[0] || x.item)}</b> foi tirada da sua conta` })),
-    ...(me.given || []).map(x => ({ at: x.at, ic: x.revoked ? '🗑️' : '📤', t: x.revoked ? `Você tirou <b>${esc(PLATES[x.item]?.[0] || x.item)}</b> de ${esc(nameOf(x.to))}` : `Você deu <b>${esc(PLATES[x.item]?.[0] || x.item)}</b> para ${esc(nameOf(x.to))}` }))
-  ].sort((a, b) => b.at - a.at).slice(0, 60);
-  b.innerHTML = `<h2>Inventário</h2>
-    <p class="muted" style="margin-top:-6px">Placas de nome animadas aparecem para todo mundo na lista de membros. Não dá para comprar: só ganhar de presente.</p>
-    <div class="inv-top"><div class="inv-stat"><b>${owned.size}/${PLATE_IDS.length}</b><span>Placas coletadas</span></div><div class="inv-stat"><b>${leg}</b><span>Lendárias</span></div>
-      <div class="inv-stat"><b style="font-size:1em;padding-top:6px">${eq ? `${PLATES[eq][2]} ${esc(PLATES[eq][0])}` : 'Nenhuma'}</b><span>Equipada ${eq ? '· <button class="link" id="invOff">tirar</button>' : ''}</span></div></div>
-    <div class="set-card"><h3>Placas</h3><div class="inv-grid">${PLATE_IDS.map(card).join('')}</div></div>
-    ${me.admin ? `<div class="set-card" id="invAdm"><h3>🎁 Dar presente <span class="muted small" style="font-weight:400">(só você vê isto)</span></h3><div class="inv-give"><p class="muted small">Carregando contas...</p></div></div>` : ''}
-    <div class="set-card"><h3>Histórico</h3>${log.length ? `<div class="inv-log">${log.map(x => `<div class="inv-log-it"><span class="ic">${x.ic}</span><span>${x.t}</span><time>${fmtWhen(x.at)}</time></div>`).join('')}</div>` : '<p class="muted small" style="margin:0">Nada ainda. Quando você ganhar uma placa, ela aparece aqui.</p>'}</div>`;
-  b.onclick = async e => {
-    const c = e.target.closest('[data-inv]');
-    if (c && !c.disabled) { const id = c.dataset.inv; const r = await emit('inv:equip', { item: eq === id ? null : id }); if (!r.ok) toast(r.erro, true); return; }
-    if (e.target.id === 'invOff') { await emit('inv:equip', { item: null }); }
-  };
-  if (items.some(x => x.seen === false)) emit('inv:seen');
-  if (me.admin) drawGive();
+// tela Inventário (Configurações): tudo num lugar só. Em cima, o seu visual e a carteira (com a caixa);
+// embaixo, abas: efeitos de foto, placas de nome, histórico e (só o dono) dar presentes.
+const INV = { tab: null, sel: null, item: null, people: null, q: '', rar: 'todos', amt: 500, msg: '' };
+const PT_PRESETS = [100, 300, 500, 1000, 5000];
+// "assinatura" do que a tela mostra: só redesenha quando algo disso muda (não a cada minuto de call)
+const invSig = u => [u.points, (u.items || []).length, u.plate, u.avfx, (u.boxLog || []).length, (u.given || []).length, (u.ptsLog || []).length, (u.lost || []).length, (u.items || []).filter(x => x.seen === false).length].join('|');
+const ptsAmt = () => Math.max(1, Math.min(1e6, Math.round(+INV.amt || 0)));
+const ptsPick = () => `<div class="pts-pick">${PT_PRESETS.map(n => `<button type="button" data-amt="${n}" class="${INV.amt === n ? 'on' : ''}"><i class="pts-ic"></i>${n.toLocaleString('pt-BR')}</button>`).join('')}
+  <input class="input" type="number" min="1" max="1000000" data-amt-in placeholder="Outro valor" value="${PT_PRESETS.includes(INV.amt) ? '' : esc(String(INV.amt))}"></div>`;
+// liga os botões de quantidade; onChange atualiza o texto do botão de dar
+function bindPtsPick(root, onChange) {
+  root.addEventListener('click', e => {
+    const b = e.target.closest('[data-amt]'); if (!b) return;
+    INV.amt = +b.dataset.amt; $$('[data-amt]', root).forEach(x => x.classList.toggle('on', x === b));
+    const i = $('[data-amt-in]', root); if (i) i.value = ''; onChange();
+  });
+  const i = $('[data-amt-in]', root);
+  if (i) i.oninput = () => { if (!i.value) return; INV.amt = +i.value; $$('[data-amt]', root).forEach(x => x.classList.remove('on')); onChange(); };
 }
+// menu da pessoa → "Dar AnarchyPoints"
+function givePointsModal(uid) {
+  const u = user(uid); if (!PT_PRESETS.includes(INV.amt)) INV.amt = 500;
+  modal(`<div class="modal-h"><h2><i class="pts-ic"></i> Dar AnarchyPoints</h2><p>Para <b>${esc(u.displayName)}</b>. Chega na hora como presente, com aviso na tela.</p></div>
+    <div class="modal-b gp-b"><div class="gp-who">${av(uid, 40)}<div><b>${esc(u.displayName)}</b><span class="muted small">@${esc(u.username)}</span></div></div>
+      ${ptsPick()}<label class="field">Mensagem (opcional)<input class="input" id="gpMsg" maxlength="140" placeholder="ex.: Prêmio do campeonato!"></label></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="gpGo"></button></div>`, (m, close) => {
+    const go = $('#gpGo', m), lab = () => { go.innerHTML = `🎁 Dar ${ptsAmt().toLocaleString('pt-BR')} pontos`; };
+    lab(); bindPtsPick(m, lab);
+    go.onclick = async () => {
+      go.disabled = true;
+      const r = await emit('points:give', { uid, amount: ptsAmt(), msg: $('#gpMsg', m).value });
+      go.disabled = false;
+      if (!r.ok) return toast(r.erro, true);
+      toast(`🎁 ${ptsAmt().toLocaleString('pt-BR')} AnarchyPoints para ${u.displayName}. Saldo de ${u.displayName}: ${r.points.toLocaleString('pt-BR')}.`);
+      close();
+    };
+  });
+}
+
+function drawInventory(b) {
+  const me = S.me, pts = me.points || 0, own = ownedFx();
+  const plates = (me.items || []).filter(x => PLATES[x.item]), owned = new Map(plates.map(x => [x.item, x]));
+  const eqP = me.plate && PLATES[me.plate] ? me.plate : null, eqF = me.avfx && AVFX[me.avfx] ? me.avfx : null;
+  const fresh = plates.some(x => x.seen === false);
+  if (!INV.tab) INV.tab = fresh ? 'placas' : 'efeitos';
+  if (INV.tab === 'dar' && !me.admin) INV.tab = 'efeitos';
+  drawInventory.sig = invSig(me);
+  const prog = Math.min(100, Math.round((me.callAcc || 0) / 6000)), left = Math.max(1, Math.ceil((600000 - (me.callAcc || 0)) / 60000));
+  const tabs = [['efeitos', '✨ Efeitos de foto', `${own.size}/${AVFX_IDS.length}`], ['placas', '🏷️ Placas de nome', `${owned.size}/${PLATE_IDS.length}`], ['historico', '📜 Histórico', ''], ...(me.admin ? [['dar', '🎁 Dar presentes', '']] : [])];
+  b.innerHTML = `<h2>Inventário</h2>
+    <div class="iv-hero">
+      <div class="iv-look"><span class="iv-k">Seu visual</span>
+        <div class="iv-look-av">${av(me.id, 84)}</div>
+        ${eqP ? plateRow(me.id, eqP, me.displayName) : `<div class="inv-prev">${av(me.id, 32)}<span class="np-name">${esc(me.displayName)}</span></div>`}
+        <div class="iv-eq"><span>✨ ${eqF ? `<b>${esc(AVFX[eqF].name)}</b> <button class="link" data-off="fx">tirar</button>` : '<span class="muted">Sem efeito na foto</span>'}</span>
+          <span>🏷️ ${eqP ? `<b>${esc(PLATES[eqP][0])}</b> <button class="link" data-off="plate">tirar</button>` : '<span class="muted">Sem placa no nome</span>'}</span></div>
+      </div>
+      <div class="iv-wallet"><div class="crate" aria-hidden="true"></div><div class="iv-wal-in">
+        <span class="iv-k">Carteira</span>
+        <div class="box-bal"><i class="pts-ic"></i>${pts.toLocaleString('pt-BR')} <span class="muted small" style="font-weight:600">AnarchyPoints</span></div>
+        <div class="box-prog" title="Próximos 100 pontos"><i style="width:${prog}%"></i></div>
+        <span class="muted small">Em call com mais alguém: <b>+100</b> a cada 10 min · faltam ~${left} min</span>
+        <button class="btn primary iv-open" id="boxGo" ${pts < BOX_COST ? 'disabled' : ''}>🎁 Abrir Caixa Anarchy · <i class="pts-ic"></i> ${BOX_COST}</button>
+        ${pts < BOX_COST ? `<span class="muted small">Faltam ${BOX_COST - pts} pontos para a próxima caixa.</span>` : ''}
+        <div class="box-odds">${Object.entries(AVR).map(([k, v]) => `<span class="r-c-${k}">${v[0]} ${v[2]}</span>`).join('')}</div>
+      </div></div>
+    </div>
+    <div class="iv-tabs" role="tablist">${tabs.map(([k, l, n]) => `<button type="button" role="tab" data-tab="${k}" class="${INV.tab === k ? 'on' : ''}">${l}${n ? `<small>${n}</small>` : ''}${k === 'placas' && fresh ? '<i class="iv-dot"></i>' : ''}</button>`).join('')}</div>
+    <div class="iv-pane" id="ivPane">${invPane(me, own, owned, eqP)}</div>`;
+  $('#boxGo').onclick = () => openCase();
+  b.onclick = async e => {
+    const t = e.target.closest('[data-tab]'); if (t) { INV.tab = t.dataset.tab; return drawInventory(b); }
+    const r = e.target.closest('[data-rar]'); if (r) { INV.rar = r.dataset.rar; return drawInventory(b); }
+    const off = e.target.closest('[data-off]');
+    if (off) { const q = await emit(off.dataset.off === 'fx' ? 'avfx:equip' : 'inv:equip', { item: null }); if (!q.ok) toast(q.erro, true); return; }
+    const fx = e.target.closest('[data-fx]');
+    if (fx && !fx.disabled) { const q = await emit('avfx:equip', { item: me.avfx === fx.dataset.fx ? null : fx.dataset.fx }); if (!q.ok) toast(q.erro, true); return; }
+    const c = e.target.closest('[data-inv]');
+    if (c && !c.disabled) { const q = await emit('inv:equip', { item: eqP === c.dataset.inv ? null : c.dataset.inv }); if (!q.ok) toast(q.erro, true); }
+  };
+  if (INV.tab === 'placas' && fresh) emit('inv:seen');
+  if (INV.tab === 'dar') drawGive();
+}
+function invPane(me, own, owned, eqP) {
+  if (INV.tab === 'efeitos') {
+    const filt = [['todos', 'Todos'], ['meus', 'Meus'], ...Object.entries(AVR).map(([k, v]) => [k, v[0]])];
+    const ids = AVFX_IDS.filter(id => INV.rar === 'todos' || (INV.rar === 'meus' ? own.has(id) : AVFX[id].tier === INV.rar));
+    return `<div class="iv-filter">${filt.map(([k, l]) => `<button type="button" data-rar="${k}" class="${INV.rar === k ? 'on' : ''} ${AVR[k] ? 'r-c-' + k : ''}">${l}</button>`).join('')}</div>
+      <p class="muted small iv-note">Efeitos animados em volta da sua foto, saem na Caixa Anarchy. Clique em um que é seu para usar. Repetiu? Volta em pontos (30 a 1000, conforme a raridade).</p>
+      ${ids.length ? `<div class="avx-grid">${ids.map(id => { const f = AVFX[id], has = own.has(id), on = me.avfx === id; return `<button class="avx-card r-c-${f.tier} ${has ? '' : 'locked'} ${on ? 'on' : ''}" data-fx="${id}" ${has ? '' : 'disabled'} title="${has ? (on ? 'Clique para tirar' : 'Clique para usar') : 'Ainda não saiu para você'}">${on ? '<span class="inv-tag">USANDO</span>' : ''}${avWith(id, 48)}<b>${esc(f.name)}</b><small>${AVR[f.tier][0]}</small></button>`; }).join('')}</div>`
+        : `<div class="iv-empty">🎁<b>Nenhum efeito aqui ainda</b><span>Abra uma Caixa Anarchy para ganhar o primeiro.</span></div>`}`;
+  }
+  if (INV.tab === 'placas') {
+    const card = id => {
+      const [n, r, e, d] = PLATES[id], has = owned.get(id), on = eqP === id;
+      return `<button class="inv-card r-${r} ${has ? '' : 'locked'} ${on ? 'on' : ''}" data-inv="${id}" ${has ? '' : 'disabled'} title="${has ? (on ? 'Clique para tirar' : 'Clique para equipar') : 'Bloqueado'}">
+        ${on ? '<span class="inv-tag">EQUIPADO</span>' : has && has.seen === false ? '<span class="inv-tag new">NOVO</span>' : ''}
+        <span class="inv-rar">${RAR[r][0]}</span>
+        ${plateRow(me.id, id, me.displayName)}
+        <span class="inv-name">${e} ${has ? esc(n) : '???'}</span>
+        <span class="inv-desc">${has ? `${esc(d)}<br>De ${esc(nameOf(has.from))} · ${fmtWhen(has.at)}` : 'Ainda não é sua. Só dá para ganhar de presente.'}</span></button>`;
+    };
+    return `<p class="muted small iv-note">Placas animadas aparecem para todo mundo na lista de membros. Não saem em caixa: só de presente do dono do Anarchy.</p>
+      <div class="inv-grid">${PLATE_IDS.map(card).join('')}</div>`;
+  }
+  if (INV.tab === 'historico') {
+    const pn = id => esc(PLATES[id]?.[0] || id);
+    const log = [
+      ...(me.items || []).filter(x => PLATES[x.item]).map(x => ({ at: x.at, ic: '🏷️', t: `Você ganhou a placa <b>${pn(x.item)}</b> de ${esc(nameOf(x.from))}${x.msg ? ` — “${esc(x.msg)}”` : ''}` })),
+      ...(me.lost || []).map(x => ({ at: x.at, ic: '💨', t: `A placa <b>${pn(x.item)}</b> foi tirada da sua conta` })),
+      ...(me.boxLog || []).map(x => ({ at: x.at, ic: '🎲', rc: AVFX[x.item]?.tier, t: `Caixa: <b style="color:var(--rc)">${esc(AVFX[x.item]?.name || x.item)}</b>${x.dup ? ' <span class="muted">(repetido, virou pontos)</span>' : ''}` })),
+      ...(me.ptsLog || []).map(x => ({ at: x.at, ic: '🪙', t: x.amount > 0 ? `Você ganhou <b style="color:#ffd36b">+${x.amount.toLocaleString('pt-BR')} pontos</b> de ${esc(nameOf(x.from))}${x.msg ? ` — “${esc(x.msg)}”` : ''}` : `${esc(nameOf(x.from))} tirou <b>${(-x.amount).toLocaleString('pt-BR')} pontos</b> seus` })),
+      ...(me.given || []).map(x => ({ at: x.at, ic: x.points ? '📤' : x.revoked ? '🗑️' : '📤',
+        t: x.points ? (x.points > 0 ? `Você deu <b style="color:#ffd36b">${x.points.toLocaleString('pt-BR')} pontos</b> para ${esc(nameOf(x.to))}` : `Você tirou <b>${(-x.points).toLocaleString('pt-BR')} pontos</b> de ${esc(nameOf(x.to))}`)
+          : x.revoked ? `Você tirou <b>${pn(x.item)}</b> de ${esc(nameOf(x.to))}` : `Você deu <b>${pn(x.item)}</b> para ${esc(nameOf(x.to))}` }))
+    ].sort((a, b) => b.at - a.at).slice(0, 80);
+    return log.length ? `<div class="inv-log">${log.map(x => `<div class="inv-log-it ${x.rc ? 'r-c-' + x.rc : ''}"><span class="ic">${x.ic}</span><span>${x.t}</span><time>${fmtWhen(x.at)}</time></div>`).join('')}</div>`
+      : `<div class="iv-empty">📜<b>Nada por aqui ainda</b><span>Caixas abertas, presentes recebidos e dados aparecem aqui.</span></div>`;
+  }
+  return `<div class="iv-give"><p class="muted small">Carregando contas...</p></div>`;
+}
+// aba "Dar presentes" (só o dono): escolhe a pessoa à esquerda, à direita dá pontos ou placa
 async function drawGive() {
-  const box = $('#invAdm .inv-give'); if (!box) return;
+  const box = $('#ivPane .iv-give'); if (!box) return;
   if (!INV.people) { const r = await emit('inv:people'); if (!r.ok) { box.innerHTML = `<p class="form-err">${esc(r.erro)}</p>`; return; } INV.people = r.people; }
-  if (!$('#invAdm')) return;
+  if (!$('#ivPane .iv-give')) return;
+  INV.people.forEach(p => { if (!S.users[p.id]) S.users[p.id] = p; }); // foto e cor de quem não está nos seus grupos
   const q = INV.q.trim().toLowerCase();
   const list = INV.people.filter(p => !q || p.displayName.toLowerCase().includes(q) || p.username.includes(q)).sort((a, b) => a.displayName.localeCompare(b.displayName)).slice(0, 80);
   const sel = INV.people.find(p => p.id === INV.sel);
-  box.innerHTML = `<input class="input" id="invQ" placeholder="Procurar pessoa pelo nome" value="${esc(INV.q)}" autocomplete="off">
-    <div class="inv-people">${list.map(p => `<button type="button" class="inv-person ${p.id === INV.sel ? 'sel' : ''}" data-p="${p.id}">${av(p.id, 28)}<span><b>${esc(p.displayName)}</b> <span class="muted small">@${esc(p.username)}</span></span><small>${p.items.length} placa${p.items.length === 1 ? '' : 's'}</small></button>`).join('') || '<p class="muted small">Ninguém com esse nome.</p>'}</div>
-    ${sel ? `<p style="margin:6px 0 0"><b>Escolha a placa para ${esc(sel.displayName)}:</b></p>
-      <div class="inv-grid">${PLATE_IDS.map(id => { const has = sel.items.includes(id), [n, r, e] = PLATES[id]; return `<button type="button" class="inv-card r-${r} ${INV.item === id ? 'on' : ''}" data-gi="${id}">${has ? '<span class="inv-tag">JÁ TEM</span>' : ''}<span class="inv-rar">${RAR[r][0]}</span>${plateRow(sel.id, id, sel.displayName)}<span class="inv-name">${e} ${esc(n)}</span>${has ? `<span class="link" data-rv="${id}" style="font-size:.8em;color:var(--danger)">Tirar dessa pessoa</span>` : ''}</button>`; }).join('')}</div>
-      <label class="field">Mensagem (opcional)<input class="input" id="invMsg" maxlength="140" placeholder="ex.: Parabéns pelo aniversário!"></label>
-      <div style="display:flex;justify-content:flex-end"><button class="btn primary" id="invGo" ${INV.item && !sel.items.includes(INV.item) ? '' : 'disabled'}>🎁 Dar ${INV.item ? esc(PLATES[INV.item][0]) : 'presente'}</button></div>` : '<p class="muted small" style="margin:0">Escolha uma pessoa na lista.</p>'}`;
+  box.innerHTML = `<div class="iv-people-col"><input class="input" id="invQ" placeholder="Procurar pessoa" value="${esc(INV.q)}" autocomplete="off">
+      <div class="inv-people">${list.map(p => `<button type="button" class="inv-person ${p.id === INV.sel ? 'sel' : ''}" data-p="${p.id}">${av(p.id, 28)}<span><b>${esc(p.displayName)}</b><span class="muted small">@${esc(p.username)}</span></span><small><i class="pts-ic"></i>${(p.points || 0).toLocaleString('pt-BR')}</small></button>`).join('') || '<p class="muted small">Ninguém com esse nome.</p>'}</div></div>
+    <div class="iv-give-main">${sel ? `
+      <div class="gp-who">${av(sel.id, 44)}<div><b>${esc(sel.displayName)}</b><span class="muted small">@${esc(sel.username)} · <i class="pts-ic"></i> ${(sel.points || 0).toLocaleString('pt-BR')} pontos · ${sel.items.length} placa${sel.items.length === 1 ? '' : 's'}</span></div></div>
+      <label class="field">Mensagem (opcional, vai junto com o presente)<input class="input" id="invMsg" maxlength="140" placeholder="ex.: Parabéns pelo aniversário!" value="${esc(INV.msg)}"></label>
+      <section class="iv-sec"><h4><i class="pts-ic"></i> AnarchyPoints</h4>${ptsPick()}
+        <div class="iv-sec-f"><button class="btn primary" id="ptsGo">🎁 Dar ${ptsAmt().toLocaleString('pt-BR')} pontos</button></div></section>
+      <section class="iv-sec"><h4>🏷️ Placa de nome</h4>
+        <div class="inv-grid">${PLATE_IDS.map(id => { const has = sel.items.includes(id), [n, r, e] = PLATES[id]; return `<button type="button" class="inv-card r-${r} ${INV.item === id ? 'on' : ''}" data-gi="${id}">${has ? '<span class="inv-tag">JÁ TEM</span>' : ''}<span class="inv-rar">${RAR[r][0]}</span>${plateRow(sel.id, id, sel.displayName)}<span class="inv-name">${e} ${esc(n)}</span>${has ? `<span class="link" data-rv="${id}" style="font-size:.8em;color:var(--danger)">Tirar dessa pessoa</span>` : ''}</button>`; }).join('')}</div>
+        <div class="iv-sec-f"><button class="btn primary" id="invGo" ${INV.item && !sel.items.includes(INV.item) ? '' : 'disabled'}>🎁 Dar ${INV.item ? esc(PLATES[INV.item][0]) : 'placa'}</button></div></section>`
+      : `<div class="iv-empty">👈<b>Escolha uma pessoa</b><span>Depois é só escolher os pontos ou a placa que você quer dar.</span></div>`}</div>`;
   const qi = $('#invQ'); qi.oninput = () => { INV.q = qi.value; const pos = qi.selectionStart; drawGive().then(() => { const n = $('#invQ'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); };
+  const mi = $('#invMsg'); if (mi) mi.oninput = () => { INV.msg = mi.value; };
+  const ps = $('.iv-sec', box); if (ps) bindPtsPick(ps, () => { $('#ptsGo').innerHTML = `🎁 Dar ${ptsAmt().toLocaleString('pt-BR')} pontos`; });
   box.onclick = async e => {
+    e.stopPropagation();
     const p = e.target.closest('[data-p]'); if (p) { INV.sel = p.dataset.p; INV.item = null; return drawGive(); }
     const rv = e.target.closest('[data-rv]');
-    if (rv) { e.stopPropagation(); if (!await confirmBox('Tirar placa', `Tirar ${PLATES[rv.dataset.rv][0]} de ${sel.displayName}?`, 'Tirar')) return; const r = await emit('inv:revoke', { uid: sel.id, item: rv.dataset.rv }); if (!r.ok) return toast(r.erro, true); sel.items = sel.items.filter(x => x !== rv.dataset.rv); toast('Placa tirada.'); return drawGive(); }
+    if (rv) { if (!await confirmBox('Tirar placa', `Tirar ${PLATES[rv.dataset.rv][0]} de ${sel.displayName}?`, 'Tirar')) return; const r = await emit('inv:revoke', { uid: sel.id, item: rv.dataset.rv }); if (!r.ok) return toast(r.erro, true); sel.items = sel.items.filter(x => x !== rv.dataset.rv); toast('Placa tirada.'); return drawGive(); }
     const gi = e.target.closest('[data-gi]'); if (gi) { INV.item = gi.dataset.gi; return drawGive(); }
-    if (e.target.id === 'invGo') {
-      const r = await emit('inv:give', { uid: sel.id, item: INV.item, msg: $('#invMsg').value });
+    if (e.target.closest('#ptsGo')) {
+      const n = ptsAmt(), r = await emit('points:give', { uid: sel.id, amount: n, msg: INV.msg });
       if (!r.ok) return toast(r.erro, true);
-      sel.items.push(INV.item); toast(`🎁 ${PLATES[INV.item][0]} entregue para ${sel.displayName}!`); INV.item = null; drawGive();
+      sel.points = r.points; INV.msg = ''; toast(`🎁 ${n.toLocaleString('pt-BR')} AnarchyPoints para ${sel.displayName}!`); return drawGive();
+    }
+    if (e.target.closest('#invGo')) {
+      const r = await emit('inv:give', { uid: sel.id, item: INV.item, msg: INV.msg });
+      if (!r.ok) return toast(r.erro, true);
+      sel.items.push(INV.item); toast(`🎁 ${PLATES[INV.item][0]} entregue para ${sel.displayName}!`); INV.item = null; INV.msg = ''; drawGive();
     }
   };
 }
@@ -1732,7 +1847,7 @@ function userMenu(uid, x, y, anchor) {
     <button data-m="pf">Ver perfil ${I('user')}</button>
     ${me ? `<button data-m="edit">Editar perfil ${I('edit')}</button>` : u.bot ? `<button data-m="djset">Comandos e configurações do DJ</button>` : `<button data-m="dm">Enviar mensagem ${I('msg')}</button><button data-m="call">Iniciar chamada ${I('phone')}</button><button data-m="vid">Chamada de vídeo ${I('cam')}</button>`}
     ${canMention ? `<button data-m="men">Mencionar</button>` : ''}
-    ${S.me.admin && !u.bot ? `<button data-m="gift">🎁 Dar placa de nome</button>` : ''}
+    ${S.me.admin && !u.bot ? `<hr><button data-m="gpts">Dar AnarchyPoints <i class="pts-ic" style="margin-left:auto"></i></button><button data-m="gift">Dar placa de nome <span style="margin-left:auto">🏷️</span></button>` : ''}
     ${u.bot ? `<hr><div class="um-vol"><label>Volume do DJ para você <output>${prefs.djVol ?? 70}%</output></label><input type="range" min="0" max="100" step="1" value="${prefs.djVol ?? 70}" data-m="djvol"></div>
       <button data-m="djmute">${prefs.djOn === false ? 'Voltar a ouvir o DJ' : 'Silenciar o DJ para mim'} ${I(prefs.djOn === false ? 'voice' : 'micOff')}</button>` : ''}
     ${inVoice ? `<hr><div class="um-vol"><label>Volume para você <output>${volOf(uid, 'voice')}%</output></label><input type="range" min="0" max="200" step="5" value="${volOf(uid, 'voice')}" data-m="vol"></div>
@@ -1749,7 +1864,8 @@ function userMenu(uid, x, y, anchor) {
   if (djv) djv.oninput = () => setDjVol(djv.value);
   p.onclick = async e => {
     const m = e.target.closest('button[data-m]')?.dataset.m; if (!m) return; closePops();
-    if (m === 'gift') { INV.sel = uid; INV.item = null; INV.people = null; openSettings('inventario'); setTimeout(() => $('#invAdm')?.scrollIntoView({ behavior: 'smooth' }), 400); return; }
+    if (m === 'gift') { INV.sel = uid; INV.item = null; INV.people = null; INV.tab = 'dar'; openSettings('inventario'); return; }
+    if (m === 'gpts') return givePointsModal(uid);
     if (m === 'pf') openFullProfile(uid);
     if (m === 'edit') openSettings('perfil');
     if (m === 'djmute') { prefs.djOn = prefs.djOn === false; savePrefs(); musicVol(); toast(prefs.djOn ? 'Você voltou a ouvir o DJ.' : 'DJ silenciado só para você.'); }
@@ -2142,7 +2258,7 @@ function openSettings(tab) {
   el.innerHTML = `<nav class="set-nav"><div class="set-nav-in">
       <div class="set-me">${av(S.me.id, 40)}<div><b>${esc(S.me.displayName)}</b><button class="link" data-st="perfil">Editar perfil</button></div></div>
       <h4>Configurações de usuário</h4>
-      <button data-st="conta">${I('user')}Minha conta</button><button data-st="perfil">${I('edit')}Perfil</button><button data-st="caixas">🎁 Caixas</button><button data-st="inventario">🎒 Inventário${(S.me.items || []).some(x => x.seen === false) ? ' <span class="badge" style="border:0;margin-left:auto">!</span>' : ''}</button><button data-st="privacidade">${I('shield')}Privacidade e segurança</button>
+      <button data-st="conta">${I('user')}Minha conta</button><button data-st="perfil">${I('edit')}Perfil</button><button data-st="inventario">🎒 Inventário${(S.me.items || []).some(x => x.seen === false) ? ' <span class="badge" style="border:0;margin-left:auto">!</span>' : ''}</button><button data-st="privacidade">${I('shield')}Privacidade e segurança</button>
       <h4>Configurações do app</h4>
       <button data-st="aparencia">${I('smile')}Aparência</button><button data-st="voz">${I('mic')}Voz e vídeo</button><button data-st="notif">${I('bell')}Notificações</button><button data-st="atalhos">${I('menu')}Atalhos</button><button data-st="app">${I('gear')}Aplicativo</button>
       <button data-st="novidades">✨ Novidades</button>
@@ -2169,8 +2285,8 @@ function drawSettings() {
   const b = $('#setBody'); stopMicTest(); stopOutTest(); b.onclick = null;
   if (setTab !== drawSettings.last) b.closest('.set-body').scrollTop = 0;
   drawSettings.last = setTab;
+  if (setTab === 'caixas') setTab = 'inventario';
   if (setTab === 'inventario') return drawInventory(b);
-  if (setTab === 'caixas') return drawBoxes(b);
   if (setTab === 'perfil') {
     // rascunho: nada vai para o servidor até clicar em Salvar. A prévia usa só o rascunho (não mexe nos outros).
     const u = S.me;
@@ -2306,7 +2422,7 @@ function drawSettings() {
     const t = THEMES[prefs.theme];
     b.innerHTML = `<h2>Aparência</h2>
       <div class="set-card"><h3>Temas animados</h3><p class="muted small" style="margin:0">Uma cena animada no fundo do app e detalhes no visual. Se o PC ficar pesado, ligue o <b>Modo leve</b> lá embaixo; com <b>Animações</b> desligado a cena fica parada.</p>
-        <div class="themes fx-themes" id="fxThms">${Object.entries(THEMES).filter(([, th]) => th.fx).map(([k, th]) => `<button class="theme-card avx-card ${prefs.theme === k ? 'on' : ''}" data-t="${k}"><div class="fx-prev fxp-${th.fx}" style="background:${th.prev}"><span class="fx-tag">▶ animado</span></div><div class="nm">${th.nome}<span>${esc(th.desc)}</span></div></button>`).join('')}</div></div>
+        <div class="themes fx-themes" id="fxThms">${Object.entries(THEMES).filter(([, th]) => th.fx).map(([k, th]) => `<button class="theme-card fx-card ${prefs.theme === k ? 'on' : ''}" data-t="${k}"><div class="fx-prev fxp-${th.fx}" style="background:${th.prev}"><span class="fx-tag">▶ animado</span></div><div class="nm">${th.nome}<span>${esc(th.desc)}</span></div></button>`).join('')}</div></div>
       <div class="set-card"><h3>Tema</h3><div class="themes" id="thms">${Object.entries(THEMES).filter(([, th]) => !th.fx).map(([k, th]) => `<button class="theme-card ${prefs.theme === k ? 'on' : ''}" data-t="${k}"><div class="theme-prev" style="background:${th.main}"><i style="background:${th.rail}"></i><i style="background:${th.side}"></i><div class="m"><b style="background:${th.accent};width:60%"></b><b style="background:${th.muted};width:85%;opacity:.5"></b><b style="background:${th.muted};width:45%;opacity:.5"></b></div></div><div class="nm">${th.nome}</div></button>`).join('')}</div></div>
       <div class="set-card"><h3>Cor de destaque</h3><div class="colors" id="accs"><button type="button" data-c="" style="background:${t.accent}" title="Padrão do tema" class="${!prefs.accent ? 'on' : ''}"></button>${COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}" class="${prefs.accent === c ? 'on' : ''}"></button>`).join('')}<input type="color" id="accC" value="${prefs.accent || t.accent}" title="Escolher qualquer cor"></div></div>
       <div class="set-card"><h3>Texto</h3>
@@ -4034,7 +4150,7 @@ const A = {
   joinRoom: el => joinVoice(el.dataset.id, { video: !!el.dataset.video }),
   djCtl: async el => { const r = await emit('music:ctl', { roomId: el.dataset.room, action: el.dataset.a, value: el.dataset.v }); if (!r.ok) toast(r.erro, true); },
   djProfile: el => openGroupSettings(el.dataset.gid, 'dj'),
-  openBoxes: () => openSettings('caixas'),
+  openBoxes: () => { INV.tab = 'efeitos'; openSettings('inventario'); },
   voiceUser: (el, e) => { e.stopPropagation(); voiceMenu(el.dataset.vuid, el); },
   focus: (el, e) => { if (e.target.closest('.fs')) return; S.focusTile = S.focusTile === el.dataset.key ? null : el.dataset.key; renderStageSlot(); },
   fullscreen: (el, e) => { e.stopPropagation(); const v = el.closest('.tile').querySelector('video'); (v?.requestFullscreen ? v.requestFullscreen() : el.closest('.tile').requestFullscreen?.())?.catch?.(() => {}); },
