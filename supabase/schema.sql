@@ -153,6 +153,70 @@ create index if not exists figurinhas_created_by on public.figurinhas (created_b
 alter table public.figurinhas enable row level security;
 revoke all on public.figurinhas from anon, authenticated;
 
+-- RPG de Mesa (server/rpg.js): atividade opcional dos grupos e conversas.
+-- Só o servidor acessa (pela função anarchy-db); o app nunca fala direto com estas tabelas.
+-- O que não tem coluna própria fica em "extra" (ver store.js). Apagar a campanha apaga o resto dela.
+create table if not exists public.rpg_campanhas (
+  id         text primary key,
+  escopo     text not null check (escopo in ('g', 'dm')),
+  escopo_id  text not null,
+  nome       text not null check (char_length(nome) between 1 and 60),
+  criado_por text references public.usuarios(id) on delete set null,
+  criado_em  bigint,
+  extra      jsonb not null default '{}'::jsonb
+);
+create index if not exists rpg_campanhas_escopo on public.rpg_campanhas (escopo, escopo_id);
+create index if not exists rpg_campanhas_criado_por on public.rpg_campanhas (criado_por);
+
+create table if not exists public.rpg_personagens (
+  id          text primary key,
+  campanha_id text not null references public.rpg_campanhas(id) on delete cascade,
+  dono_id     text references public.usuarios(id) on delete set null,
+  extra       jsonb not null default '{}'::jsonb
+);
+create index if not exists rpg_personagens_campanha on public.rpg_personagens (campanha_id);
+create index if not exists rpg_personagens_dono on public.rpg_personagens (dono_id);
+
+create table if not exists public.rpg_mapas (
+  id          text primary key,
+  campanha_id text not null references public.rpg_campanhas(id) on delete cascade,
+  extra       jsonb not null default '{}'::jsonb
+);
+create index if not exists rpg_mapas_campanha on public.rpg_mapas (campanha_id);
+
+create table if not exists public.rpg_entidades (
+  id          text primary key,
+  campanha_id text not null references public.rpg_campanhas(id) on delete cascade,
+  mapa_id     text,
+  extra       jsonb not null default '{}'::jsonb
+);
+create index if not exists rpg_entidades_campanha on public.rpg_entidades (campanha_id);
+create index if not exists rpg_entidades_mapa on public.rpg_entidades (mapa_id);
+
+create table if not exists public.rpg_eventos (
+  id          text primary key,
+  campanha_id text not null references public.rpg_campanhas(id) on delete cascade,
+  ts          bigint not null,
+  extra       jsonb not null default '{}'::jsonb
+);
+create index if not exists rpg_eventos_campanha on public.rpg_eventos (campanha_id, ts);
+
+create table if not exists public.rpg_sessoes (
+  id          text primary key,
+  campanha_id text not null references public.rpg_campanhas(id) on delete cascade,
+  criado_em   bigint,
+  extra       jsonb not null default '{}'::jsonb
+);
+create index if not exists rpg_sessoes_campanha on public.rpg_sessoes (campanha_id);
+
+alter table public.rpg_campanhas   enable row level security;
+alter table public.rpg_personagens enable row level security;
+alter table public.rpg_mapas       enable row level security;
+alter table public.rpg_entidades   enable row level security;
+alter table public.rpg_eventos     enable row level security;
+alter table public.rpg_sessoes     enable row level security;
+revoke all on public.rpg_campanhas, public.rpg_personagens, public.rpg_mapas, public.rpg_entidades, public.rpg_eventos, public.rpg_sessoes from anon, authenticated;
+
 -- bucket só para áudios: até 1 MB e só tipos de áudio (o Storage recusa o resto)
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('sons', 'sons', true, 1048576, array['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp4'])

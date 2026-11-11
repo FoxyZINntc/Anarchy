@@ -4,11 +4,15 @@
 const fs = require('fs');
 const path = require('path');
 
-const EMPTY = () => ({ users: {}, sessions: {}, friends: {}, requests: [], groups: {}, dms: {}, messages: {} });
+const EMPTY = () => ({ users: {}, sessions: {}, friends: {}, requests: [], groups: {}, dms: {}, messages: {}, rpg: emptyRpg() });
+const emptyRpg = () => ({ camps: {}, chars: {}, maps: {}, ents: {}, events: {}, snaps: {} });
 
 // campos que vão na coluna "extra" (JSON) de cada tabela
 const USER_X = ['pronouns', 'theme', 'accent', 'frame', 'effect', 'favs', 'blocked', 'privacy', 'bot', 'botGid', 'email', 'emailAt', 'emailAsked', 'resetHash', 'resetExp', 'items', 'given', 'lost', 'plate', 'points', 'pointsTotal', 'callAcc', 'avfx', 'boxes', 'boxLog', 'ptsLog'];
-const GROUP_X = ['description', 'banner', 'roles', 'memberRoles', 'bans', 'welcomeCid', 'systemJoin', 'djId'];
+const GROUP_X = ['description', 'banner', 'roles', 'memberRoles', 'bans', 'welcomeCid', 'systemJoin', 'djId', 'rpg'];
+// RPG de Mesa: colunas próprias de cada tabela; todo o resto do objeto vai na coluna "extra"
+const omit = (o, keys) => { const x = {}; for (const [k, v] of Object.entries(o)) if (!keys.includes(k) && v !== undefined) x[k] = v; return x; };
+const rpgOf = db => db.rpg || emptyRpg();
 const CHAN_X = ['topic', 'slowmode'];
 const MSG_X = ['system', 'sticker', 'gif', 'imageName', 'pinned', 'mentions', 'everyone', 'music'];
 const pack = (o, keys) => { const x = {}; for (const k of keys) if (o[k] !== undefined && o[k] !== null) x[k] = o[k]; return x; };
@@ -33,7 +37,15 @@ const TABLES = [
   { name: 'sons', key: ['id'], optional: true, rows: db => Object.values(db.groups).flatMap(g => (g.sounds || []).map(s => ({
     id: s.id, group_id: g.id, name: s.name, emoji: s.emoji || null, category: s.category || 'Geral', url: s.url, duration_ms: s.duration | 0, volume: s.volume ?? 100, created_by: s.createdBy || null, created_at: s.createdAt || null }))) },
   { name: 'figurinhas', key: ['id'], optional: true, rows: db => Object.values(db.groups).flatMap(g => (g.stickers || []).map(s => ({
-    id: s.id, group_id: g.id, name: s.name, pack: s.pack || 'Geral', url: s.url, created_by: s.createdBy || null, created_at: s.createdAt || null }))) }
+    id: s.id, group_id: g.id, name: s.name, pack: s.pack || 'Geral', url: s.url, created_by: s.createdBy || null, created_at: s.createdAt || null }))) },
+  // RPG de Mesa (grupo "rpg": se faltarem no Supabase, só o RPG fica sem salvar; a Central de Áudio não é afetada)
+  { name: 'rpg_campanhas', key: ['id'], optional: true, grp: 'rpg', rows: db => Object.values(rpgOf(db).camps).map(c => ({
+    id: c.id, escopo: c.scope, escopo_id: c.scopeId, nome: c.name, criado_por: c.createdBy || null, criado_em: c.createdAt || null, extra: omit(c, ['id', 'scope', 'scopeId', 'name', 'createdBy', 'createdAt']) })) },
+  { name: 'rpg_personagens', key: ['id'], optional: true, grp: 'rpg', rows: db => Object.values(rpgOf(db).chars).map(c => ({ id: c.id, campanha_id: c.campId, dono_id: c.ownerId || null, extra: omit(c, ['id', 'campId', 'ownerId']) })) },
+  { name: 'rpg_mapas', key: ['id'], optional: true, grp: 'rpg', rows: db => Object.values(rpgOf(db).maps).map(m => ({ id: m.id, campanha_id: m.campId, extra: omit(m, ['id', 'campId']) })) },
+  { name: 'rpg_entidades', key: ['id'], optional: true, grp: 'rpg', rows: db => Object.values(rpgOf(db).ents).map(e => ({ id: e.id, campanha_id: e.campId, mapa_id: e.mapId || null, extra: omit(e, ['id', 'campId', 'mapId']) })) },
+  { name: 'rpg_eventos', key: ['id'], optional: true, grp: 'rpg', rows: db => Object.values(rpgOf(db).events).map(e => ({ id: e.id, campanha_id: e.campId, ts: e.ts, extra: omit(e, ['id', 'campId', 'ts']) })) },
+  { name: 'rpg_sessoes', key: ['id'], optional: true, grp: 'rpg', rows: db => Object.values(rpgOf(db).snaps).map(s => ({ id: s.id, campanha_id: s.campId, criado_em: s.at, extra: omit(s, ['id', 'campId', 'at']) })) }
 ];
 const keyOf = (t, row) => t.key.map(k => row[k]).join('\u0001');
 
@@ -53,6 +65,13 @@ function build(data) {
   for (const r of data.pedidos_amizade) db.requests.push({ from: r.from_id, to: r.to_id, ts: num(r.ts) });
   for (const d of data.conversas) db.dms[d.id] = { id: d.id, members: d.members, createdAt: num(d.created_at) };
   for (const m of data.mensagens.sort((a, b) => num(a.ts) - num(b.ts))) (db.messages[m.cid] = db.messages[m.cid] || []).push({ id: m.id, cid: m.cid, authorId: m.author_id, content: m.content || '', image: m.image, ts: num(m.ts), edited: num(m.edited), reactions: m.reactions || {}, replyTo: m.reply_to, ...unpack(m.extra, MSG_X) });
+  const ex = r => (r.extra && typeof r.extra === 'object' ? r.extra : {});
+  for (const r of data.rpg_campanhas || []) db.rpg.camps[r.id] = { ...ex(r), id: r.id, scope: r.escopo, scopeId: r.escopo_id, name: r.nome, createdBy: r.criado_por, createdAt: num(r.criado_em) };
+  for (const r of data.rpg_personagens || []) db.rpg.chars[r.id] = { ...ex(r), id: r.id, campId: r.campanha_id, ownerId: r.dono_id };
+  for (const r of data.rpg_mapas || []) db.rpg.maps[r.id] = { ...ex(r), id: r.id, campId: r.campanha_id };
+  for (const r of data.rpg_entidades || []) db.rpg.ents[r.id] = { ...ex(r), id: r.id, campId: r.campanha_id, mapId: r.mapa_id };
+  for (const r of data.rpg_eventos || []) db.rpg.events[r.id] = { ...ex(r), id: r.id, campId: r.campanha_id, ts: num(r.ts) };
+  for (const r of data.rpg_sessoes || []) db.rpg.snaps[r.id] = { ...ex(r), id: r.id, campId: r.campanha_id, at: num(r.criado_em) };
   return db;
 }
 const num = v => (v === null || v === undefined ? null : Number(v));
@@ -91,7 +110,7 @@ function jsonStore(dataDir, log) {
     uploadsDir: path.join(dataDir, 'uploads'),
     isUpload: u => typeof u === 'string' && /^\/uploads\/[\w-]+\.\w+$/.test(u),
     upload: async (buf, name) => { fs.writeFileSync(path.join(dataDir, 'uploads', name), buf); return '/uploads/' + name; },
-    gifs: directGifs, mediaReady: true
+    gifs: directGifs, mediaReady: true, rpgReady: true
   };
 }
 
@@ -160,7 +179,7 @@ async function supabaseStore({ url, key, token, dataDir, log }) {
       try { rows = await client.select(t.name, from, from + 999); }
       catch (error) {
         // tabelas novas (sons, figurinhas): se o Supabase ainda não tem, o servidor sobe sem elas em vez de cair
-        if (t.optional) { t.off = true; rows = []; log('Supabase: tabela "' + t.name + '" indisponível (' + error.message + '). Central de Áudio e figurinhas desligadas até atualizar o Supabase.'); break; }
+        if (t.optional) { t.off = true; rows = []; log('Supabase: tabela "' + t.name + '" indisponível (' + error.message + '). ' + (t.grp === 'rpg' ? 'O RPG de Mesa funciona, mas sem salvar no Supabase,' : 'Central de Áudio e figurinhas desligadas') + ' até atualizar o Supabase.'); break; }
         if (/does not exist|Could not find the table/i.test(error.message)) throw new Error(`A tabela "${t.name}" não existe no Supabase. Rode o arquivo supabase/schema.sql no SQL Editor do Supabase.`);
         throw new Error('Supabase: ' + error.message);
       }
@@ -231,8 +250,9 @@ async function supabaseStore({ url, key, token, dataDir, log }) {
     isUpload: u => typeof u === 'string' && (u.startsWith(prefix) || u.startsWith(sonsPrefix) || /^\/uploads\/[\w-]+\.\w+$/.test(u)),
     gifs: client.gifs,
     turn: client.turn,
-    mediaReady: !TABLES.some(t => t.off),
-    // as tabelas novas já existem no Supabase? (para o servidor se reiniciar e ligar a Central de Áudio)
+    mediaReady: !TABLES.some(t => t.off && t.grp !== 'rpg'),
+    rpgReady: !TABLES.some(t => t.off && t.grp === 'rpg'),
+    // as tabelas novas já existem no Supabase? (para o servidor se reiniciar e ligar o que faltava)
     recheck: async () => { try { for (const t of TABLES.filter(x => x.off)) await client.select(t.name, 0, 0); return true; } catch { return false; } },
     // mesma ordem do arquivo local e do server.js: (imagem, nome, tipo)
     upload: (buf, name, type) => client.upload(name, buf, type)
@@ -246,4 +266,4 @@ async function createStore({ dataDir, supabaseUrl, supabaseKey, supabaseToken, l
   return jsonStore(dataDir, log);
 }
 
-module.exports = { createStore };
+module.exports = { createStore, _test: { TABLES, build } }; // _test: conferir a ida e volta das tabelas sem o Supabase

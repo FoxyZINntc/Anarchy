@@ -56,7 +56,8 @@ const P = {
   pin: '<path d="M12 17v5M9 10.76V6h6v4.76a2 2 0 0 0 1.11 1.79l1.78.9A2 2 0 0 1 19 15.24V17H5v-1.76a2 2 0 0 1 1.11-1.79l1.78-.9A2 2 0 0 0 9 10.76zM8 3h8"/>',
   star: '<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>',
   more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
-  sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>'
+  sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  dice: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01" stroke-width="3"/>'
 };
 const ic = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
 const QUICK = ['👍', '😂', '❤️', '🔥', '😮', '😢'];
@@ -222,7 +223,8 @@ const PERM_INFO = [
   ['ban', 'Banir membros', 'Remover pessoas e impedir que elas voltem.'],
   ['manageMessages', 'Gerenciar mensagens', 'Apagar mensagens de outras pessoas. Também ignora o modo lento.'],
   ['manageMedia', 'Gerenciar Central de Áudio e figurinhas', 'Adicionar e apagar os sons da Central de Áudio e as figurinhas do grupo.'],
-  ['mentionEveryone', 'Mencionar @todos', 'Escrever @todos para avisar todo mundo do grupo de uma vez.']
+  ['mentionEveryone', 'Mencionar @todos', 'Escrever @todos para avisar todo mundo do grupo de uma vez.'],
+  ['rpg', 'Criar campanhas de RPG', 'Criar campanhas no RPG de Mesa quando o grupo deixa só cargos com esta permissão (Configurações do grupo → RPG de Mesa).']
 ];
 const gRoles = (g, uid) => { const mine = g?.memberRoles?.[uid] || []; return (g?.roles || []).filter(r => mine.includes(r.id)); };
 function gCan(g, perm, uid = S.me?.id) {
@@ -639,6 +641,7 @@ function emailModal(first) {
 function connect() {
   if (socket) socket.disconnect();
   socket = io({ auth: S.token ? { token: S.token } : {}, transports: ['websocket', 'polling'] });
+  if (window.anarchyRpg) window.anarchyRpg.attach(socket); // eventos do RPG de Mesa (rpg.js)
   socket.on('connect', async () => {
     const r = await emit('init');
     if (!r.ok) return;
@@ -963,11 +966,13 @@ function renderHead() {
     const inCall = V.room === v.id;
     h.innerHTML = `${tog}<span class="ttl" style="cursor:pointer" data-act="profile" data-id="${o}">${av(o, 24)}${esc(u.displayName)}</span><span class="sub">${esc(u.customStatus || STATUS[u.status])}</span><span class="spacer"></span>
       ${inCall ? '' : `<button class="icon-btn" data-act="call" data-id="${v.id}" data-tip="Ligar">${ic('phone')}</button><button class="icon-btn" data-act="call" data-video="1" data-id="${v.id}" data-tip="Chamada de vídeo">${ic('cam')}</button>`}
+      <button class="icon-btn" data-act="rpg" data-tip="RPG de Mesa">${ic('dice')}</button>
       <button class="icon-btn" data-act="pins" data-tip="Mensagens fixadas">${ic('pin')}</button>
       <button class="icon-btn" data-act="profile" data-id="${o}" data-tip="Perfil">${ic('user')}</button>`;
   } else {
     const g = S.groups[v.gid], c = chan(v.gid, v.cid); if (!g || !c) return;
     h.innerHTML = `${tog}<span class="ttl">${ic(c.type === 'voice' ? 'voice' : 'hash')}${esc(c.name)}</span><span class="sub" ${c.topic ? `title="${esc(c.topic)}"` : ''}>${esc(c.topic || g.name)}</span>${c.slowmode ? `<span class="slow-pill" data-tip="Modo lento: uma mensagem a cada ${esc(slowLabel(c.slowmode))}">🐢 ${esc(slowLabel(c.slowmode))}</span>` : ''}<span class="spacer"></span>
+      ${!g.rpg || g.rpg.on !== false ? `<button class="icon-btn" data-act="rpg" data-tip="RPG de Mesa">${ic('dice')}</button>` : ''}
       ${gManager(g) ? `<button class="icon-btn" data-act="groupSettings" data-tip="Configurações do grupo">${ic('gear')}</button>` : ''}
       <button class="icon-btn" data-act="invite" data-tip="Convidar">${ic('link')}</button>
       ${c.type === 'text' ? `<button class="icon-btn" data-act="pins" data-tip="Mensagens fixadas">${ic('pin')}</button>` : ''}
@@ -1212,6 +1217,12 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-12-rpg', date: '12/11/2026', title: 'RPG de Mesa', emoji: '🎲', items: [
+    'Novo botão <b>🎲</b> no topo dos canais e das conversas: crie campanhas de RPG e jogue com o pessoal.',
+    'Mapas gerados na hora (masmorra, castelo, floresta, cidade e mais) ou importados de uma imagem, com névoa e armadilhas.',
+    'Miniaturas com a sua foto, dados compartilhados (d4 a d100, 2d20+5...), fichas com classes e inventário, combate por turnos.',
+    'Quem cria a campanha é o Mestre e controla tudo dela, sem ganhar nenhum poder no grupo. É opcional: quem não joga não vê diferença.'
+  ] },
   { id: '2026-11-12-bolinha', date: '12/11/2026', title: 'Bolinha verde sem piscar', emoji: '🟢', items: [
     'A bolinha verde de quem está falando não fica mais piscando a cada sílaba.',
     'A sua acende e apaga junto com o seu microfone: acesa é porque os outros estão te ouvindo.'
@@ -2087,17 +2098,31 @@ function openGroupSettings(gid, tab) {
 }
 function drawGroupSettings() {
   const g = S.groups[gsGid]; if (!g) return closeSettings();
-  const tabs = [['geral', 'Visão geral', gCan(g, 'manageServer')], ['cargos', 'Cargos', gCan(g, 'manageRoles')], ['membros', 'Membros', true], ['canais', 'Canais', gCan(g, 'manageChannels')], ['convites', 'Convites', true], ['sons', 'Central de Áudio', true], ['figurinhas', 'Figurinhas', true], ['dj', 'DJ (bot de música)', true], ['banimentos', 'Banimentos', gCan(g, 'ban')]].filter(t => t[2]);
+  const tabs = [['geral', 'Visão geral', gCan(g, 'manageServer')], ['cargos', 'Cargos', gCan(g, 'manageRoles')], ['membros', 'Membros', true], ['canais', 'Canais', gCan(g, 'manageChannels')], ['convites', 'Convites', true], ['sons', 'Central de Áudio', true], ['figurinhas', 'Figurinhas', true], ['dj', 'DJ (bot de música)', true], ['rpg', 'RPG de Mesa', true], ['banimentos', 'Banimentos', gCan(g, 'ban')]].filter(t => t[2]);
   if (!tabs.some(t => t[0] === gsTab)) gsTab = tabs[0][0];
   $('#gsNav').innerHTML = `<div class="gs-nav-g">${groupIcon(g).replace('class="inner"', 'class="inner gs-nav-ic"')}<b>${esc(g.name)}</b></div>
     ${tabs.map(([k, l]) => `<button data-gs="${k}" class="${gsTab === k ? 'active' : ''}">${l}</button>`).join('')}
     <h4></h4>${g.ownerId === S.me.id ? '<button data-gs="apagar" class="out">Apagar grupo</button>' : '<button data-gs="sair" class="out">Sair do grupo</button>'}`;
   const b = $('#setBody');
-  const T = { geral: gsGeral, cargos: gsCargos, membros: gsMembros, canais: gsCanais, convites: gsConvites, banimentos: gsBans, sons: gsSons, figurinhas: gsFigurinhas, dj: gsDj };
+  const T = { geral: gsGeral, cargos: gsCargos, membros: gsMembros, canais: gsCanais, convites: gsConvites, banimentos: gsBans, sons: gsSons, figurinhas: gsFigurinhas, dj: gsDj, rpg: gsRpg };
   b.onclick = null;
   T[gsTab](g, b);
 }
 
+// RPG de Mesa: atividade opcional (ligada por padrão; quem gerencia o grupo desliga ou limita quem cria campanhas)
+function gsRpg(g, b) {
+  const cfg = g.rpg || { on: true, who: 'all' }, canEdit = gCan(g, 'manageServer');
+  b.innerHTML = `<h2>RPG de Mesa</h2><p class="muted set-sub">Campanhas de RPG com mapa, miniaturas, dados e fichas, em tempo real. É opcional: quem não joga não vê diferença nenhuma no grupo.</p>
+    <div class="set-card">
+      ${setRow('RPG de Mesa ligado', 'Mostra o botão 🎲 no topo dos canais. Desligado, as campanhas ficam guardadas, mas ninguém abre.', `<label class="switch"><input type="checkbox" id="rpgOn" ${cfg.on !== false ? 'checked' : ''} ${canEdit ? '' : 'disabled'}><span></span></label>`)}
+      ${setRow('Quem pode criar campanhas', 'Ser Mestre vale só dentro da campanha: não dá nenhum poder no grupo.', `<select class="input" id="rpgWho" style="width:auto" ${canEdit ? '' : 'disabled'}><option value="all" ${cfg.who !== 'perm' ? 'selected' : ''}>Todos os membros</option><option value="perm" ${cfg.who === 'perm' ? 'selected' : ''}>Só cargos com "Criar campanhas de RPG"</option></select>`)}
+      ${canEdit ? '' : '<p class="muted small" style="margin:0">Só quem gerencia o grupo muda estas opções.</p>'}
+    </div>
+    ${cfg.on !== false ? '<button class="btn primary" id="rpgOpen">🎲 Abrir RPG de Mesa</button>' : ''}`;
+  const save = () => act('rpg:groupcfg', { gid: g.id, on: $('#rpgOn').checked, who: $('#rpgWho').value }, 'RPG de Mesa atualizado.').then(r => r.ok && setTimeout(drawGroupSettings, 150));
+  if (canEdit) { $('#rpgOn').onchange = save; $('#rpgWho').onchange = save; }
+  const o = $('#rpgOpen'); if (o) o.onclick = () => { closeSettings(); window.anarchyRpg && window.anarchyRpg.lobby({ kind: 'g', id: g.id }); };
+}
 // DJ: o bot de música do grupo
 function gsDj(g, b) {
   const id = groupDj(g), canEdit = gCan(g, 'manageServer');
@@ -4089,6 +4114,7 @@ window.anarchyBack = () => {
   if ($('#popRoot').children.length) { closePops(); return true; }
   const m = $$('#modalRoot .modal-back').pop();
   if (m) { m.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); if (m.isConnected) m.remove(); return true; }
+  if (window.anarchyRpg && window.anarchyRpg.back()) return true; // RPG de Mesa aberto: fecha a gaveta, a mesa ou a área de campanhas
   if ($('#app').classList.contains('drawer')) { $('#app').classList.remove('drawer'); $('#scrim').hidden = true; return true; }
   if (S.mobMembers && !$('#members').hidden) { S.mobMembers = false; render(); return true; }
   if (window.matchMedia('(max-width: 860px)').matches && !$('#app').classList.contains('drawer') && !$('#app').hidden) { $('#app').classList.add('drawer'); $('#scrim').hidden = false; return true; }
@@ -4195,6 +4221,8 @@ const A = {
   djCtl: async el => { const r = await emit('music:ctl', { roomId: el.dataset.room, action: el.dataset.a, value: el.dataset.v }); if (!r.ok) toast(r.erro, true); },
   djProfile: el => openGroupSettings(el.dataset.gid, 'dj'),
   openBoxes: () => { INV.tab = 'efeitos'; openSettings('inventario'); },
+  // RPG de Mesa do grupo ou da conversa aberta (rpg.js)
+  rpg: () => { const v = S.view; if (!window.anarchyRpg) return; if (v.kind === 'group') window.anarchyRpg.lobby({ kind: 'g', id: v.gid }); else if (v.kind === 'dm') window.anarchyRpg.lobby({ kind: 'dm', id: v.id }); },
   voiceUser: (el, e) => { e.stopPropagation(); voiceMenu(el.dataset.vuid, el); },
   focus: (el, e) => { if (e.target.closest('.fs')) return; S.focusTile = S.focusTile === el.dataset.key ? null : el.dataset.key; renderStageSlot(); },
   fullscreen: (el, e) => { e.stopPropagation(); const v = el.closest('.tile').querySelector('video'); (v?.requestFullscreen ? v.requestFullscreen() : el.closest('.tile').requestFullscreen?.())?.catch?.(() => {}); },
@@ -4250,6 +4278,9 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { if (prefs.ptt && e.code === prefs.pttKey && V.pttDown) { V.pttDown = false; applyMicGate(); } });
 window.addEventListener('blur', () => { if (V.pttDown) { V.pttDown = false; applyMicGate(); } });
 window.addEventListener('beforeunload', () => { if (V.room) socket?.emit('voice:leave'); });
+
+/* =============== RPG de Mesa (rpg.js): o que ele usa do app =============== */
+if (window.anarchyRpg) window.anarchyRpg.init({ S, esc, ic, av, user, nameOf, emit, toast, modal, confirmBox, pickFile, readFile, api, tone, gCan, openGroupSettings, get socket() { return socket; } });
 
 /* =============== início =============== */
 // quem entrou numa versão antiga tem o token guardado no navegador: troca por cookie (sem precisar entrar de novo)
