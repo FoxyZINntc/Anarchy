@@ -136,7 +136,8 @@ function createMusic({ log = () => {} } = {}) {
   }
   async function extract(target, q) {
     // prefere arquivo comum (http) a áudio em pedaços (m3u8/HLS), que o app não toca
-    const fmtSel = 'bestaudio[ext=m4a][protocol^=http]/bestaudio[acodec=opus][protocol^=http]/bestaudio[protocol^=http]/bestaudio[ext=m4a]/bestaudio/best';
+    // (sem arquivo comum, como no SoundCloud de hoje: prefere os pedaços em MP3, que juntos viram um MP3 normal)
+    const fmtSel = 'bestaudio[ext=m4a][protocol^=http]/bestaudio[acodec=opus][protocol^=http]/bestaudio[protocol^=http]/bestaudio[ext=mp3]/bestaudio[acodec=mp3]/bestaudio[ext=m4a]/bestaudio/best';
     const args = ['-J', '--no-playlist', '--no-warnings', '-f', fmtSel, target];
     let out;
     try { out = await run([...jsArgs, ...args], 60000); }
@@ -154,7 +155,9 @@ function createMusic({ log = () => {} } = {}) {
       page: String(j.webpage_url || (isUrl(q) ? q : '')).slice(0, 500),
       dur: Math.round(+j.duration || 0),
       thumb: thumb && /^https:\/\//.test(thumb) ? String(thumb).slice(0, 500) : null,
-      src: { url: fmt.url, headers: fmt.http_headers || j.http_headers || {}, mime: fmt.ext === 'webm' ? 'audio/webm' : fmt.ext === 'mp3' ? 'audio/mpeg' : fmt.ext === 'ogg' || fmt.ext === 'opus' ? 'audio/ogg' : 'audio/mp4' },
+      src: { url: fmt.url, headers: fmt.http_headers || j.http_headers || {}, mime: fmt.ext === 'webm' ? 'audio/webm' : fmt.ext === 'mp3' || fmt.acodec === 'mp3' ? 'audio/mpeg' : fmt.ext === 'ogg' || fmt.ext === 'opus' ? 'audio/ogg' : 'audio/mp4',
+        // em pedaços (HLS): o servidor junta antes de mandar para o app (server.js, hlsBuffer)
+        hls: /m3u8/.test(fmt.protocol || '') || /\.m3u8(\?|$)/i.test(fmt.url) },
       at: Date.now()
     };
   }
