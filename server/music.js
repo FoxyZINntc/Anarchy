@@ -29,7 +29,15 @@ function createMusic({ log = () => {} } = {}) {
     return new Promise((resolve, reject) => {
       // PYTHONIOENCODING: no Windows o yt-dlp escrevia os erros com acento estragado ("you�re")
       execFile(bin, args, { timeout: ms, maxBuffer: 64 * 1024 * 1024, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } }, (err, out, errOut) => {
-        if (err) { const why = String(errOut || err.message).split(/\r?\n/).filter(l => /ERROR|error/.test(l)).pop() || err.message; return reject(new Error(why.replace(/^ERROR:\s*/, '').slice(0, 300))); }
+        if (err) {
+          // o motivo vem só do que o yt-dlp escreveu (err.message traz a linha de comando inteira, que não explica nada
+          // e fazia o bot achar que o yt-dlp era antigo, porque o comando tem "--js-runtimes")
+          const lines = String(errOut || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+          const why = err.killed || err.signal ? `o yt-dlp demorou mais de ${Math.round(ms / 1000)} s e foi parado`
+            : (lines.filter(l => /ERROR/.test(l)).pop() || lines[lines.length - 1] || `o yt-dlp parou com erro (código ${err.code})`);
+          log(`   DJ: yt-dlp falhou (${args.filter(a => !/^node:/.test(a)).slice(-1)[0]}): ${lines.slice(-4).join(' | ') || why}`);
+          const e = new Error(why.replace(/^ERROR:\s*(\[[^\]]+\]\s*)?/, '').slice(0, 300)); e.stderr = lines.join('\n'); return reject(e);
+        }
         resolve(out);
       });
     });
@@ -54,6 +62,8 @@ function createMusic({ log = () => {} } = {}) {
 
   // o YouTube exige rodar um pedaço de JavaScript para liberar o áudio: usa o próprio Node deste servidor
   const jsArgs = ['--js-runtimes', 'node:' + process.execPath];
+  // yt-dlp antigo que não conhece a opção --js-runtimes (olha só o erro dele, não a linha de comando)
+  const oldYtdlp = e => /no such option:?\s*--js-runtimes/i.test(e.stderr || '');
   const isUrl = q => /^https?:\/\//i.test(q);
 
   // link de outro lugar: só endereços públicos (ninguém usa o bot para o servidor acessar a rede da casa)
@@ -111,12 +121,17 @@ function createMusic({ log = () => {} } = {}) {
     }
     try { return await extract(byName ? 'ytsearch1:' + q : q, q); }
     catch (e) {
-      if (!yt || !isBlock(e)) throw e;
-      if (Date.now() >= ytBlockedUntil) log('   DJ: o YouTube bloqueou o servidor por um tempo (verificação de robô). Usando o SoundCloud por 15 minutos.');
-      ytBlockedUntil = Date.now() + 15 * 60e3;
+      if (!yt) throw e;
+      const block = isBlock(e);
+      if (block) {
+        if (Date.now() >= ytBlockedUntil) log('   DJ: o YouTube bloqueou o servidor por um tempo (verificação de robô). Usando o SoundCloud por 15 minutos.');
+        ytBlockedUntil = Date.now() + 15 * 60e3;
+      }
+      // qualquer falha no YouTube (bloqueio, demora, mudança no site): procura a mesma música no SoundCloud
       const n = name || (byName ? q : await ytName(q));
       if (n) { try { return await soundcloud(n); } catch {} }
-      throw new Error('o YouTube bloqueou o servidor por um tempo (pediu para provar que não é robô) e não achei essa música no SoundCloud. Tente de novo daqui a alguns minutos, ou mande um link do SoundCloud');
+      if (block) throw new Error('o YouTube bloqueou o servidor por um tempo (pediu para provar que não é robô) e não achei essa música no SoundCloud. Tente de novo daqui a alguns minutos, ou mande um link do SoundCloud');
+      throw new Error(`o YouTube falhou (${e.message}) e não achei essa música no SoundCloud`);
     }
   }
   async function extract(target, q) {
@@ -124,8 +139,8 @@ function createMusic({ log = () => {} } = {}) {
     const fmtSel = 'bestaudio[ext=m4a][protocol^=http]/bestaudio[acodec=opus][protocol^=http]/bestaudio[protocol^=http]/bestaudio[ext=m4a]/bestaudio/best';
     const args = ['-J', '--no-playlist', '--no-warnings', '-f', fmtSel, target];
     let out;
-    try { out = await run([...jsArgs, ...args]); }
-    catch (e) { if (/js-runtimes|no such option/i.test(e.message)) out = await run(args); else throw e; } // yt-dlp antigo, sem essa opção
+    try { out = await run([...jsArgs, ...args], 60000); }
+    catch (e) { if (oldYtdlp(e)) out = await run(args, 60000); else throw e; } // yt-dlp antigo, sem essa opção
     let j = JSON.parse(out);
     if (j && Array.isArray(j.entries)) j = j.entries.find(Boolean);
     if (!j) throw new Error('não achei nenhuma música com esse nome');
@@ -165,7 +180,7 @@ function createMusic({ log = () => {} } = {}) {
     const args = ['-J', '--flat-playlist', '--no-warnings', '--playlist-end', String(MAX_LIST), ...extra, target];
     let out;
     try { out = await run([...jsArgs, ...args], 60000); }
-    catch (e) { if (/js-runtimes|no such option/i.test(e.message)) out = await run(args, 60000); else throw e; }
+    catch (e) { if (oldYtdlp(e)) out = await run(args, 60000); else throw e; }
     return JSON.parse(out);
   }
   function fromFlat(e) {
