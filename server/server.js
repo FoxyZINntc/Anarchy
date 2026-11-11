@@ -403,6 +403,7 @@ function loadSrc(t) {
   if (!t.loading) t.loading = dj.resolve(t.q, { name }).then(r => {
     // da playlist do Spotify ficam o nome e a capa de lá (a busca no YouTube só fornece o áudio)
     Object.assign(t, t.keep ? { src: r.src, at: r.at, page: r.page, dur: r.dur || t.dur, via: r.via } : r);
+    hlsWarm(r.src);
   }).finally(() => { t.loading = null; });
   return t.loading;
 }
@@ -507,6 +508,7 @@ async function djPlay(g, cid, uid, room, q) {
   let r;
   try { r = await dj.resolve(q); }
   catch (e) { return botEdit(g, msg, `😕 Não consegui tocar **${mdSafe(q.slice(0, 120))}**: ${mdSafe(e.message)}.`, { cid }); }
+  hlsWarm(r.src);
   if (!djOf(g) || !voice.get(room)) return botEdit(g, msg, 'Achei a música, mas a sala de voz ficou vazia.', { cid });
   const t = { id: newId(), ...r, who: uid, q, roomId: room };
   tracks.set(t.id, t);
@@ -781,9 +783,61 @@ app.get('/api/gifs', auth, async (req, res) => {
 });
 app.get('/api/config', (req, res) => res.json({ iceServers: cfg.iceServers, build: BUILD }));
 // áudio do DJ: o servidor busca no site de origem e repassa (aceita "Range", para o app pular para o ponto certo)
+/* Áudio em pedaços (HLS: uma lista .m3u8 e vários arquivinhos), como o SoundCloud entrega quase tudo hoje.
+   O <audio> do app não toca isso (a música "tocava" sem som): o servidor baixa os pedaços, junta num arquivo só
+   e entrega como um arquivo comum, aceitando "Range" (quem entra no meio da música pula para o ponto certo).
+   Guarda as últimas 6 músicas na memória. */
+const hlsCache = new Map(); // endereço da lista -> Promise<Buffer>
+function hlsBuffer(src) {
+  if (hlsCache.has(src.url)) return hlsCache.get(src.url);
+  const p = (async () => {
+    const h = { ...src.headers, 'Accept-Encoding': 'identity' }; delete h['Accept-Language'];
+    const get = async (u, text) => {
+      const r = await fetch(u, { headers: h, redirect: 'follow', signal: AbortSignal.timeout(20000) });
+      if (!r.ok) throw new Error('HLS ' + r.status);
+      return text ? [await r.text(), r.url] : Buffer.from(await r.arrayBuffer());
+    };
+    let [txt, base] = await get(src.url, true);
+    if (/#EXT-X-STREAM-INF/.test(txt)) { // lista de qualidades: pega a primeira
+      const v = txt.split(/\r?\n/).map(l => l.trim()).find(l => l && !l.startsWith('#'));
+      if (!v) throw new Error('HLS sem áudio'); [txt, base] = await get(new URL(v, base).href, true);
+    }
+    if (/#EXT-X-KEY:METHOD=(?!NONE)/.test(txt)) throw new Error('áudio protegido (HLS criptografado)');
+    const lines = txt.split(/\r?\n/).map(l => l.trim());
+    const init = lines.map(l => /^#EXT-X-MAP:.*URI="([^"]+)"/.exec(l)).find(Boolean);
+    const segs = lines.filter(l => l && !l.startsWith('#')).map(l => new URL(l, base).href);
+    if (!segs.length || segs.length > 3000) throw new Error('lista HLS inválida');
+    const parts = []; let size = 0;
+    if (init) parts.push(await get(new URL(init[1], base).href));
+    for (let i = 0; i < segs.length; i += 6) { // 6 pedaços de cada vez
+      for (const b of await Promise.all(segs.slice(i, i + 6).map(u => get(u)))) { parts.push(b); size += b.length; }
+      if (size > 80e6) throw new Error('áudio grande demais');
+    }
+    return Buffer.concat(parts);
+  })();
+  hlsCache.set(src.url, p);
+  p.catch(e => { hlsCache.delete(src.url); log(`   DJ: não consegui juntar o áudio em pedaços (${e.message}).`); });
+  while (hlsCache.size > 6) hlsCache.delete(hlsCache.keys().next().value);
+  return p;
+}
+// já começa a juntar assim que a música é encontrada (quando o app pedir, está pronto ou quase)
+const hlsWarm = src => { if (src && src.hls) hlsBuffer(src).catch(() => {}); };
+function sendRange(req, res, buf, type) {
+  res.setHeader('Content-Type', type); res.setHeader('Accept-Ranges', 'bytes'); res.setHeader('Cache-Control', 'no-store');
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+  if (!m || (!m[1] && !m[2])) { res.setHeader('Content-Length', buf.length); return res.end(buf); }
+  let a = m[1] ? +m[1] : Math.max(0, buf.length - +m[2]), b = m[1] && m[2] ? Math.min(+m[2], buf.length - 1) : buf.length - 1;
+  if (a >= buf.length || a > b) { res.setHeader('Content-Range', `bytes */${buf.length}`); return res.status(416).end(); }
+  res.status(206); res.setHeader('Content-Range', `bytes ${a}-${b}/${buf.length}`); res.setHeader('Content-Length', b - a + 1);
+  res.end(buf.subarray(a, b + 1));
+}
 app.get('/api/music/:id', auth, async (req, res) => {
   const t = tracks.get(req.params.id);
   if (!t || !t.src || !canAccess(req.uid, t.roomId)) return res.status(404).end();
+  if (t.src.hls) {
+    try { return sendRange(req, res, await hlsBuffer(t.src), t.src.mime); }
+    catch { return res.headersSent ? res.destroy() : res.status(502).end(); }
+  }
   const ac = new AbortController(); res.on('close', () => ac.abort());
   try {
     const headers = { ...t.src.headers, 'Accept-Encoding': 'identity' };
