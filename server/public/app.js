@@ -697,9 +697,9 @@ function connect() {
     if (from && !S.users[from.id]) S.users[from.id] = from;
     GIFT.q.push({ pts: { amount, points, msg }, from }); if (!GIFT.open) giftNext();
   });
-  // ganhou AnarchyPoints (10 min de call, ou presente do dono)
+  // ganhou AnarchyPoints (tempo de call, ou presente do dono)
   socket.on('points:gain', ({ amount, points, from }) => {
-    toast(`+${amount} AnarchyPoints ${from ? `de ${from}` : 'por 10 minutos em call'} · saldo ${points.toLocaleString('pt-BR')}${points >= BOX_COST ? ' · dá para abrir uma caixa!' : ''}`);
+    toast(`+${amount} AnarchyPoints ${from ? `de ${from}` : `por ${ptMin()} minutos em call`} · saldo ${points.toLocaleString('pt-BR')}${points >= BOX_COST ? ' · dá para abrir uma caixa!' : ''}`);
     tone([[880, .06], [1320, .12]], 'triangle', .05);
   });
   // ganhou uma placa: notificação diferente (som de presente) e o baú na tela
@@ -829,7 +829,7 @@ function renderRail() {
 function railPts() {
   const p = S.me?.points || 0;
   const n = p >= 1e6 ? (p / 1e6).toFixed(p >= 1e7 ? 0 : 1).replace('.', ',') + 'M' : p >= 1e4 ? Math.floor(p / 1000) + 'k' : p.toLocaleString('pt-BR');
-  return `<button class="rail-pts" data-act="openBoxes" data-tip="${p.toLocaleString('pt-BR')} AnarchyPoints · 100 a cada 10 min em call. Clique para abrir caixas"><i class="pts-ic"></i><span>${n}</span></button>`;
+  return `<button class="rail-pts" data-act="openBoxes" data-tip="${p.toLocaleString('pt-BR')} AnarchyPoints · 100 a cada ${ptMin()} min em call. Clique para abrir caixas"><i class="pts-ic"></i><span>${n}</span></button>`;
 }
 
 function renderSide() {
@@ -1212,6 +1212,10 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-11-pontos-30', date: '11/11/2026', title: 'AnarchyPoints: novo ritmo', emoji: '⏱️', items: [
+    'Agora são <b>100 AnarchyPoints a cada 30 minutos</b> em call com mais alguém.',
+    'O tempo que você já tinha acumulado continua valendo.'
+  ] },
   { id: '2026-11-11-inventario', date: '11/11/2026', title: 'Inventário novo', emoji: '🎒', items: [
     'Caixas, efeitos de foto, placas de nome e histórico agora ficam juntos no <b>Inventário</b>, separados em abas.',
     'No topo você vê como os outros te enxergam (foto e placa) e a sua carteira de pontos, com o botão de abrir caixa.',
@@ -1219,7 +1223,7 @@ const NEWS = [
     'Os temas animados em Aparência voltaram a aparecer certinho.'
   ] },
   { id: '2026-11-11-caixas', date: '11/11/2026', title: 'AnarchyPoints e Caixas', emoji: '🎁', items: [
-    'Ficou em call com a galera? Ganha <b>100 AnarchyPoints a cada 10 minutos</b> (precisa ter mais alguém na call e estar ouvindo).',
+    'Ficou em call com a galera? Ganha <b>100 AnarchyPoints a cada 30 minutos</b> (precisa ter mais alguém na call e estar ouvindo).',
     'Com 300 pontos você abre uma <b>Caixa Anarchy</b>: a roleta gira e sorteia um efeito animado para a sua foto de perfil.',
     'São <b>100 efeitos</b>, de Comum a Mítico (só 0,5% de chance!). Repetiu? Volta ponto para você.',
     'Seu saldo aparece embaixo, do lado do seu nome. Caixas e coleção em <b>Configurações › Caixas</b>.'
@@ -1522,6 +1526,7 @@ const AVFX = {};
 for (const [s, [sn, r]] of Object.entries(AV_STYLES)) for (const [p, pn] of Object.entries(AV_PALS)) AVFX[`${s}-${p}`] = { name: `${sn} ${pn}`, tier: p === 'prisma' ? AV_UP[r] : r };
 const AVFX_IDS = Object.keys(AVFX).sort((a, b) => AVR[AVFX[b].tier][1] - AVR[AVFX[a].tier][1] || AVFX[a].name.localeCompare(AVFX[b].name));
 const BOX_COST = 300;
+const ptMin = () => Math.round((S.me?.ptEvery || 1800000) / 60000); // minutos de call para cada 100 pontos
 // foto da pessoa com um efeito (para a roleta, o inventário e as cartas)
 const avWith = (fxId, size = 64) => av(S.me.id, size, false, '', { ...S.me, avfx: fxId });
 const ownedFx = () => new Set((S.me.items || []).filter(x => String(x.item).startsWith('av:')).map(x => x.item.slice(3)));
@@ -1620,7 +1625,7 @@ function drawInventory(b) {
   if (!INV.tab) INV.tab = fresh ? 'placas' : 'efeitos';
   if (INV.tab === 'dar' && !me.admin) INV.tab = 'efeitos';
   drawInventory.sig = invSig(me);
-  const prog = Math.min(100, Math.round((me.callAcc || 0) / 6000)), left = Math.max(1, Math.ceil((600000 - (me.callAcc || 0)) / 60000));
+  const every = me.ptEvery || 1800000, prog = Math.min(100, Math.round((me.callAcc || 0) / every * 100)), left = Math.max(1, Math.ceil((every - (me.callAcc || 0)) / 60000));
   const tabs = [['efeitos', '✨ Efeitos de foto', `${own.size}/${AVFX_IDS.length}`], ['placas', '🏷️ Placas de nome', `${owned.size}/${PLATE_IDS.length}`], ['historico', '📜 Histórico', ''], ...(me.admin ? [['dar', '🎁 Dar presentes', '']] : [])];
   b.innerHTML = `<h2>Inventário</h2>
     <div class="iv-hero">
@@ -1634,7 +1639,7 @@ function drawInventory(b) {
         <span class="iv-k">Carteira</span>
         <div class="box-bal"><i class="pts-ic"></i>${pts.toLocaleString('pt-BR')} <span class="muted small" style="font-weight:600">AnarchyPoints</span></div>
         <div class="box-prog" title="Próximos 100 pontos"><i style="width:${prog}%"></i></div>
-        <span class="muted small">Em call com mais alguém: <b>+100</b> a cada 10 min · faltam ~${left} min</span>
+        <span class="muted small">Em call com mais alguém: <b>+100</b> a cada ${ptMin()} min · faltam ~${left} min</span>
         <button class="btn primary iv-open" id="boxGo" ${pts < BOX_COST ? 'disabled' : ''}>🎁 Abrir Caixa Anarchy · <i class="pts-ic"></i> ${BOX_COST}</button>
         ${pts < BOX_COST ? `<span class="muted small">Faltam ${BOX_COST - pts} pontos para a próxima caixa.</span>` : ''}
         <div class="box-odds">${Object.entries(AVR).map(([k, v]) => `<span class="r-c-${k}">${v[0]} ${v[2]}</span>`).join('')}</div>

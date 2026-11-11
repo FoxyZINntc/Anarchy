@@ -168,10 +168,10 @@ const PLATES = ['sakura', 'lua', 'galaxia', 'shoujo', 'chamas', 'raio', 'neon', 
 const ADMINS = (process.env.ANARCHY_ADMINS || 'JoREzT59l3Vw').split(',').map(s => s.trim()).filter(Boolean);
 const isAdmin = u => !!u && !u.bot && (ADMINS.includes(u.id) || ADMINS.includes(u.username));
 
-/* AnarchyPoints e caixas: 100 pontos a cada 10 minutos em call (com mais alguém na sala, sem estar com o som desligado).
+/* AnarchyPoints e caixas: 100 pontos a cada 30 minutos em call (com mais alguém na sala, sem estar com o som desligado).
    Cada caixa custa 300 e sorteia um efeito animado de foto de perfil (100 no total). O sorteio é aqui no servidor. */
-// PONTOS_MINUTOS no .env muda o tempo (padrão: 10 minutos para cada 100 pontos)
-const PT_EVERY = Math.max(1, +process.env.PONTOS_MINUTOS || 10) * 60e3, PT_GAIN = 100, BOX_COST = 300;
+// PONTOS_MINUTOS no .env muda o tempo (padrão: 30 minutos para cada 100 pontos)
+const PT_EVERY = Math.max(1, +process.env.PONTOS_MINUTOS || 30) * 60e3, PT_GAIN = 100, BOX_COST = 300;
 const AVFX_STYLES = { anel: 'comum', brilho: 'comum', pontos: 'comum', duplo: 'comum', pulso: 'comum', arco: 'comum', respiro: 'comum',
   cometa: 'raro', faiscas: 'raro', bolhas: 'raro', eletrico: 'raro', radar: 'raro', petalas: 'raro',
   chamas: 'epico', galaxia: 'epico', glitch: 'epico', runas: 'epico', aura: 'lendario', coroa: 'lendario', portal: 'lendario' };
@@ -236,7 +236,7 @@ const above = (g, uid, target) => rank(g, uid) < rank(g, target);
 // o email da conta só vai para o próprio dono (nunca no publicUser)
 function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online', blocked: u.blocked || [], favs: u.favs || null, privacy: u.privacy || {}, email: u.email || null, emailAsked: u.emailAsked || 0, mailOn: mailOn(),
   items: u.items || [], lost: (u.lost || []).slice(-100), admin: isAdmin(u), given: isAdmin(u) ? (u.given || []).slice(-300) : [],
-  points: u.points || 0, pointsTotal: u.pointsTotal || 0, callAcc: u.callAcc || 0, boxes: u.boxes || 0, boxLog: (u.boxLog || []).slice(-40), ptsLog: (u.ptsLog || []).slice(-40) }; }
+  points: u.points || 0, pointsTotal: u.pointsTotal || 0, callAcc: u.callAcc || 0, ptEvery: PT_EVERY, boxes: u.boxes || 0, boxLog: (u.boxLog || []).slice(-40), ptsLog: (u.ptsLog || []).slice(-40) }; }
 // bloqueio vale nos dois sentidos: quem bloqueou e quem foi bloqueado não se alcançam
 const blockedBetween = (a, b) => !!((db.users[a] && (db.users[a].blocked || []).includes(b)) || (db.users[b] && (db.users[b].blocked || []).includes(a)));
 
@@ -289,7 +289,7 @@ function voicePeers(roomId) {
   const r = voice.get(roomId); if (!r) return [];
   return [...r.entries()].map(([sid, s]) => ({ sid, ...s }));
 }
-// a cada minuto: quem está em call com mais alguém (e não está com o som desligado) acumula tempo; a cada 10 min ganha 100 pontos
+// a cada minuto: quem está em call com mais alguém (e não está com o som desligado) acumula tempo; a cada 30 min ganha 100 pontos
 setInterval(() => {
   const counted = new Set(); let changed = false;
   for (const peers of voice.values()) {
