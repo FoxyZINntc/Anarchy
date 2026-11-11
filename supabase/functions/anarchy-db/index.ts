@@ -12,6 +12,8 @@ const TABLES: Record<string, string[]> = {
   usuarios: ["id"], sessoes: ["token"], grupos: ["id"], canais: ["id"], grupo_membros: ["group_id", "user_id"],
   amizades: ["user_id", "friend_id"], pedidos_amizade: ["from_id", "to_id"], conversas: ["id"], mensagens: ["id"],
   sons: ["id"], figurinhas: ["id"],
+  // RPG de Mesa
+  rpg_campanhas: ["id"], rpg_personagens: ["id"], rpg_mapas: ["id"], rpg_entidades: ["id"], rpg_eventos: ["id"], rpg_sessoes: ["id"],
 };
 const AUDIO: Record<string, string> = { mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", webm: "audio/webm", m4a: "audio/mp4" };
 

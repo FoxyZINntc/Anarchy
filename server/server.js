@@ -101,9 +101,9 @@ let turnLast = Date.now();
 setInterval(() => { if (!turnOn() || Date.now() - turnLast > 30 * 60e3) { turnLast = Date.now(); refreshSupabaseTurn(); } }, 5 * 60e3).unref();
 // subiu sem as tabelas da Central de Áudio? confere de 5 em 5 min e reinicia quando elas existirem
 // (só no servidor dedicado: o rodar.cmd liga de novo sozinho)
-if (opts.standalone && !store.mediaReady && store.recheck) setInterval(async () => {
+if (opts.standalone && (!store.mediaReady || store.rpgReady === false) && store.recheck) setInterval(async () => {
   if (!(await store.recheck())) return;
-  log('Supabase: Central de Áudio e figurinhas disponíveis. Reiniciando para ligar.');
+  log('Supabase: tabelas novas disponíveis (Central de Áudio, figurinhas ou RPG de Mesa). Reiniciando para ligar.');
   await store.flush().catch(() => {}); process.exit(0);
 }, 5 * 60e3).unref();
 const save = store.save, saveNow = store.saveNow;
@@ -189,7 +189,7 @@ function rollAvfx() {
 }
 
 /* ---------- grupos: cargos e permissões ---------- */
-const PERMS = ['admin', 'manageServer', 'manageChannels', 'manageRoles', 'kick', 'ban', 'manageMessages', 'mentionEveryone', 'manageMedia'];
+const PERMS = ['admin', 'manageServer', 'manageChannels', 'manageRoles', 'kick', 'ban', 'manageMessages', 'mentionEveryone', 'manageMedia', 'rpg'];
 // Central de Áudio e figurinhas: limites por grupo
 const SOUND_MAX = 30, SOUND_BYTES = 1024 * 1024, SOUND_MS = 7000, STICKER_MAX = 60;
 const AUDIO_EXT = { 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/mp4': 'm4a' };
@@ -855,6 +855,12 @@ app.get('/api/music/:id', auth, async (req, res) => {
   } catch (e) { if (!res.headersSent) res.status(502).end(); else res.destroy(); }
 });
 
+/* ---------- RPG de Mesa (atividade opcional dos grupos e conversas; ver rpg.js) ---------- */
+const rpg = require('./rpg').createRpg({
+  db, save, newId, now, str, log, toUser, toUsers, can, pushGroup, limited, users: db.users,
+  isUpload: u => store.isUpload(u)
+});
+
 /* ---------- Socket.IO ---------- */
 function onConnection(socket) {
   const uid = socket.data.uid;
@@ -869,6 +875,7 @@ function onConnection(socket) {
   const ok = (cb, data) => typeof cb === 'function' && cb({ ok: true, ...data });
   const fail = (cb, erro) => typeof cb === 'function' && cb({ ok: false, erro });
   const on = (ev, fn) => socket.on(ev, (data, cb) => { try { fn(data || {}, cb); } catch (e) { console.error(ev, e); fail(cb, 'Erro interno.'); } });
+  rpg.bind(socket, uid, on, ok, fail);
 
   on('init', (_, cb) => {
     const users = {};
