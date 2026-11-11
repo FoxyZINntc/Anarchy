@@ -3210,7 +3210,11 @@ async function toggleScreen() {
   if (V.screen) return stopStream('screen');
   if (!navigator.mediaDevices.getDisplayMedia) return toast(DROID ? 'No celular ainda não dá para compartilhar a tela. Você consegue assistir a tela dos outros normalmente.' : 'Este navegador não consegue compartilhar a tela.', true);
   const q = { '720p30': [1280, 720, 30], '1080p30': [1920, 1080, 30], '1080p60': [1920, 1080, 60] }[prefs.quality] || [1920, 1080, 30];
-  const ask = audio => navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: q[0] }, height: { ideal: q[1] }, frameRate: { ideal: q[2] } }, audio });
+  // No navegador, o "som do sistema" pega o PC inteiro, vozes da call incluídas (quem fala se ouve de volta).
+  // restrictOwnAudio tira da captura o som da própria página. No app de PC o som vem do somtela.exe, que já exclui o Anarchy.
+  const sup = (navigator.mediaDevices.getSupportedConstraints && navigator.mediaDevices.getSupportedConstraints()) || {};
+  const ask = audio => navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: q[0] }, height: { ideal: q[1] }, frameRate: { ideal: q[2] } },
+    audio: audio && sup.restrictOwnAudio ? { restrictOwnAudio: true } : audio });
   const fail = e => { if (e && e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast('Não consegui compartilhar a tela: ' + (e.message || e.name), true); };
   try { V.screen = await ask(true); }
   catch (e) {
