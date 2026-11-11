@@ -1212,6 +1212,10 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-12-voz', date: '12/11/2026', title: 'Voz sem cortes', emoji: '🎙️', items: [
+    'A detecção de voz automática cortava pedaços da fala (começo e fim das palavras, e no meio de frases longas). Agora ela corta bem menos.',
+    'Barulho de fundo e teclado continuam sem abrir o microfone.'
+  ] },
   { id: '2026-11-11-pontos-30', date: '11/11/2026', title: 'AnarchyPoints: novo ritmo', emoji: '⏱️', items: [
     'Agora são <b>100 AnarchyPoints a cada 30 minutos</b> em call com mais alguém.',
     'O tempo que você já tinha acumulado continua valendo.'
@@ -2676,16 +2680,25 @@ function makeVad() {
       const ratio = all > 0 ? voice / all : 0;
       // nível suavizado (barulho de fundo oscila; a voz sobe e fica)
       this.db = db; this.sm = this.sm === null ? db : this.sm * 0.6 + db * 0.4;
-      // ruído de fundo = a menor média de 100 ms dos últimos 3 s (entre uma palavra e outra sempre tem pausa)
+      // ruído de fundo = a menor média de 100 ms dos últimos 10 s. Com só 3 s, quem fala sem pausa
+      // fazia o "ruído" subir até a própria voz e o microfone fechava no meio da frase.
       this.sum += db; this.cnt++;
-      if (now - this.curAt >= 100) { this.mins.push(this.sum / this.cnt); if (this.mins.length > 30) this.mins.shift(); this.sum = 0; this.cnt = 0; this.curAt = now; }
+      if (now - this.curAt >= 100) { this.mins.push(this.sum / this.cnt); if (this.mins.length > 100) this.mins.shift(); this.sum = 0; this.cnt = 0; this.curAt = now; }
       this.noise = this.mins.length ? Math.min(...this.mins) : db;
-      // bem acima do ruído com algo de voz, ou só um pouco acima mas com muita cara de voz (fala baixa)
+      // abrir: bem acima do ruído com algo de voz, ou só um pouco acima mas com muita cara de voz (fala baixa)
       const lv = this.sm;
-      const speech = lv > -62 && ((lv > this.noise + 9 && ratio > 0.35) || (lv > this.noise + 5 && ratio > 0.5));
+      const speech = lv > -70 && ((lv > this.noise + 9 && ratio > 0.35) || (lv > this.noise + 5 && ratio > 0.5));
+      // som forte e contínuo (cada leitura de 20 ms, 3 seguidas), como palavra que começa com "s" ou "f".
+      // Estalo de tecla dura uma leitura só e não abre.
+      const loud = db > -70 && db > this.noise + 14;
       this.hits = speech ? this.hits + 1 : 0;
-      if (this.hits >= 2) this.last = now; // 2 leituras seguidas: não abre por estalo de teclado
-      this.open = now - this.last < 400;
+      this.loud = loud ? (this.loud || 0) + 1 : 0;
+      // 2 leituras seguidas com cara de voz, ou 3 de som forte: não abre por estalo de teclado
+      if (this.hits >= 2 || this.loud >= 3) { this.last = now; this.lastHit = now; }
+      // já aberto: segura enquanto houver som acima do ruído, mesmo sem "cara de voz" (fim de palavra, "s", "f", "ch"),
+      // mas no máximo 1,5 s sem voz nova (assim o barulho de fundo não deixa o microfone aberto)
+      else if (this.open && now - (this.lastHit || 0) < 1500 && lv > -70 && lv > this.noise + 6) this.last = now;
+      this.open = now - this.last < 600;
       return this.open;
     }
   };
