@@ -818,7 +818,14 @@ function renderRail() {
       return `<button class="rail-item ${S.view.kind === 'group' && S.view.gid === g.id ? 'active' : ''} ${un ? 'unread' : ''}" data-act="group" data-id="${g.id}" data-tip="${esc(g.name)}${live ? ' · call ativa' : ''}">${groupIcon(g)}${men ? `<span class="badge">${men}</span>` : live ? `<span class="badge" style="background:var(--ok)">${ic('voice').replace('<svg', '<svg style="width:11px;height:11px"')}</span>` : ''}</button>`;
     }).join('')}
     <button class="rail-item add" data-act="newGroup" data-tip="Criar grupo"><div class="inner">+</div></button>
-    <button class="rail-item add" data-act="joinGroup" data-tip="Entrar com convite"><div class="inner" style="color:var(--accent)">${ic('compass')}</div></button>`;
+    <button class="rail-item add" data-act="joinGroup" data-tip="Entrar com convite"><div class="inner" style="color:var(--accent)">${ic('compass')}</div></button>
+    ${railPts()}`;
+}
+// saldo de AnarchyPoints: no canto de baixo da coluna de grupos (clique abre as Caixas)
+function railPts() {
+  const p = S.me?.points || 0;
+  const n = p >= 1e6 ? (p / 1e6).toFixed(p >= 1e7 ? 0 : 1).replace('.', ',') + 'M' : p >= 1e4 ? Math.floor(p / 1000) + 'k' : p.toLocaleString('pt-BR');
+  return `<button class="rail-pts" data-act="openBoxes" data-tip="${p.toLocaleString('pt-BR')} AnarchyPoints · 100 a cada 10 min em call. Clique para abrir caixas"><i class="pts-ic"></i><span>${n}</span></button>`;
 }
 
 function renderSide() {
@@ -871,9 +878,7 @@ function renderGroupSide(body) {
 function renderUserBar() {
   const u = S.me;
   $('#userBar').innerHTML = `
-    <button class="me-chip" data-act="meMenu">${av(u.id, 32)}<span style="min-width:0"><span class="nm" style="display:block">${esc(u.displayName)}</span><span class="st" style="display:block">${esc(u.customStatus || STATUS[u.realStatus || u.status])}</span></span></button>
-    <span class="pts-chip" data-act="openBoxes" data-tip="AnarchyPoints: 100 a cada 10 min em call. Clique para abrir caixas"><i class="pts-ic"></i>${(u.points || 0).toLocaleString('pt-BR')}</span>
-    <button class="icon-btn ${V.muted ? 'on' : ''}" data-act="mute" data-tip="${V.muted ? 'Ativar microfone' : 'Silenciar'}${prefs.ptt ? ' (aperte para falar ativo)' : ''}">${ic(V.muted ? 'micOff' : 'mic')}</button>
+    <button class="me-chip" data-act="meMenu">${av(u.id, 32)}<span style="min-width:0"><span class="nm" style="display:block">${esc(u.displayName)}</span><span class="st" style="display:block">${esc(u.customStatus || STATUS[u.realStatus || u.status])}</span></span></button>    <button class="icon-btn ${V.muted ? 'on' : ''}" data-act="mute" data-tip="${V.muted ? 'Ativar microfone' : 'Silenciar'}${prefs.ptt ? ' (aperte para falar ativo)' : ''}">${ic(V.muted ? 'micOff' : 'mic')}</button>
     <button class="icon-btn ${V.deaf ? 'on' : ''}" data-act="deafen" data-tip="${V.deaf ? 'Ativar áudio' : 'Desativar áudio'}">${ic(V.deaf ? 'headOff' : 'head')}</button>
     <button class="icon-btn" data-act="settings" data-tip="Configurações">${ic('gear')}</button>`;
 }
