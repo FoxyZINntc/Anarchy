@@ -1212,6 +1212,10 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-12-chiado', date: '12/11/2026', title: 'Chiado não abre mais o microfone', emoji: '🤫', items: [
+    'A detecção de voz agora reconhece chiado pelo "formato" do som e não abre o microfone por causa dele, mesmo quando o chiado aparece de repente, sobe ou fica oscilando.',
+    'Depois que você para de falar, o microfone fecha em até 2 segundos, mesmo com barulho de fundo.'
+  ] },
   { id: '2026-11-12-voz', date: '12/11/2026', title: 'Voz sem cortes', emoji: '🎙️', items: [
     'A detecção de voz automática cortava pedaços da fala (começo e fim das palavras, e no meio de frases longas). Agora ela corta bem menos.',
     'Barulho de fundo e teclado continuam sem abrir o microfone.'
@@ -2675,29 +2679,35 @@ function makeVad() {
       let s = 0; for (const v of this.tbuf) s += v * v;
       const db = 10 * Math.log10(s / this.tbuf.length + 1e-12);
       an.getFloatFrequencyData(this.fbuf);
-      const hz = an.context.sampleRate / an.fftSize; let voice = 0, all = 0;
-      for (let i = 1; i < this.fbuf.length; i++) { const e = Math.pow(10, this.fbuf[i] / 10), f = i * hz; all += e; if (f >= 250 && f <= 3500) voice += e; }
+      const hz = an.context.sampleRate / an.fftSize; let voice = 0, all = 0, lg = 0, nb = 0;
+      for (let i = 1; i < this.fbuf.length; i++) { const e = Math.pow(10, this.fbuf[i] / 10), f = i * hz; all += e; if (f >= 250 && f <= 3500) { voice += e; lg += Math.log(e + 1e-20); nb++; } }
       const ratio = all > 0 ? voice / all : 0;
+      // "lisura" do espectro na faixa da fala: voz tem picos (harmônicas), fica abaixo de ~0,25; chiado é liso, acima de ~0,45
+      const flat = nb && voice > 0 ? Math.exp(lg / nb) / (voice / nb) : 1;
       // nível suavizado (barulho de fundo oscila; a voz sobe e fica)
       this.db = db; this.sm = this.sm === null ? db : this.sm * 0.6 + db * 0.4;
       // ruído de fundo = a menor média de 100 ms dos últimos 10 s. Com só 3 s, quem fala sem pausa
       // fazia o "ruído" subir até a própria voz e o microfone fechava no meio da frase.
       this.sum += db; this.cnt++;
-      if (now - this.curAt >= 100) { this.mins.push(this.sum / this.cnt); if (this.mins.length > 100) this.mins.shift(); this.sum = 0; this.cnt = 0; this.curAt = now; }
-      this.noise = this.mins.length ? Math.min(...this.mins) : db;
+      if (now - this.curAt >= 100) {
+        const a = this.sum / this.cnt; this.mins.push(a); if (this.mins.length > 100) this.mins.shift(); this.sum = 0; this.cnt = 0; this.curAt = now;
+        // chiado que aparece ou sobe (ganho automático): som estável por 1 s (variação < 5 dB) é ruído, não voz
+        // (a fala sempre varia muito de uma sílaba para outra). Vira o novo ruído na hora e só desce quando o som desce.
+        const last = this.mins.slice(-10);
+        if (this.nfl !== undefined && a < this.nfl) this.nfl = a;
+        if (last.length === 10 && Math.max(...last) - Math.min(...last) < 5) this.nfl = Math.max(this.nfl ?? -200, Math.min(...last));
+      }
+      this.noise = this.mins.length ? Math.max(Math.min(...this.mins), this.nfl ?? -200) : db;
       // abrir: bem acima do ruído com algo de voz, ou só um pouco acima mas com muita cara de voz (fala baixa)
       const lv = this.sm;
-      const speech = lv > -70 && ((lv > this.noise + 9 && ratio > 0.35) || (lv > this.noise + 5 && ratio > 0.5));
-      // som forte e contínuo (cada leitura de 20 ms, 3 seguidas), como palavra que começa com "s" ou "f".
-      // Estalo de tecla dura uma leitura só e não abre.
-      const loud = db > -70 && db > this.noise + 14;
+      // só abre com espectro de voz (com picos): chiado, mesmo oscilando, é liso e não abre
+      const speech = lv > -70 && flat < 0.35 && ((lv > this.noise + 9 && ratio > 0.35) || (lv > this.noise + 5 && ratio > 0.5));
       this.hits = speech ? this.hits + 1 : 0;
-      this.loud = loud ? (this.loud || 0) + 1 : 0;
-      // 2 leituras seguidas com cara de voz, ou 3 de som forte: não abre por estalo de teclado
-      if (this.hits >= 2 || this.loud >= 3) { this.last = now; this.lastHit = now; }
+      // 2 leituras seguidas com cara de voz: não abre por estalo de teclado
+      if (this.hits >= 2) { this.last = now; this.lastHit = now; }
       // já aberto: segura enquanto houver som acima do ruído, mesmo sem "cara de voz" (fim de palavra, "s", "f", "ch"),
-      // mas no máximo 1,5 s sem voz nova (assim o barulho de fundo não deixa o microfone aberto)
-      else if (this.open && now - (this.lastHit || 0) < 1500 && lv > -70 && lv > this.noise + 6) this.last = now;
+      // mas no máximo 1,2 s sem voz nova (assim o barulho de fundo não deixa o microfone aberto)
+      else if (this.open && now - (this.lastHit || 0) < 1200 && lv > -70 && lv > this.noise + 6) this.last = now;
       this.open = now - this.last < 600;
       return this.open;
     }
