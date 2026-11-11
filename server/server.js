@@ -142,7 +142,8 @@ function publicUser(u) {
     pronouns: u.pronouns || '', theme: u.theme || null,
     accent: u.accent || null, frame: u.frame || null, effect: u.effect || null, badges: u.bot ? [] : badgesOf(u),
     status: on ? (u.status || 'online') : 'offline', createdAt: u.createdAt,
-    plate: u.plate && PLATES.includes(u.plate) ? u.plate : null
+    plate: u.plate && PLATES.includes(u.plate) ? u.plate : null,
+    avfx: u.avfx && AVFX[u.avfx] ? u.avfx : null
   };
 }
 /* insígnias: calculadas a partir de dados reais da conta (ninguém escolhe a própria) */
@@ -166,6 +167,26 @@ const PLATES = ['sakura', 'lua', 'galaxia', 'shoujo', 'chamas', 'raio', 'neon', 
 // quem pode dar itens: ANARCHY_ADMINS no .env (ids ou nomes de usuário, separados por vírgula). Padrão: a conta do Foxy.
 const ADMINS = (process.env.ANARCHY_ADMINS || 'JoREzT59l3Vw').split(',').map(s => s.trim()).filter(Boolean);
 const isAdmin = u => !!u && !u.bot && (ADMINS.includes(u.id) || ADMINS.includes(u.username));
+
+/* AnarchyPoints e caixas: 100 pontos a cada 10 minutos em call (com mais alguém na sala, sem estar com o som desligado).
+   Cada caixa custa 300 e sorteia um efeito animado de foto de perfil (100 no total). O sorteio é aqui no servidor. */
+// PONTOS_MINUTOS no .env muda o tempo (padrão: 10 minutos para cada 100 pontos)
+const PT_EVERY = Math.max(1, +process.env.PONTOS_MINUTOS || 10) * 60e3, PT_GAIN = 100, BOX_COST = 300;
+const AVFX_STYLES = { anel: 'comum', brilho: 'comum', pontos: 'comum', duplo: 'comum', pulso: 'comum', arco: 'comum', respiro: 'comum',
+  cometa: 'raro', faiscas: 'raro', bolhas: 'raro', eletrico: 'raro', radar: 'raro', petalas: 'raro',
+  chamas: 'epico', galaxia: 'epico', glitch: 'epico', runas: 'epico', aura: 'lendario', coroa: 'lendario', portal: 'lendario' };
+const AVFX_PALS = ['fogo', 'gelo', 'veneno', 'realeza', 'prisma'];
+const RAR_UP = { comum: 'raro', raro: 'epico', epico: 'lendario', lendario: 'mitico' };
+const AVFX = {}; // 'estilo-cor' -> raridade (a cor Prisma sobe uma raridade)
+for (const [s, r] of Object.entries(AVFX_STYLES)) for (const p of AVFX_PALS) AVFX[`${s}-${p}`] = p === 'prisma' ? RAR_UP[r] : r;
+const DROP = [['comum', 7000], ['raro', 2000], ['epico', 700], ['lendario', 250], ['mitico', 50]]; // chance em 10.000
+const REFUND = { comum: 30, raro: 60, epico: 150, lendario: 400, mitico: 1000 }; // repetida: devolve pontos
+function rollAvfx() {
+  let n = crypto.randomInt(0, 10000), tier = 'comum';
+  for (const [t, w] of DROP) { if (n < w) { tier = t; break; } n -= w; }
+  const pool = Object.keys(AVFX).filter(k => AVFX[k] === tier);
+  return pool[crypto.randomInt(0, pool.length)];
+}
 
 /* ---------- grupos: cargos e permissões ---------- */
 const PERMS = ['admin', 'manageServer', 'manageChannels', 'manageRoles', 'kick', 'ban', 'manageMessages', 'mentionEveryone', 'manageMedia'];
@@ -214,7 +235,8 @@ function rank(g, uid) {
 const above = (g, uid, target) => rank(g, uid) < rank(g, target);
 // o email da conta só vai para o próprio dono (nunca no publicUser)
 function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online', blocked: u.blocked || [], favs: u.favs || null, privacy: u.privacy || {}, email: u.email || null, emailAsked: u.emailAsked || 0, mailOn: mailOn(),
-  items: u.items || [], lost: (u.lost || []).slice(-100), admin: isAdmin(u), given: isAdmin(u) ? (u.given || []).slice(-300) : [] }; }
+  items: u.items || [], lost: (u.lost || []).slice(-100), admin: isAdmin(u), given: isAdmin(u) ? (u.given || []).slice(-300) : [],
+  points: u.points || 0, pointsTotal: u.pointsTotal || 0, callAcc: u.callAcc || 0, boxes: u.boxes || 0, boxLog: (u.boxLog || []).slice(-40) }; }
 // bloqueio vale nos dois sentidos: quem bloqueou e quem foi bloqueado não se alcançam
 const blockedBetween = (a, b) => !!((db.users[a] && (db.users[a].blocked || []).includes(b)) || (db.users[b] && (db.users[b].blocked || []).includes(a)));
 
@@ -267,6 +289,26 @@ function voicePeers(roomId) {
   const r = voice.get(roomId); if (!r) return [];
   return [...r.entries()].map(([sid, s]) => ({ sid, ...s }));
 }
+// a cada minuto: quem está em call com mais alguém (e não está com o som desligado) acumula tempo; a cada 10 min ganha 100 pontos
+setInterval(() => {
+  const counted = new Set(); let changed = false;
+  for (const peers of voice.values()) {
+    const humans = new Set([...peers.values()].map(s => s.uid).filter(id => db.users[id] && !db.users[id].bot));
+    if (humans.size < 2) continue;
+    for (const s of peers.values()) {
+      const u = db.users[s.uid];
+      if (!u || u.bot || s.deafened || counted.has(u.id)) continue;
+      counted.add(u.id); changed = true;
+      u.callAcc = (u.callAcc || 0) + 60e3;
+      if (u.callAcc >= PT_EVERY) {
+        u.callAcc -= PT_EVERY; u.points = (u.points || 0) + PT_GAIN; u.pointsTotal = (u.pointsTotal || 0) + PT_GAIN;
+        toUser(u.id, 'points:gain', { amount: PT_GAIN, points: u.points });
+      }
+      toUser(u.id, 'me:update', selfUser(u));
+    }
+  }
+  if (changed) save();
+}, 60e3).unref();
 function pushVoice(roomId) {
   const info = channelInfo(roomId); if (!info) return;
   toUsers(info.members, 'voice:room', { roomId, peers: voicePeers(roomId) });
@@ -862,10 +904,43 @@ function onConnection(socket) {
     m.plate = item; save(); pushUser(uid); ok(cb, {});
   });
   on('inv:seen', (_, cb) => { const m = me(); let n = 0; (m.items || []).forEach(x => { if (x.seen === false) { x.seen = true; n++; } }); if (n) save(); ok(cb, {}); });
+  /* caixa: 300 pontos, sorteio no servidor. Repetida devolve pontos conforme a raridade. */
+  on('box:open', (_, cb) => {
+    const u = me();
+    if (limited('box:' + uid, 30, 60e3)) return fail(cb, 'Calma! Muitas caixas seguidas.');
+    if ((u.points || 0) < BOX_COST) return fail(cb, `Faltam ${BOX_COST - (u.points || 0)} AnarchyPoints para abrir uma caixa.`);
+    u.points -= BOX_COST;
+    const item = rollAvfx(), tier = AVFX[item];
+    u.items = u.items || [];
+    const dup = u.items.some(x => x.item === 'av:' + item);
+    const refund = dup ? REFUND[tier] : 0;
+    if (dup) u.points += refund;
+    else u.items.push({ id: newId(), item: 'av:' + item, from: 'caixa', at: now(), seen: true });
+    u.boxes = (u.boxes || 0) + 1;
+    u.boxLog = [...(u.boxLog || []), { item, at: now(), dup }].slice(-60);
+    save(); toUser(uid, 'me:update', selfUser(u));
+    if (tier === 'lendario' || tier === 'mitico') log(`   Caixa: @${u.username} tirou ${item} (${tier})!`);
+    ok(cb, { item, tier, dup, refund, points: u.points });
+  });
+  on('avfx:equip', (d, cb) => {
+    const m = me(), item = d.item ? str(d.item, 40) : null;
+    if (item && !(m.items || []).some(x => x.item === 'av:' + item)) return fail(cb, 'Você não tem esse efeito.');
+    m.avfx = item; save(); pushUser(uid); ok(cb, {});
+  });
+  // o dono pode dar pontos (eventos, prêmios)
+  on('points:give', (d, cb) => {
+    const m = me(); if (!isAdmin(m)) return fail(cb, 'Só o dono do Anarchy.');
+    const t = db.users[str(d.uid, 40)], n = Math.round(+d.amount || 0);
+    if (!t || t.bot) return fail(cb, 'Pessoa não encontrada.');
+    if (!n || Math.abs(n) > 1e6) return fail(cb, 'Quantidade inválida.');
+    t.points = Math.max(0, (t.points || 0) + n); if (n > 0) t.pointsTotal = (t.pointsTotal || 0) + n;
+    save(); if (n > 0) toUser(t.id, 'points:gain', { amount: n, points: t.points, from: m.displayName }); toUser(t.id, 'me:update', selfUser(t));
+    ok(cb, { points: t.points });
+  });
   // para o administrador escolher a quem dar: todas as contas (menos bots)
   on('inv:people', (_, cb) => {
     if (!isAdmin(me())) return fail(cb, 'Só o dono do Anarchy.');
-    ok(cb, { people: Object.values(db.users).filter(u => !u.bot).map(u => ({ ...publicUser(u), items: (u.items || []).map(x => x.item) })) });
+    ok(cb, { people: Object.values(db.users).filter(u => !u.bot).map(u => ({ ...publicUser(u), items: (u.items || []).map(x => x.item).filter(i => PLATES.includes(i)), points: u.points || 0 })) });
   });
   // email da conta: manda um código de 6 dígitos e só grava depois que a pessoa confirma
   on('email:start', async (d, cb) => {

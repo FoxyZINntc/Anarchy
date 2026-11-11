@@ -261,7 +261,9 @@ function av(id, size = 32, dot = true, extra = '', uo = null) {
   const img = u.avatar ? `background-image:url('${esc(u.avatar)}')` : '';
   const ini = u.avatar ? '' : esc((u.displayName || u.username || '?').trim()[0]?.toUpperCase() || '?');
   const frame = u.frame && FRAMES[u.frame] ? u.frame : null;
-  return `<div class="av s${size}${dot ? ' has-dot' : ''}${frame ? ` fr fr-${frame}` : ''} ${extra}" style="--s:${size}px;--uc:${safeC(u.color)};--fc:${safeC(u.accent, safeC(u.color))}" data-user="${esc(id)}"><span class="av-i" style="${img}">${ini}</span>${frame ? '<i class="av-fr" aria-hidden="true"></i>' : ''}${dot ? `<i class="dot ${st}" title="${esc(STATUS[st] || '')}"></i>` : ''}</div>`;
+  // efeito animado de foto (das caixas): camada atrás e em volta da foto
+  const fx = u.avfx && /^[a-z]+-[a-z]+$/.test(u.avfx) ? u.avfx.split('-') : null;
+  return `<div class="av s${size}${dot ? ' has-dot' : ''}${frame ? ` fr fr-${frame}` : ''} ${extra}" style="--s:${size}px;--uc:${safeC(u.color)};--fc:${safeC(u.accent, safeC(u.color))}" data-user="${esc(id)}">${fx ? `<i class="av-fx avx-${fx[0]} pal-${fx[1]}" aria-hidden="true"></i>` : ''}<span class="av-i" style="${img}">${ini}</span>${frame ? '<i class="av-fr" aria-hidden="true"></i>' : ''}${dot ? `<i class="dot ${st}" title="${esc(STATUS[st] || '')}"></i>` : ''}</div>`;
 }
 function groupIcon(g) {
   if (isImg(g.icon)) return `<div class="inner" style="background-image:url('${esc(g.icon)}')"></div>`;
@@ -684,7 +686,18 @@ function connect() {
     } else clog(`Desconectado do servidor: ${DROP_WHY[reason] || reason}.`);
     render();
   });
-  socket.on('me:update', u => { S.me = u; S.users[u.id] = u; render(); if ($('#setBody') && setTab === 'inventario') drawSettings(); });
+  socket.on('me:update', u => {
+    const before = S.me && S.me.points;
+    S.me = u; S.users[u.id] = u; render();
+    // só redesenha as telas que mostram isso (e não a cada minuto de call se nada mudou na tela)
+    if ($('#setBody') && setTab === 'inventario') drawSettings();
+    if ($('#setBody') && setTab === 'caixas' && !$('.case-back') && before !== u.points) drawSettings();
+  });
+  // ganhou AnarchyPoints (10 min de call, ou presente do dono)
+  socket.on('points:gain', ({ amount, points, from }) => {
+    toast(`+${amount} AnarchyPoints ${from ? `de ${from}` : 'por 10 minutos em call'} · saldo ${points.toLocaleString('pt-BR')}${points >= BOX_COST ? ' · dá para abrir uma caixa!' : ''}`);
+    tone([[880, .06], [1320, .12]], 'triangle', .05);
+  });
   // ganhou uma placa: notificação diferente (som de presente) e o baú na tela
   socket.on('inv:gift', ({ entry, from }) => {
     if (from && !S.users[from.id]) S.users[from.id] = from;
@@ -859,6 +872,7 @@ function renderUserBar() {
   const u = S.me;
   $('#userBar').innerHTML = `
     <button class="me-chip" data-act="meMenu">${av(u.id, 32)}<span style="min-width:0"><span class="nm" style="display:block">${esc(u.displayName)}</span><span class="st" style="display:block">${esc(u.customStatus || STATUS[u.realStatus || u.status])}</span></span></button>
+    <span class="pts-chip" data-act="openBoxes" data-tip="AnarchyPoints: 100 a cada 10 min em call. Clique para abrir caixas"><i class="pts-ic"></i>${(u.points || 0).toLocaleString('pt-BR')}</span>
     <button class="icon-btn ${V.muted ? 'on' : ''}" data-act="mute" data-tip="${V.muted ? 'Ativar microfone' : 'Silenciar'}${prefs.ptt ? ' (aperte para falar ativo)' : ''}">${ic(V.muted ? 'micOff' : 'mic')}</button>
     <button class="icon-btn ${V.deaf ? 'on' : ''}" data-act="deafen" data-tip="${V.deaf ? 'Ativar áudio' : 'Desativar áudio'}">${ic(V.deaf ? 'headOff' : 'head')}</button>
     <button class="icon-btn" data-act="settings" data-tip="Configurações">${ic('gear')}</button>`;
@@ -1189,6 +1203,12 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-11-caixas', date: '11/11/2026', title: 'AnarchyPoints e Caixas', emoji: '🎁', items: [
+    'Ficou em call com a galera? Ganha <b>100 AnarchyPoints a cada 10 minutos</b> (precisa ter mais alguém na call e estar ouvindo).',
+    'Com 300 pontos você abre uma <b>Caixa Anarchy</b>: a roleta gira e sorteia um efeito animado para a sua foto de perfil.',
+    'São <b>100 efeitos</b>, de Comum a Mítico (só 0,5% de chance!). Repetiu? Volta ponto para você.',
+    'Seu saldo aparece embaixo, do lado do seu nome. Caixas e coleção em <b>Configurações › Caixas</b>.'
+  ] },
   { id: '2026-11-10-placas', date: '10/11/2026', title: 'Placas de nome animadas e Inventário', emoji: '🎒', items: [
     'Agora existem <b>16 placas de nome animadas</b> que aparecem na lista de membros: Sakura, Chamas do Inferno, Olhar Escarlate, Fogo de Raposa, Aura Dourada e muito mais.',
     'Não dá para comprar nem escolher: elas só chegam <b>de presente</b>. Quando você ganha uma, aparece um baú na tela para abrir.',
@@ -1444,10 +1464,99 @@ function giftSparks(anchor, color, n) {
   }
 }
 
+/* =============== AnarchyPoints, caixas e fotos animadas ===============
+   100 efeitos = 20 estilos x 5 cores (a cor Prisma sobe uma raridade). O sorteio é no servidor; aqui só a roleta. */
+const AV_STYLES = {
+  anel: ['Anel Tracejado', 'comum'], brilho: ['Brilho', 'comum'], pontos: ['Três Luas', 'comum'], duplo: ['Anéis Gêmeos', 'comum'], pulso: ['Pulsar', 'comum'], arco: ['Lâmina Giratória', 'comum'], respiro: ['Respiração', 'comum'],
+  cometa: ['Cometa', 'raro'], faiscas: ['Faíscas', 'raro'], bolhas: ['Bolhas', 'raro'], eletrico: ['Choque', 'raro'], radar: ['Radar', 'raro'], petalas: ['Pétalas', 'raro'],
+  chamas: ['Coroa de Chamas', 'epico'], galaxia: ['Galáxia', 'epico'], glitch: ['Glitch', 'epico'], runas: ['Runas', 'epico'],
+  aura: ['Aura Suprema', 'lendario'], coroa: ['Estrelas Reais', 'lendario'], portal: ['Portal', 'lendario']
+};
+const AV_PALS = { fogo: 'Inferno', gelo: 'Gélido', veneno: 'Tóxico', realeza: 'Real', prisma: 'Prisma' };
+const AVR = { comum: ['Comum', 0, '70%'], raro: ['Raro', 1, '20%'], epico: ['Épico', 2, '7%'], lendario: ['Lendário', 3, '2,5%'], mitico: ['Mítico', 4, '0,5%'] };
+const AV_UP = { comum: 'raro', raro: 'epico', epico: 'lendario', lendario: 'mitico' };
+const AVFX = {};
+for (const [s, [sn, r]] of Object.entries(AV_STYLES)) for (const [p, pn] of Object.entries(AV_PALS)) AVFX[`${s}-${p}`] = { name: `${sn} ${pn}`, tier: p === 'prisma' ? AV_UP[r] : r };
+const AVFX_IDS = Object.keys(AVFX).sort((a, b) => AVR[AVFX[b].tier][1] - AVR[AVFX[a].tier][1] || AVFX[a].name.localeCompare(AVFX[b].name));
+const BOX_COST = 300;
+// foto da pessoa com um efeito (para a roleta, o inventário e as cartas)
+const avWith = (fxId, size = 64) => av(S.me.id, size, false, '', { ...S.me, avfx: fxId });
+const ownedFx = () => new Set((S.me.items || []).filter(x => String(x.item).startsWith('av:')).map(x => x.item.slice(3)));
+
+function drawBoxes(b) {
+  const me = S.me, pts = me.points || 0, own = ownedFx();
+  const prog = Math.min(100, Math.round((me.callAcc || 0) / 6000)), left = Math.max(1, Math.ceil((600000 - (me.callAcc || 0)) / 60000));
+  const log = (me.boxLog || []).slice().reverse().slice(0, 15);
+  b.innerHTML = `<h2>Caixas</h2>
+    <div class="box-hero"><div class="crate" aria-hidden="true"></div><div>
+      <h3>Caixa Anarchy</h3>
+      <div class="box-bal"><i class="pts-ic"></i>${pts.toLocaleString('pt-BR')} <span class="muted small" style="font-weight:600">AnarchyPoints</span></div>
+      <div class="box-prog" title="Próximos 100 pontos"><i style="width:${prog}%"></i></div>
+      <span class="muted small">Em call com mais alguém: <b>+100 pontos</b> a cada 10 minutos. Faltam ~${left} min para os próximos.</span>
+      <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap"><button class="btn primary" id="boxGo" ${pts < BOX_COST ? 'disabled' : ''}>Abrir caixa · <i class="pts-ic"></i> ${BOX_COST}</button>${pts < BOX_COST ? `<span class="muted small" style="align-self:center">Faltam ${BOX_COST - pts} pontos.</span>` : ''}</div>
+      <div class="box-odds">${Object.entries(AVR).map(([k, v]) => `<span class="r-c-${k}">${v[0]} ${v[2]}</span>`).join('')}</div>
+    </div></div>
+    <div class="set-card" style="margin-top:16px"><h3>Conteúdo da caixa · ${own.size}/${AVFX_IDS.length} coletados</h3>
+      <p class="muted small" style="margin-top:-4px">Efeitos animados para a sua foto de perfil. Repetiu? Você ganha pontos de volta (30 a 1000, conforme a raridade).</p>
+      <div class="avx-grid">${AVFX_IDS.map(id => { const f = AVFX[id], has = own.has(id), on = me.avfx === id; return `<button class="avx-card r-c-${f.tier} ${has ? '' : 'locked'} ${on ? 'on' : ''}" data-fx="${id}" ${has ? '' : 'disabled'} title="${has ? (on ? 'Clique para tirar' : 'Clique para usar') : 'Ainda não saiu para você'}">${on ? '<span class="inv-tag">USANDO</span>' : ''}${avWith(id, 48)}<b>${esc(f.name)}</b><small>${AVR[f.tier][0]}</small></button>`; }).join('')}</div></div>
+    ${log.length ? `<div class="set-card"><h3>Últimas caixas</h3><div class="inv-log">${log.map(x => `<div class="inv-log-it r-c-${AVFX[x.item]?.tier}"><span class="ic" style="color:var(--rc)">◆</span><span><b style="color:var(--rc)">${esc(AVFX[x.item]?.name || x.item)}</b>${x.dup ? ' <span class="muted small">(repetida, virou pontos)</span>' : ''}</span><time>${fmtWhen(x.at)}</time></div>`).join('')}</div></div>` : ''}`;
+  $('#boxGo').onclick = () => openCase();
+  b.onclick = async e => {
+    const c = e.target.closest('[data-fx]'); if (!c || c.disabled) return;
+    const r = await emit('avfx:equip', { item: me.avfx === c.dataset.fx ? null : c.dataset.fx }); if (!r.ok) toast(r.erro, true);
+  };
+}
+// roleta no estilo das caixas de jogo: as cartas correm e param na que o servidor sorteou
+async function openCase() {
+  const r = await emit('box:open');
+  if (!r.ok) return toast(r.erro, true);
+  const N = 60, WIN = 52, W = 130; // 124 de carta + 6 de espaço
+  const pick = () => { const roll = Math.random() * 100; const t = roll < 70 ? 'comum' : roll < 90 ? 'raro' : roll < 97 ? 'epico' : roll < 99.5 ? 'lendario' : 'mitico'; const pool = AVFX_IDS.filter(k => AVFX[k].tier === t); return pool[Math.floor(Math.random() * pool.length)]; };
+  const items = Array.from({ length: N }, (_, i) => i === WIN ? r.item : pick());
+  const el = document.createElement('div'); el.className = 'case-back'; el.setAttribute('role', 'dialog');
+  el.innerHTML = `<div class="case"><h2>Abrindo a Caixa Anarchy...</h2>
+    <div class="reel-win"><div class="reel">${items.map((id, i) => `<div class="reel-it r-c-${AVFX[id].tier}" data-i="${i}">${avWith(id, 56)}<span>${esc(AVFX[id].name)}</span></div>`).join('')}</div><i class="reel-mark"></i></div>
+    <div class="case-out"></div></div>`;
+  document.body.appendChild(el);
+  const reel = $('.reel', el), box = $('.reel-win', el);
+  const center = box.clientWidth / 2, jitter = (Math.random() - .5) * (W - 30);
+  const target = WIN * W + 62 - center + jitter;
+  const dur = reduceMotion() ? 600 : 6200;
+  // som de "tic" a cada carta que passa pela linha
+  let last = -1, t0 = performance.now();
+  const ease = x => 1 - Math.pow(1 - x, 4);
+  await new Promise(done => {
+    const step = now => {
+      const k = Math.min(1, (now - t0) / dur), x = target * ease(k);
+      reel.style.transform = `translateX(${-x}px)`;
+      const idx = Math.floor((x + center) / W);
+      if (idx !== last) { last = idx; if (k < .995) tone([[1100 + Math.random() * 120, .025]], 'square', .025); }
+      if (k < 1) requestAnimationFrame(step); else done();
+    };
+    requestAnimationFrame(step);
+  });
+  const f = AVFX[r.item], won = $(`.reel-it[data-i="${WIN}"]`, el); won.classList.add('win');
+  const fan = [[[523, .1], [784, .2]], [[523, .1], [659, .1], [988, .25]], [[523, .08], [659, .08], [784, .08], [1047, .3]], [[392, .1], [523, .1], [659, .1], [784, .1], [1047, .35]], [[392, .08], [523, .08], [659, .08], [784, .08], [1047, .1], [1319, .1], [1568, .45]]][AVR[f.tier][1]];
+  tone(fan, 'triangle', .09);
+  const out = $('.case-out', el);
+  out.className = `case-out case-res r-c-${f.tier}`;
+  out.innerHTML = `<div class="gift-rar">${AVR[f.tier][0]}</div>${avWith(r.item, 96)}<div class="gift-title">${esc(f.name)}</div>
+    ${r.dup ? `<div class="muted">Você já tinha esse. Ganhou <b style="color:#ffd36b">+${r.refund} pontos</b> de volta.</div>` : '<div class="muted">Novo efeito para a sua foto de perfil!</div>'}
+    <div class="gift-acts">${r.dup ? '' : '<button class="btn primary" data-c="eq">Usar agora</button>'}<button class="btn" data-c="again" ${r.points < BOX_COST ? 'disabled' : ''}>Abrir outra · ${BOX_COST}</button><button class="btn ghost" data-c="x" style="color:#fff">Fechar</button></div>
+    <div class="muted small">Saldo: ${r.points.toLocaleString('pt-BR')} pontos</div>`;
+  if (AVR[f.tier][1] >= 2) giftSparks(won, getComputedStyle(out).getPropertyValue('--rc').trim(), 30 + AVR[f.tier][1] * 20);
+  out.onclick = async e => {
+    const b = e.target.closest('[data-c]'); if (!b) return;
+    if (b.dataset.c === 'eq') { const q = await emit('avfx:equip', { item: r.item }); if (!q.ok) return toast(q.erro, true); toast(`${f.name} na sua foto!`); }
+    el.remove();
+    if (b.dataset.c === 'again') openCase();
+  };
+}
+
 // tela Inventário (Configurações)
-const INV = { sel: null, item: null, people: null, q: '' };
+const INV ={ sel: null, item: null, people: null, q: '' };
 async function drawInventory(b) {
-  const me = S.me, items = me.items || [], owned = new Map(items.map(x => [x.item, x]));
+  const me = S.me, items = (me.items || []).filter(x => PLATES[x.item]), owned = new Map(items.map(x => [x.item, x]));
   const eq = me.plate && PLATES[me.plate] ? me.plate : null;
   const leg = items.filter(x => PLATES[x.item]?.[1] === 'lendario').length;
   const card = id => {
@@ -2028,7 +2137,7 @@ function openSettings(tab) {
   el.innerHTML = `<nav class="set-nav"><div class="set-nav-in">
       <div class="set-me">${av(S.me.id, 40)}<div><b>${esc(S.me.displayName)}</b><button class="link" data-st="perfil">Editar perfil</button></div></div>
       <h4>Configurações de usuário</h4>
-      <button data-st="conta">${I('user')}Minha conta</button><button data-st="perfil">${I('edit')}Perfil</button><button data-st="inventario">🎒 Inventário${(S.me.items || []).some(x => x.seen === false) ? ' <span class="badge" style="border:0;margin-left:auto">!</span>' : ''}</button><button data-st="privacidade">${I('shield')}Privacidade e segurança</button>
+      <button data-st="conta">${I('user')}Minha conta</button><button data-st="perfil">${I('edit')}Perfil</button><button data-st="caixas">🎁 Caixas</button><button data-st="inventario">🎒 Inventário${(S.me.items || []).some(x => x.seen === false) ? ' <span class="badge" style="border:0;margin-left:auto">!</span>' : ''}</button><button data-st="privacidade">${I('shield')}Privacidade e segurança</button>
       <h4>Configurações do app</h4>
       <button data-st="aparencia">${I('smile')}Aparência</button><button data-st="voz">${I('mic')}Voz e vídeo</button><button data-st="notif">${I('bell')}Notificações</button><button data-st="atalhos">${I('menu')}Atalhos</button><button data-st="app">${I('gear')}Aplicativo</button>
       <button data-st="novidades">✨ Novidades</button>
@@ -2056,6 +2165,7 @@ function drawSettings() {
   if (setTab !== drawSettings.last) b.closest('.set-body').scrollTop = 0;
   drawSettings.last = setTab;
   if (setTab === 'inventario') return drawInventory(b);
+  if (setTab === 'caixas') return drawBoxes(b);
   if (setTab === 'perfil') {
     // rascunho: nada vai para o servidor até clicar em Salvar. A prévia usa só o rascunho (não mexe nos outros).
     const u = S.me;
@@ -2191,7 +2301,7 @@ function drawSettings() {
     const t = THEMES[prefs.theme];
     b.innerHTML = `<h2>Aparência</h2>
       <div class="set-card"><h3>Temas animados</h3><p class="muted small" style="margin:0">Uma cena animada no fundo do app e detalhes no visual. Se o PC ficar pesado, ligue o <b>Modo leve</b> lá embaixo; com <b>Animações</b> desligado a cena fica parada.</p>
-        <div class="themes fx-themes" id="fxThms">${Object.entries(THEMES).filter(([, th]) => th.fx).map(([k, th]) => `<button class="theme-card fx-card ${prefs.theme === k ? 'on' : ''}" data-t="${k}"><div class="fx-prev fxp-${th.fx}" style="background:${th.prev}"><span class="fx-tag">▶ animado</span></div><div class="nm">${th.nome}<span>${esc(th.desc)}</span></div></button>`).join('')}</div></div>
+        <div class="themes fx-themes" id="fxThms">${Object.entries(THEMES).filter(([, th]) => th.fx).map(([k, th]) => `<button class="theme-card avx-card ${prefs.theme === k ? 'on' : ''}" data-t="${k}"><div class="fx-prev fxp-${th.fx}" style="background:${th.prev}"><span class="fx-tag">▶ animado</span></div><div class="nm">${th.nome}<span>${esc(th.desc)}</span></div></button>`).join('')}</div></div>
       <div class="set-card"><h3>Tema</h3><div class="themes" id="thms">${Object.entries(THEMES).filter(([, th]) => !th.fx).map(([k, th]) => `<button class="theme-card ${prefs.theme === k ? 'on' : ''}" data-t="${k}"><div class="theme-prev" style="background:${th.main}"><i style="background:${th.rail}"></i><i style="background:${th.side}"></i><div class="m"><b style="background:${th.accent};width:60%"></b><b style="background:${th.muted};width:85%;opacity:.5"></b><b style="background:${th.muted};width:45%;opacity:.5"></b></div></div><div class="nm">${th.nome}</div></button>`).join('')}</div></div>
       <div class="set-card"><h3>Cor de destaque</h3><div class="colors" id="accs"><button type="button" data-c="" style="background:${t.accent}" title="Padrão do tema" class="${!prefs.accent ? 'on' : ''}"></button>${COLORS.map(c => `<button type="button" data-c="${c}" style="background:${c}" class="${prefs.accent === c ? 'on' : ''}"></button>`).join('')}<input type="color" id="accC" value="${prefs.accent || t.accent}" title="Escolher qualquer cor"></div></div>
       <div class="set-card"><h3>Texto</h3>
@@ -3919,6 +4029,7 @@ const A = {
   joinRoom: el => joinVoice(el.dataset.id, { video: !!el.dataset.video }),
   djCtl: async el => { const r = await emit('music:ctl', { roomId: el.dataset.room, action: el.dataset.a, value: el.dataset.v }); if (!r.ok) toast(r.erro, true); },
   djProfile: el => openGroupSettings(el.dataset.gid, 'dj'),
+  openBoxes: () => openSettings('caixas'),
   voiceUser: (el, e) => { e.stopPropagation(); voiceMenu(el.dataset.vuid, el); },
   focus: (el, e) => { if (e.target.closest('.fs')) return; S.focusTile = S.focusTile === el.dataset.key ? null : el.dataset.key; renderStageSlot(); },
   fullscreen: (el, e) => { e.stopPropagation(); const v = el.closest('.tile').querySelector('video'); (v?.requestFullscreen ? v.requestFullscreen() : el.closest('.tile').requestFullscreen?.())?.catch?.(() => {}); },

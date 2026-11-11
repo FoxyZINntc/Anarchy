@@ -1,0 +1,132 @@
+/* Efeitos animados de foto de perfil (caixas / AnarchyPoints).
+   100 efeitos = 20 estilos (.avx-*) x 5 cores (.pal-*). A camada .av-fx fica atrás da foto e em volta dela.
+   Só a camada da cor Prisma anima a si mesma (troca de cor); os estilos animam os pseudo-elementos. */
+.av-fx { position: absolute; inset: calc(var(--s) * -.2); z-index: 0; pointer-events: none; border-radius: 50%; --rw: max(2px, calc(var(--s) * .06)); }
+.av-fx::before, .av-fx::after { content: ''; position: absolute; inset: 0; border-radius: 50%; }
+/* anel fino recortado (usado por vários estilos) */
+.av-fx { --ring: radial-gradient(farthest-side, transparent calc(100% - var(--rw)), #000 calc(100% - var(--rw) + 1px)); }
+
+/* cores */
+.pal-fogo { --a: #ff3d00; --b: #ffc400; }
+.pal-gelo { --a: #29b6f6; --b: #e8fbff; }
+.pal-veneno { --a: #64dd17; --b: #00ffb0; }
+.pal-realeza { --a: #9c4dff; --b: #ffd36b; }
+.pal-prisma { --a: #ff4d8d; --b: #4de3ff; animation: axHue 3s linear infinite; }
+
+@keyframes axSpin { to { transform: rotate(360deg); } }
+@keyframes axPulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@keyframes axRipple { from { transform: scale(.72); opacity: 1; } to { transform: scale(1.18); opacity: 0; } }
+@keyframes axBreath { 0%, 100% { transform: scale(.92); opacity: .75; } 50% { transform: scale(1.04); opacity: 1; } }
+@keyframes axHue { to { filter: hue-rotate(360deg); } }
+@keyframes axTwinkle { 0%, 100% { opacity: .15; transform: scale(.7); } 50% { opacity: 1; transform: scale(1.05); } }
+@keyframes axRise { from { transform: translateY(18%); opacity: 0; } 30% { opacity: 1; } to { transform: translateY(-28%); opacity: 0; } }
+@keyframes axFlick { 0%, 100% { opacity: 1; } 12% { opacity: .2; } 14% { opacity: 1; } 56% { opacity: .35; } 58% { opacity: 1; } }
+@keyframes axGlitch { 0%, 100% { transform: translate(0, 0); } 20% { transform: translate(-6%, 3%); } 22% { transform: translate(5%, -4%); } 24% { transform: translate(0, 0); } 70% { transform: translate(4%, 2%); } 72% { transform: translate(0, 0); } }
+@keyframes axFlame { to { scale: 1.07; opacity: .85; } }
+
+/* ---------- comuns ---------- */
+.avx-anel::before { inset: 8%; border: var(--rw) dashed var(--a); animation: axSpin 6s linear infinite; filter: drop-shadow(0 0 3px var(--a)); }
+.avx-anel::after { inset: 8%; box-shadow: 0 0 calc(var(--s) * .12) color-mix(in srgb, var(--b) 50%, transparent); }
+
+.avx-brilho::before { inset: 12%; box-shadow: 0 0 calc(var(--s) * .22) calc(var(--s) * .05) var(--a), 0 0 calc(var(--s) * .1) calc(var(--s) * .02) var(--b); animation: axPulse 2s ease-in-out infinite; }
+
+.avx-pontos::before { background: radial-gradient(circle at 50% 5%, var(--b) 0 calc(var(--s) * .05), transparent calc(var(--s) * .065)), radial-gradient(circle at 89% 72%, var(--a) 0 calc(var(--s) * .045), transparent calc(var(--s) * .06)), radial-gradient(circle at 11% 72%, var(--a) 0 calc(var(--s) * .045), transparent calc(var(--s) * .06)); animation: axSpin 3s linear infinite; filter: drop-shadow(0 0 3px var(--a)); }
+
+.avx-duplo::before { inset: 4%; border: var(--rw) solid transparent; border-top-color: var(--a); border-bottom-color: var(--a); animation: axSpin 2.4s linear infinite; }
+.avx-duplo::after { inset: 13%; border: var(--rw) solid transparent; border-left-color: var(--b); border-right-color: var(--b); animation: axSpin 1.8s linear infinite reverse; }
+
+.avx-pulso::before, .avx-pulso::after { inset: 12%; border: var(--rw) solid var(--a); animation: axRipple 2s ease-out infinite; }
+.avx-pulso::after { border-color: var(--b); animation-delay: 1s; }
+
+.avx-arco::before { inset: 6%; background: conic-gradient(var(--a) 0 110deg, var(--b) 120deg, transparent 122deg); -webkit-mask: var(--ring); mask: var(--ring); animation: axSpin 1.6s linear infinite; filter: drop-shadow(0 0 4px var(--a)); }
+
+.avx-respiro::before { inset: 9%; background: conic-gradient(var(--a), var(--b), var(--a), var(--b), var(--a)); -webkit-mask: var(--ring); mask: var(--ring); animation: axBreath 3s ease-in-out infinite; }
+.avx-respiro::after { inset: 9%; box-shadow: 0 0 calc(var(--s) * .14) var(--a); animation: axPulse 3s ease-in-out infinite; }
+
+/* ---------- raros ---------- */
+.avx-cometa::before { inset: 4%; background: conic-gradient(transparent 0 230deg, color-mix(in srgb, var(--a) 40%, transparent) 300deg, var(--b) 358deg, transparent 360deg); -webkit-mask: var(--ring); mask: var(--ring); animation: axSpin 1.4s linear infinite; }
+.avx-cometa::after { background: radial-gradient(circle at 50% 4%, #fff 0 calc(var(--s) * .035), var(--b) calc(var(--s) * .05), transparent calc(var(--s) * .085)); animation: axSpin 1.4s linear infinite; filter: drop-shadow(0 0 4px var(--a)); }
+
+.avx-faiscas::before { background: radial-gradient(circle at 14% 22%, var(--b) 0 1.5px, transparent 2.6px), radial-gradient(circle at 86% 28%, var(--a) 0 1.6px, transparent 2.8px), radial-gradient(circle at 78% 88%, var(--b) 0 1.4px, transparent 2.5px), radial-gradient(circle at 22% 84%, var(--a) 0 1.2px, transparent 2.2px); animation: axTwinkle 1.6s ease-in-out infinite; filter: drop-shadow(0 0 3px var(--b)); }
+.avx-faiscas::after { background: radial-gradient(circle at 50% 2%, var(--a) 0 1.4px, transparent 2.6px), radial-gradient(circle at 98% 52%, var(--b) 0 1.4px, transparent 2.6px), radial-gradient(circle at 4% 48%, var(--b) 0 1.2px, transparent 2.4px), radial-gradient(circle at 54% 98%, var(--a) 0 1.4px, transparent 2.6px); animation: axTwinkle 1.6s ease-in-out infinite .8s; filter: drop-shadow(0 0 3px var(--a)); }
+
+.avx-bolhas::before, .avx-bolhas::after { border-radius: 0; background: radial-gradient(circle at 16% 82%, color-mix(in srgb, var(--b) 25%, transparent) 0 calc(var(--s) * .05), var(--b) calc(var(--s) * .055) calc(var(--s) * .07), transparent calc(var(--s) * .075)), radial-gradient(circle at 84% 72%, color-mix(in srgb, var(--a) 25%, transparent) 0 calc(var(--s) * .04), var(--a) calc(var(--s) * .045) calc(var(--s) * .058), transparent calc(var(--s) * .062)), radial-gradient(circle at 52% 96%, color-mix(in srgb, var(--b) 25%, transparent) 0 calc(var(--s) * .045), var(--b) calc(var(--s) * .05) calc(var(--s) * .063), transparent calc(var(--s) * .068)); animation: axRise 2.2s linear infinite; filter: drop-shadow(0 0 3px var(--a)); }
+.avx-bolhas::after { background-position: 10% -6%, -12% 4%, 6% 2%; animation-delay: 1.1s; }
+
+.avx-eletrico::before { inset: 6%; border: var(--rw) dashed var(--b); animation: axSpin .9s steps(6) infinite, axFlick 1.3s steps(1) infinite; filter: drop-shadow(0 0 4px var(--a)) drop-shadow(0 0 2px var(--a)); }
+.avx-eletrico::after { inset: 12%; border: 1px dotted var(--a); animation: axSpin 1s linear infinite reverse; }
+
+.avx-radar::before { inset: 4%; background: conic-gradient(transparent 0 270deg, color-mix(in srgb, var(--a) 65%, transparent) 358deg, var(--b) 359deg, transparent 360deg); animation: axSpin 2s linear infinite; }
+.avx-radar::after { inset: 4%; border: 1px solid color-mix(in srgb, var(--a) 70%, transparent); box-shadow: inset 0 0 0 calc(var(--s) * .08) transparent, inset 0 0 0 calc(var(--s) * .08 + 1px) color-mix(in srgb, var(--b) 45%, transparent); }
+
+.avx-petalas::before { background: radial-gradient(ellipse calc(var(--s) * .08) calc(var(--s) * .045) at 50% 6%, var(--b) 85%, transparent), radial-gradient(ellipse calc(var(--s) * .045) calc(var(--s) * .08) at 94% 50%, var(--a) 85%, transparent), radial-gradient(ellipse calc(var(--s) * .08) calc(var(--s) * .045) at 50% 94%, var(--b) 85%, transparent), radial-gradient(ellipse calc(var(--s) * .045) calc(var(--s) * .08) at 6% 50%, var(--a) 85%, transparent); animation: axSpin 5s linear infinite; }
+.avx-petalas::after { transform: rotate(45deg); background: radial-gradient(circle at 50% 8%, var(--a) 0 calc(var(--s) * .03), transparent calc(var(--s) * .045)), radial-gradient(circle at 50% 92%, var(--a) 0 calc(var(--s) * .03), transparent calc(var(--s) * .045)); animation: axSpin 7s linear infinite reverse; }
+
+/* ---------- épicos ---------- */
+.avx-chamas::before { inset: 0; background: repeating-conic-gradient(var(--a) 0 9deg, var(--b) 9deg 15deg, transparent 15deg 26deg); -webkit-mask: radial-gradient(farthest-side, transparent 66%, #000 72%, transparent 100%); mask: radial-gradient(farthest-side, transparent 66%, #000 72%, transparent 100%); filter: blur(calc(var(--s) * .015)); animation: axSpin 3s linear infinite, axFlame .35s ease-in-out infinite alternate; }
+.avx-chamas::after { inset: 12%; box-shadow: 0 0 calc(var(--s) * .16) var(--a), 0 0 calc(var(--s) * .06) var(--b); animation: axPulse .7s ease-in-out infinite; }
+
+.avx-galaxia::before { background: conic-gradient(transparent, var(--a), transparent 28%, var(--b), transparent 56%, var(--a), transparent 84%); -webkit-mask: radial-gradient(farthest-side, transparent 58%, #000 66%, transparent 100%); mask: radial-gradient(farthest-side, transparent 58%, #000 66%, transparent 100%); animation: axSpin 4s linear infinite; filter: blur(1px); }
+.avx-galaxia::after { background: radial-gradient(circle at 20% 15%, #fff 0 1px, transparent 2px), radial-gradient(circle at 85% 40%, #fff 0 1px, transparent 2px), radial-gradient(circle at 60% 92%, #fff 0 1px, transparent 2px), radial-gradient(circle at 8% 66%, #fff 0 .8px, transparent 1.8px); animation: axTwinkle 2s ease-in-out infinite, axSpin 12s linear infinite reverse; }
+
+.avx-glitch::before, .avx-glitch::after { inset: 8%; border: var(--rw) solid var(--a); mix-blend-mode: screen; animation: axGlitch 1.4s steps(1) infinite; }
+.avx-glitch::after { border-color: var(--b); animation-delay: .25s; animation-duration: 1.1s; }
+
+.avx-runas::before { inset: 3%; --rw: max(3px, calc(var(--s) * .07)); background: repeating-conic-gradient(var(--b) 0 3deg, transparent 3deg 14deg); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--rw)), #000 calc(100% - var(--rw) + 1px)); mask: radial-gradient(farthest-side, transparent calc(100% - var(--rw)), #000 calc(100% - var(--rw) + 1px)); animation: axSpin 8s linear infinite; filter: drop-shadow(0 0 3px var(--a)); }
+.avx-runas::after { inset: 12%; background: repeating-conic-gradient(var(--a) 0 7deg, transparent 7deg 30deg); -webkit-mask: var(--ring); mask: var(--ring); animation: axSpin 5s linear infinite reverse; }
+
+/* ---------- lendários ---------- */
+.avx-aura::before { background: radial-gradient(closest-side, transparent 60%, var(--a) 72%, color-mix(in srgb, var(--b) 60%, transparent) 82%, transparent 100%); animation: axBreath 1.5s ease-in-out infinite; filter: blur(1.5px); }
+.avx-aura::after { border-radius: 0; inset: -10% 0 10%; background: radial-gradient(ellipse calc(var(--s) * .02) calc(var(--s) * .07) at 20% 80%, var(--b), transparent), radial-gradient(ellipse calc(var(--s) * .02) calc(var(--s) * .08) at 50% 90%, #fff, transparent), radial-gradient(ellipse calc(var(--s) * .02) calc(var(--s) * .06) at 80% 82%, var(--b), transparent), radial-gradient(ellipse calc(var(--s) * .015) calc(var(--s) * .05) at 35% 70%, var(--a), transparent); animation: axRise 1.2s linear infinite; }
+
+.avx-coroa::before, .avx-coroa::after { display: grid; justify-items: center; font-size: calc(var(--s) * .24); line-height: 1; color: var(--b); text-shadow: 0 0 6px var(--a), 0 0 2px #fff; }
+.avx-coroa::before { content: '★'; align-items: start; animation: axSpin 3s linear infinite; }
+.avx-coroa::after { content: '✦'; align-items: end; color: var(--a); text-shadow: 0 0 6px var(--b); animation: axSpin 4.5s linear infinite reverse; }
+
+.avx-portal::before { background: repeating-conic-gradient(var(--a) 0 8deg, transparent 8deg 18deg, var(--b) 18deg 23deg, transparent 23deg 36deg); -webkit-mask: radial-gradient(farthest-side, transparent 64%, #000 70%, #000 92%, transparent 100%); mask: radial-gradient(farthest-side, transparent 64%, #000 70%, #000 92%, transparent 100%); animation: axSpin 1.2s linear infinite; filter: drop-shadow(0 0 4px var(--a)); }
+.avx-portal::after { inset: 10%; box-shadow: 0 0 0 max(1px, calc(var(--s) * .03)) var(--b), 0 0 calc(var(--s) * .22) var(--a); animation: axPulse 1s ease-in-out infinite; }
+
+/* sem animações ou Modo leve: o efeito fica parado (continua bonito) */
+.no-anim .av-fx, .no-anim .av-fx::before, .no-anim .av-fx::after, .lite .av-fx::after { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .av-fx, .av-fx::before, .av-fx::after { animation: none !important; } }
+
+/* ---------- AnarchyPoints, caixas e roleta ---------- */
+.pts-chip { display: inline-flex; align-items: center; gap: 4px; font-size: .78em; font-weight: 800; color: #ffd36b; background: rgba(255, 200, 60, .12); border: 1px solid rgba(255, 200, 60, .35); border-radius: 99px; padding: 1px 8px; cursor: pointer; white-space: nowrap; }
+.pts-ic { display: inline-block; width: 1em; height: 1em; border-radius: 3px; transform: rotate(45deg) scale(.72); background: linear-gradient(135deg, #fff2a8, #ffb300 55%, #ff6a00); box-shadow: 0 0 6px rgba(255, 180, 0, .7); }
+.r-c-comum { --rc: #4b69ff; } .r-c-raro { --rc: #8847ff; } .r-c-epico { --rc: #d32ce6; } .r-c-lendario { --rc: #eb4b4b; } .r-c-mitico { --rc: #e4ae39; }
+.box-hero { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; padding: 18px; border-radius: 16px; background: radial-gradient(circle at 15% 50%, rgba(255, 170, 0, .18), transparent 60%), var(--elev); border: 1px solid var(--line); }
+.crate { position: relative; width: 120px; height: 92px; border-radius: 10px; background: linear-gradient(180deg, #3a3f4a, #20242c); border: 2px solid #565d6b; box-shadow: inset 0 -10px 0 rgba(0, 0, 0, .25), 0 10px 26px -10px #000; animation: crateFloat 3s ease-in-out infinite; }
+.crate::before { content: ''; position: absolute; left: -2px; right: -2px; top: 30px; height: 12px; background: linear-gradient(90deg, #d7141f, #ff5a3a); box-shadow: 0 0 10px rgba(255, 60, 40, .6); }
+.crate::after { content: 'Ⓐ'; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -38%); font-size: 30px; font-weight: 900; color: #fff; text-shadow: 0 0 10px #ff2a36; font-family: 'Segoe UI Symbol', 'Arial', sans-serif; }
+@keyframes crateFloat { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-6px) rotate(1deg); } }
+.box-hero h3 { margin: 0 0 4px; font-size: 1.25em; }
+.box-bal { display: flex; align-items: center; gap: 8px; font-size: 1.6em; font-weight: 900; color: #ffd36b; }
+.box-prog { height: 8px; border-radius: 99px; background: var(--side); overflow: hidden; margin: 8px 0 4px; }
+.box-prog i { display: block; height: 100%; background: linear-gradient(90deg, #ffb300, #ffe36a); border-radius: inherit; }
+.box-odds { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.box-odds span { font-size: .74em; font-weight: 700; padding: 3px 8px; border-radius: 6px; background: color-mix(in srgb, var(--rc) 22%, transparent); color: color-mix(in srgb, var(--rc) 60%, #fff); border-left: 3px solid var(--rc); }
+.avx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.avx-card { position: relative; display: grid; justify-items: center; gap: 6px; padding: 16px 8px 10px; border-radius: 12px; background: linear-gradient(180deg, color-mix(in srgb, var(--rc) 14%, var(--elev)), var(--elev)); border: 1px solid color-mix(in srgb, var(--rc) 45%, var(--line)); border-bottom: 3px solid var(--rc); cursor: pointer; color: var(--text); font: inherit; text-align: center; }
+.avx-card:hover { box-shadow: 0 0 18px -6px var(--rc); }
+.avx-card.locked { cursor: default; } .avx-card.locked .av { filter: grayscale(1) brightness(.55); }
+.avx-card.on { outline: 2px solid var(--rc); outline-offset: 2px; }
+.avx-card b { font-size: .8em; line-height: 1.2; }
+.avx-card small { font-size: .68em; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--rc); }
+.avx-card .inv-tag { background: var(--rc); color: #fff; }
+.avx-card .av { margin: 6px 0; }
+
+.case-back { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; background: rgba(5, 6, 10, .88); backdrop-filter: blur(4px); animation: giftIn .2s ease-out; }
+.case { width: min(860px, calc(100vw - 24px)); display: grid; gap: 16px; justify-items: center; color: #fff; }
+.case h2 { margin: 0; font-size: 1.3em; letter-spacing: .04em; }
+.reel-win { position: relative; width: 100%; height: 150px; overflow: hidden; border-radius: 12px; background: #11141a; border: 1px solid #2b303a; box-shadow: inset 0 0 40px #000; }
+.reel-win::before, .reel-win::after { content: ''; position: absolute; top: 0; bottom: 0; width: 80px; z-index: 2; pointer-events: none; }
+.reel-win::before { left: 0; background: linear-gradient(90deg, #11141a, transparent); } .reel-win::after { right: 0; background: linear-gradient(-90deg, #11141a, transparent); }
+.reel-mark { position: absolute; left: 50%; top: 0; bottom: 0; width: 3px; transform: translateX(-50%); background: #ffd36b; z-index: 3; box-shadow: 0 0 12px #ffb300; }
+.reel-mark::before, .reel-mark::after { content: ''; position: absolute; left: 50%; transform: translateX(-50%); border: 8px solid transparent; }
+.reel-mark::before { top: 0; border-top-color: #ffd36b; } .reel-mark::after { bottom: 0; border-bottom-color: #ffd36b; }
+.reel { position: absolute; left: 0; top: 10px; display: flex; gap: 6px; will-change: transform; }
+.reel-it { flex: none; width: 124px; height: 130px; display: grid; justify-items: center; align-content: center; gap: 8px; border-radius: 8px; background: linear-gradient(180deg, #232833, color-mix(in srgb, var(--rc) 30%, #1a1d24)); border-bottom: 4px solid var(--rc); font-size: .72em; font-weight: 700; text-align: center; padding: 6px; }
+.reel-it.win { box-shadow: 0 0 0 2px var(--rc), 0 0 26px var(--rc); }
+.case-res { display: grid; gap: 10px; justify-items: center; text-align: center; animation: giftPop .45s cubic-bezier(.2, 1.6, .4, 1); }
+.case-res .gift-rar { color: var(--rc); text-shadow: 0 0 14px var(--rc); }
+.case-res .av { margin: 18px 0 6px; }
