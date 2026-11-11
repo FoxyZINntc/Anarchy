@@ -1,132 +1,140 @@
 /* Placas de nome animadas (inventário). Aparecem na lista de membros, nas conversas e no inventário.
-   Cada placa: .np-<id>. Camadas: ::before (fundo), ::after (efeito/partículas) e o nome (.np-name).
+   A arte de cada placa foi desenhada no FigCraft (design/anarchy-placas.figcraft) e exportada em plates/<id>.svg.
+   Camadas: ::before = arte (presa à direita, na altura da placa); ::after = animação por cima; o nome = .np-name / .mem-n b.
    Tudo animado só com background-position, opacity e transform (leve para a placa de vídeo). */
 .np { position: relative; isolation: isolate; overflow: hidden; }
 .np::before, .np::after { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit; }
+.np::before { background-repeat: no-repeat; background-position: right center, 0 0; background-size: auto 100%, 100% 100%; }
 .np .np-name, .np .mem-n b, .np .lbl > b { position: relative; }
-.np:hover::before { filter: brightness(1.25); }
-/* nome com degradê animado (usado por várias) */
+.np:hover::before { filter: brightness(1.2); }
+/* nome com degradê animado */
 :is(.np-galaxia, .np-shoujo, .np-oceano, .np-kitsune, .np-aura, .np-dragao) :is(.np-name, .mem-n b) { color: transparent !important; -webkit-background-clip: text; background-clip: text; background-size: 200% 100%; animation: npShine 3.2s linear infinite; }
 @keyframes npShine { to { background-position: -200% 0; } }
 @keyframes npDrift { to { background-position: var(--dx, 60px) var(--dy, 46px); } }
 @keyframes npPulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 @keyframes npSpin { to { transform: translateY(-50%) rotate(360deg); } }
-@keyframes npSweep { 0% { transform: translateX(-120%) skewX(-20deg); } 60%, 100% { transform: translateX(260%) skewX(-20deg); } }
+@keyframes npSweep { 0% { transform: translateX(-120%) skewX(-20deg); } 60%, 100% { transform: translateX(320%) skewX(-20deg); } }
+@keyframes npFlash { 0%, 86% { opacity: 0; } 88% { opacity: 1; } 90% { opacity: .15; } 92% { opacity: .9; } 96% { opacity: 0; } }
+@keyframes npBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 
 /* ---------- COMUNS ---------- */
-/* Sakura ao Vento: pétalas caindo */
-.np-sakura::before { background: linear-gradient(90deg, rgba(255, 140, 185, .32), rgba(255, 200, 225, .06)); }
-.np-sakura::after { --dx: -54px; --dy: 40px; opacity: .9; animation: npDrift 5s linear infinite;
-  background-image: radial-gradient(ellipse 4px 2.5px at 12px 8px, #ffb6d2 90%, transparent), radial-gradient(ellipse 3px 2px at 38px 24px, #ffd3e5 90%, transparent), radial-gradient(ellipse 3.5px 2px at 22px 34px, #ff9ec4 90%, transparent);
-  background-size: 54px 40px; }
-.np-sakura .np-name, .np-sakura .mem-n b { color: #ffc4dc !important; text-shadow: 0 0 8px rgba(255, 120, 180, .55); }
+/* Sakura ao Vento: galho florido + pétalas caindo */
+.np-sakura::before { background-image: url(plates/sakura.svg), linear-gradient(90deg, rgba(42, 14, 30, .55), transparent); }
+.np-sakura::after { --dx: -54px; --dy: 40px; animation: npDrift 5s linear infinite; opacity: .85;
+  background-image: radial-gradient(ellipse 3px 1.8px at 12px 8px, #ffc6dc 90%, transparent), radial-gradient(ellipse 2.4px 1.5px at 38px 24px, #ffe0ec 90%, transparent), radial-gradient(ellipse 2.6px 1.6px at 22px 34px, #ff9ec4 90%, transparent);
+  background-size: 54px 40px; -webkit-mask: linear-gradient(90deg, #000 40%, transparent 85%); mask: linear-gradient(90deg, #000 40%, transparent 85%); }
+.np-sakura .np-name, .np-sakura .mem-n b { color: #ffd0e3 !important; text-shadow: 0 0 8px rgba(255, 120, 180, .6), 0 1px 1px #000; }
 
-/* Lua Prateada: lua crescente brilhando */
-.np-lua::before { background: linear-gradient(90deg, rgba(20, 30, 70, .55), rgba(150, 170, 220, .22)); }
-.np-lua::after { left: auto; right: 10px; top: 50%; width: 30px; height: 30px; inset: auto 10px auto auto; transform: translateY(-50%); border-radius: 50%;
-  box-shadow: inset -8px 3px 0 0 #e6ecff, 0 0 14px 2px rgba(220, 230, 255, .45); animation: npPulse 3.5s ease-in-out infinite; }
-.np-lua .np-name, .np-lua .mem-n b { color: #e6ecff !important; text-shadow: 0 0 10px rgba(200, 215, 255, .6); }
+/* Lua Prateada: lua cheia com crateras, nuvens */
+.np-lua::before { background-image: url(plates/lua.svg), linear-gradient(90deg, rgba(10, 16, 48, .65), transparent); animation: npLuaGlow 4s ease-in-out infinite; }
+@keyframes npLuaGlow { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.18); } }
+.np-lua::after { animation: npPulse 2.6s ease-in-out infinite;
+  background-image: radial-gradient(circle at 30px 10px, #fff 0, transparent 1.3px), radial-gradient(circle at 74px 30px, #dfe8ff 0, transparent 1.1px), radial-gradient(circle at 110px 16px, #fff 0, transparent 1.4px);
+  background-size: 140px 48px; }
+.np-lua .np-name, .np-lua .mem-n b { color: #eef2ff !important; text-shadow: 0 0 10px rgba(200, 215, 255, .7), 0 1px 1px #000; }
 
-/* Céu Estrelado: estrelinhas piscando */
-.np-galaxia::before { background: linear-gradient(100deg, rgba(60, 30, 120, .55), rgba(20, 60, 140, .35), rgba(120, 40, 140, .4)); background-size: 200% 100%; animation: npShine 8s linear infinite; }
-.np-galaxia::after { animation: npPulse 2.2s ease-in-out infinite;
-  background-image: radial-gradient(circle at 10px 8px, #fff 0, transparent 1.6px), radial-gradient(circle at 34px 30px, #cfe0ff 0, transparent 1.2px), radial-gradient(circle at 52px 14px, #fff 0, rgba(255,255,255,.4) .8px, transparent 2px), radial-gradient(circle at 70px 38px, #ffe6ff 0, transparent 1.2px);
+/* Céu Estrelado: nebulosa, planeta com anel e estrelas piscando */
+.np-galaxia::before { background-image: url(plates/galaxia.svg), linear-gradient(90deg, rgba(26, 10, 58, .6), transparent); }
+.np-galaxia::after { animation: npPulse 1.9s ease-in-out infinite;
+  background-image: radial-gradient(circle at 10px 8px, #fff 0, transparent 1.6px), radial-gradient(circle at 34px 30px, #cfe0ff 0, transparent 1.2px), radial-gradient(circle at 52px 14px, #fff 0, rgba(255, 255, 255, .4) .8px, transparent 2px), radial-gradient(circle at 70px 38px, #ffe6ff 0, transparent 1.2px);
   background-size: 80px 44px; }
-.np-galaxia .np-name, .np-galaxia .mem-n b { background-image: linear-gradient(90deg, #c9b6ff, #8fd3ff, #ffc6f3, #c9b6ff); }
+.np-galaxia .np-name, .np-galaxia .mem-n b { background-image: linear-gradient(90deg, #d9c8ff, #8fd3ff, #ffc6f3, #d9c8ff); }
 
-/* Brilho Shoujo: tons pastel e brilhinhos */
-.np-shoujo::before { background: linear-gradient(90deg, rgba(255, 182, 230, .35), rgba(200, 180, 255, .3), rgba(255, 220, 240, .2)); background-size: 200% 100%; animation: npShine 6s linear infinite; }
+/* Brilho Shoujo: bolhas, corações e brilhinhos subindo */
+.np-shoujo::before { background-image: url(plates/shoujo.svg), linear-gradient(90deg, rgba(90, 42, 90, .5), transparent); }
 .np-shoujo::after { --dx: 0; --dy: -36px; animation: npDrift 4s linear infinite, npPulse 1.6s ease-in-out infinite;
-  background-image: radial-gradient(circle at 14px 10px, #fff 0, transparent 2px), radial-gradient(circle at 46px 26px, #fffa 0, transparent 1.6px), radial-gradient(circle at 74px 18px, #ffe4f6 0, rgba(255,228,246,.4) 1px, transparent 2.6px);
+  background-image: radial-gradient(circle at 14px 10px, #fff 0, transparent 2px), radial-gradient(circle at 46px 26px, #fffa 0, transparent 1.6px), radial-gradient(circle at 74px 18px, #ffe4f6 0, rgba(255, 228, 246, .4) 1px, transparent 2.6px);
   background-size: 90px 36px; }
-.np-shoujo .np-name, .np-shoujo .mem-n b { background-image: linear-gradient(90deg, #ff9ed8, #c6a8ff, #ffd0ec, #ff9ed8); }
+.np-shoujo .np-name, .np-shoujo .mem-n b { background-image: linear-gradient(90deg, #fff, #ffb3e0, #e2ccff, #fff); filter: drop-shadow(0 1px 1px rgba(80, 0, 60, .7)); }
 
 /* ---------- RAROS ---------- */
-/* Chamas do Inferno: fogo subindo */
-.np-chamas::before { background: linear-gradient(0deg, rgba(255, 70, 0, .5), rgba(255, 150, 0, .12) 70%, transparent); }
-.np-chamas::after { --dx: 0; --dy: -48px; animation: npDrift 1.2s linear infinite;
-  background-image: radial-gradient(ellipse 7px 12px at 10px 48px, rgba(255, 190, 40, .55), transparent 70%), radial-gradient(ellipse 6px 10px at 30px 40px, rgba(255, 90, 0, .6), transparent 70%), radial-gradient(ellipse 5px 9px at 48px 46px, rgba(255, 220, 90, .45), transparent 70%);
-  background-size: 56px 48px; }
-.np-chamas .np-name, .np-chamas .mem-n b { color: #ffd28a !important; animation: npFire 1.1s ease-in-out infinite alternate; }
-@keyframes npFire { from { text-shadow: 0 0 6px #ff6a00, 0 -2px 10px #ff3d00; } to { text-shadow: 0 0 10px #ffae00, 0 -4px 16px #ff5a00; } }
+/* Chamas do Inferno: três camadas de fogo + fagulhas subindo */
+.np-chamas::before { background-image: url(plates/chamas.svg), linear-gradient(90deg, rgba(26, 4, 0, .6), transparent); animation: npFlicker 1.6s ease-in-out infinite; }
+@keyframes npFlicker { 0%, 100% { filter: brightness(1); } 30% { filter: brightness(1.15) saturate(1.2); } 60% { filter: brightness(.92); } }
+.np-chamas::after { --dx: 0; --dy: -48px; animation: npDrift 1.4s linear infinite;
+  background-image: radial-gradient(circle at 10px 40px, #ffd27a 0, rgba(255, 140, 0, .5) 1.2px, transparent 2.4px), radial-gradient(circle at 34px 20px, #ffe9b0 0, transparent 1.6px), radial-gradient(circle at 50px 34px, #ff9a2a 0, transparent 1.8px);
+  background-size: 60px 48px; }
+.np-chamas .np-name, .np-chamas .mem-n b { color: #ffe0a8 !important; animation: npFire 1.1s ease-in-out infinite alternate; }
+@keyframes npFire { from { text-shadow: 0 0 6px #ff6a00, 0 -2px 10px #ff3d00, 0 1px 1px #000; } to { text-shadow: 0 0 10px #ffae00, 0 -4px 16px #ff5a00, 0 1px 1px #000; } }
 
-/* Raio Azul: relâmpagos piscando */
-.np-raio::before { background: linear-gradient(90deg, rgba(10, 30, 80, .6), rgba(30, 90, 200, .3)); }
-.np-raio::after { opacity: 0; animation: npFlash 2.6s steps(1) infinite;
-  background: linear-gradient(115deg, transparent 46%, rgba(170, 230, 255, .95) 47%, transparent 48%, transparent 62%, rgba(120, 200, 255, .8) 62.5%, transparent 63.5%), linear-gradient(90deg, rgba(120, 200, 255, .25), transparent); }
-@keyframes npFlash { 0%, 88% { opacity: 0; } 90% { opacity: 1; } 92% { opacity: .2; } 94% { opacity: 1; } 97% { opacity: 0; } }
-.np-raio .np-name, .np-raio .mem-n b { color: #bfeaff !important; text-shadow: 0 0 8px #3fb8ff, 0 0 2px #fff; }
+/* Raio Azul: nuvem de tempestade e relâmpago piscando */
+.np-raio::before { background-image: url(plates/raio.svg), linear-gradient(90deg, rgba(5, 12, 38, .65), transparent); animation: npBolt 3s steps(1) infinite; }
+@keyframes npBolt { 0%, 86% { filter: brightness(.85); } 88% { filter: brightness(1.8); } 90% { filter: brightness(.9); } 92% { filter: brightness(1.6); } 95% { filter: brightness(.85); } }
+.np-raio::after { opacity: 0; animation: npFlash 3s steps(1) infinite; background: radial-gradient(ellipse at 80% 30%, rgba(170, 230, 255, .55), transparent 70%); }
+.np-raio .np-name, .np-raio .mem-n b { color: #d6f2ff !important; text-shadow: 0 0 8px #3fb8ff, 0 1px 1px #000; }
 
-/* Neon de Tóquio: letreiro neon com linha de varredura */
-.np-neon::before { background: linear-gradient(90deg, rgba(255, 0, 170, .28), rgba(0, 230, 255, .22)); box-shadow: inset 3px 0 0 #ff2bd6, inset -1px 0 0 rgba(0, 230, 255, .6); }
-.np-neon::after { --dx: 0; --dy: 60px; animation: npDrift 2.4s linear infinite; background: linear-gradient(180deg, transparent 0 46%, rgba(0, 255, 240, .22) 48%, transparent 52%); background-size: 100% 60px; }
+/* Neon de Tóquio: cidade com janelas acesas e varredura */
+.np-neon::before { background-image: url(plates/neon.svg), linear-gradient(90deg, rgba(20, 6, 42, .6), transparent); animation: npNeonBlink 4s steps(1) infinite; }
+@keyframes npNeonBlink { 0%, 100% { filter: none; } 47% { filter: brightness(.7) hue-rotate(-20deg); } 49% { filter: none; } 51% { filter: brightness(.8); } 53% { filter: none; } }
+.np-neon::after { --dx: 0; --dy: 60px; animation: npDrift 2.4s linear infinite; background: linear-gradient(180deg, transparent 0 46%, rgba(0, 255, 240, .18) 48%, transparent 52%); background-size: 100% 60px; }
 .np-neon .np-name, .np-neon .mem-n b { color: #fff !important; animation: npGlitch 3s steps(1) infinite; }
 @keyframes npGlitch { 0%, 100% { text-shadow: 0 0 6px #ff2bd6, 0 0 12px #00e6ff; } 46% { text-shadow: -2px 0 #ff2bd6, 2px 0 #00e6ff; } 48% { text-shadow: 2px 0 #ff2bd6, -2px 0 #00e6ff; } 50% { text-shadow: 0 0 6px #ff2bd6, 0 0 12px #00e6ff; } }
 
-/* Ondas do Oceano: ondas correndo embaixo */
-.np-oceano::before { background: linear-gradient(90deg, rgba(0, 90, 140, .55), rgba(0, 170, 190, .25)); }
-.np-oceano::after { --dx: 44px; --dy: 0; top: auto; height: 16px; animation: npDrift 2.2s linear infinite;
-  background-image: radial-gradient(circle at 11px 16px, rgba(160, 240, 255, .55) 9px, transparent 10px), radial-gradient(circle at 33px 18px, rgba(80, 210, 240, .45) 9px, transparent 10px);
-  background-size: 44px 16px; background-repeat: repeat-x; }
-.np-oceano .np-name, .np-oceano .mem-n b { background-image: linear-gradient(90deg, #8ef0ff, #e9fdff, #4fd2f0, #8ef0ff); }
+/* Ondas do Oceano: ondas em estilo de gravura, sol e reflexos correndo */
+.np-oceano::before { background-image: url(plates/oceano.svg), linear-gradient(90deg, rgba(3, 32, 58, .6), transparent); animation: npBob 3s ease-in-out infinite; }
+.np-oceano::after { --dx: 44px; --dy: 0; top: auto; height: 10px; animation: npDrift 2.6s linear infinite;
+  background-image: linear-gradient(90deg, transparent 0 30%, rgba(200, 240, 255, .5) 40%, transparent 50%); background-size: 44px 2px; background-position: 0 8px; background-repeat: repeat-x; }
+.np-oceano .np-name, .np-oceano .mem-n b { background-image: linear-gradient(90deg, #a6f3ff, #ffffff, #5fd6f2, #a6f3ff); filter: drop-shadow(0 1px 1px #001a2a); }
 
-/* Piloto Mecha: faixas de alerta e varredura de radar */
-.np-mecha::before { background: repeating-linear-gradient(-45deg, rgba(255, 150, 0, .2) 0 8px, rgba(0, 0, 0, .15) 8px 16px), linear-gradient(90deg, rgba(0, 120, 120, .45), rgba(255, 130, 0, .2)); }
-.np-mecha::after { width: 40%; background: linear-gradient(90deg, transparent, rgba(0, 255, 210, .35), transparent); animation: npSweep 2.6s ease-in-out infinite; }
-.np-mecha .np-name, .np-mecha .mem-n b { color: #ffd38a !important; text-shadow: 0 0 6px rgba(255, 160, 0, .7); letter-spacing: .03em; }
+/* Piloto Mecha: painéis, mira e faixa de alerta; varredura de radar */
+.np-mecha::before { background-image: url(plates/mecha.svg), linear-gradient(90deg, rgba(10, 26, 30, .6), transparent); }
+.np-mecha::after { width: 30%; background: linear-gradient(90deg, transparent, rgba(0, 255, 210, .3), transparent); animation: npSweep 2.8s ease-in-out infinite; }
+.np-mecha .np-name, .np-mecha .mem-n b { color: #ffd38a !important; text-shadow: 0 0 6px rgba(255, 160, 0, .7), 0 1px 1px #000; letter-spacing: .03em; }
 
 /* ---------- ÉPICOS ---------- */
-/* Olhar Escarlate: círculo vermelho girando com três vírgulas */
-.np-escarlate::before { background: linear-gradient(90deg, rgba(110, 0, 10, .6), rgba(20, 0, 0, .55)); }
-.np-escarlate::after { inset: auto 8px auto auto; top: 50%; width: 30px; height: 30px; border-radius: 50%;
-  background: radial-gradient(circle, #1a0000 0 4px, transparent 5px), radial-gradient(circle at 50% 12%, #1a0000 0 3.5px, transparent 4.5px), radial-gradient(circle at 15% 70%, #1a0000 0 3.5px, transparent 4.5px), radial-gradient(circle at 85% 70%, #1a0000 0 3.5px, transparent 4.5px), radial-gradient(circle, #e0101e 0 13px, #5a0006 14px, transparent 15px);
-  box-shadow: 0 0 12px rgba(255, 0, 30, .6); animation: npSpin 2.4s linear infinite; }
-.np-escarlate .np-name, .np-escarlate .mem-n b { color: #ff5a64 !important; text-shadow: 0 0 8px rgba(255, 0, 30, .8); }
+/* Olhar Escarlate: o olho desenhado + a íris girando por cima */
+.np-escarlate::before { background-image: url(plates/escarlate.svg), linear-gradient(90deg, rgba(18, 0, 0, .65), transparent); }
+.np-escarlate::after { inset: auto calc(var(--np-h, 46px) * .917 - 10px) auto auto; top: 50%; width: 20px; height: 20px; border-radius: 50%;
+  background: url(plates/escarlate-iris.svg) center / contain no-repeat; filter: drop-shadow(0 0 4px rgba(255, 0, 30, .8)); animation: npSpin 2.6s linear infinite; z-index: -1; }
+.np-escarlate .np-name, .np-escarlate .mem-n b { color: #ff6b74 !important; text-shadow: 0 0 8px rgba(255, 0, 30, .8), 0 1px 1px #000; }
 
-/* Fogo de Raposa: chamas azuis flutuando (kitsune-bi) */
-.np-kitsune::before { background: linear-gradient(90deg, rgba(40, 20, 90, .55), rgba(255, 120, 40, .18)); }
+/* Fogo de Raposa: raposa de nove caudas + chamas azuis flutuando */
+.np-kitsune::before { background-image: url(plates/kitsune.svg), linear-gradient(90deg, rgba(18, 10, 48, .6), transparent); }
 .np-kitsune::after { --dx: 30px; --dy: -46px; animation: npDrift 3.4s linear infinite, npPulse 1.8s ease-in-out infinite;
-  background-image: radial-gradient(circle at 10px 30px, rgba(120, 190, 255, .85) 0 2.5px, rgba(80, 140, 255, .25) 6px, transparent 9px), radial-gradient(circle at 44px 10px, rgba(160, 220, 255, .8) 0 2px, rgba(80, 140, 255, .2) 5px, transparent 8px);
-  background-size: 60px 46px; }
-.np-kitsune .np-name, .np-kitsune .mem-n b { background-image: linear-gradient(90deg, #ffb070, #8fc8ff, #ffe0b8, #ffb070); }
+  background-image: radial-gradient(circle at 10px 30px, rgba(140, 200, 255, .9) 0 2px, rgba(80, 140, 255, .25) 5px, transparent 8px), radial-gradient(circle at 44px 10px, rgba(170, 225, 255, .8) 0 1.6px, rgba(80, 140, 255, .2) 4px, transparent 7px);
+  background-size: 60px 46px; -webkit-mask: linear-gradient(90deg, #000 55%, transparent 80%); mask: linear-gradient(90deg, #000 55%, transparent 80%); }
+.np-kitsune .np-name, .np-kitsune .mem-n b { background-image: linear-gradient(90deg, #ffc38a, #a8d6ff, #fff0dc, #ffc38a); filter: drop-shadow(0 1px 1px #0a0420); }
 
-/* Ceifador: corte de foice cruzando a placa */
-.np-ceifador::before { background: radial-gradient(circle at 92% 50%, rgba(200, 0, 20, .45) 0 10px, transparent 26px), linear-gradient(90deg, rgba(0, 0, 0, .7), rgba(40, 0, 6, .55)); }
-.np-ceifador::after { width: 30%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .85) 48%, rgba(255, 40, 60, .7) 52%, transparent); animation: npSweep 3.4s cubic-bezier(.7, 0, .2, 1) infinite; }
-.np-ceifador .np-name, .np-ceifador .mem-n b { color: #ff4256 !important; text-shadow: 0 0 2px #000, 0 0 10px rgba(255, 0, 40, .7); }
+/* Ceifador: lua de sangue, foice e corvos; um corte de luz atravessa */
+.np-ceifador::before { background-image: url(plates/ceifador.svg), linear-gradient(90deg, rgba(0, 0, 0, .7), transparent); }
+.np-ceifador::after { width: 26%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .8) 48%, rgba(255, 40, 60, .7) 52%, transparent); animation: npSweep 3.6s cubic-bezier(.7, 0, .2, 1) infinite; }
+.np-ceifador .np-name, .np-ceifador .mem-n b { color: #ff5468 !important; text-shadow: 0 0 2px #000, 0 0 10px rgba(255, 0, 40, .7); }
 
-/* Máscara Oni: fumaça roxa subindo */
-.np-oni::before { background: linear-gradient(90deg, rgba(80, 0, 90, .6), rgba(160, 0, 40, .3)); animation: npPulse 2.4s ease-in-out infinite; }
+/* Máscara Oni: máscara de demônio com fumaça roxa subindo */
+.np-oni::before { background-image: url(plates/oni.svg), linear-gradient(90deg, rgba(20, 3, 30, .6), transparent); animation: npOniMask 2.4s ease-in-out infinite; }
+@keyframes npOniMask { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.2) saturate(1.2); } }
 .np-oni::after { --dx: 0; --dy: -50px; animation: npDrift 2.8s linear infinite;
-  background-image: radial-gradient(ellipse 14px 9px at 14px 44px, rgba(190, 80, 255, .4), transparent 70%), radial-gradient(ellipse 12px 8px at 48px 30px, rgba(255, 60, 140, .35), transparent 70%);
+  background-image: radial-gradient(ellipse 14px 9px at 14px 44px, rgba(190, 80, 255, .35), transparent 70%), radial-gradient(ellipse 12px 8px at 48px 30px, rgba(255, 60, 140, .3), transparent 70%);
   background-size: 64px 50px; }
-.np-oni .np-name, .np-oni .mem-n b { color: #e7a6ff !important; animation: npOni 2.4s ease-in-out infinite; }
-@keyframes npOni { 0%, 100% { text-shadow: 0 0 6px #9b2cff; } 50% { text-shadow: 0 0 14px #ff2c7a, 0 0 4px #fff; } }
+.np-oni .np-name, .np-oni .mem-n b { color: #efb8ff !important; animation: npOni 2.4s ease-in-out infinite; }
+@keyframes npOni { 0%, 100% { text-shadow: 0 0 6px #9b2cff, 0 1px 1px #000; } 50% { text-shadow: 0 0 14px #ff2c7a, 0 0 4px #fff; } }
 
 /* ---------- LENDÁRIOS ---------- */
-/* Aura Dourada: energia subindo e nome brilhando */
-.np-aura::before { background: radial-gradient(ellipse 80% 90% at 30% 130%, rgba(255, 190, 0, .55), transparent 70%), linear-gradient(90deg, rgba(90, 50, 0, .65), rgba(40, 20, 0, .45)); animation: npPulse 1.4s ease-in-out infinite; }
+/* Aura Dourada: aura de energia, faíscas e partículas subindo */
+.np-aura::before { background-image: url(plates/aura.svg), linear-gradient(90deg, rgba(30, 14, 0, .65), transparent); animation: npAuraPulse 1.3s ease-in-out infinite; }
+@keyframes npAuraPulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 .np-aura::after { --dx: 0; --dy: -40px; animation: npDrift .9s linear infinite;
   background-image: radial-gradient(ellipse 1.5px 7px at 8px 30px, rgba(255, 245, 170, .95), transparent), radial-gradient(ellipse 1.2px 5px at 22px 12px, rgba(255, 200, 40, .9), transparent), radial-gradient(ellipse 1.5px 6px at 31px 24px, rgba(255, 230, 120, .85), transparent);
   background-size: 36px 40px; }
 .np-aura .np-name, .np-aura .mem-n b { background-image: linear-gradient(90deg, #fff4b0, #ffc400, #fff, #ffb300, #fff4b0); filter: drop-shadow(0 0 4px rgba(255, 170, 0, .9)) drop-shadow(0 1px 1px #000); }
 
-/* Dragão Celestial: escamas de jade com brilho passando */
-.np-dragao::before { background: radial-gradient(circle at 50% 0, transparent 7px, rgba(0, 200, 140, .3) 8px, transparent 9px) 0 0 / 16px 10px, linear-gradient(90deg, rgba(0, 110, 80, .6), rgba(0, 60, 70, .5)); }
-.np-dragao::after { width: 35%; background: linear-gradient(90deg, transparent, rgba(255, 230, 140, .55), transparent); animation: npSweep 3s ease-in-out infinite; }
-.np-dragao .np-name, .np-dragao .mem-n b { background-image: linear-gradient(90deg, #7dffcf, #ffe08a, #b8fff0, #7dffcf); filter: drop-shadow(0 0 5px rgba(0, 255, 170, .6)); }
+/* Dragão Celestial: dragão de jade com pérola e escamas; brilho passando */
+.np-dragao::before { background-image: url(plates/dragao.svg), linear-gradient(90deg, rgba(2, 32, 26, .6), transparent); }
+.np-dragao::after { width: 32%; background: linear-gradient(90deg, transparent, rgba(255, 230, 140, .45), transparent); animation: npSweep 3.2s ease-in-out infinite; }
+.np-dragao .np-name, .np-dragao .mem-n b { background-image: linear-gradient(90deg, #8dffd6, #ffe08a, #c8fff2, #8dffd6); filter: drop-shadow(0 0 4px rgba(0, 255, 170, .5)) drop-shadow(0 1px 1px #001a12); }
 
-/* Caos Ⓐ: listras vermelhas e pretas, Ⓐ girando */
-.np-anarquia::before { background: repeating-linear-gradient(115deg, rgba(215, 20, 31, .45) 0 10px, rgba(0, 0, 0, .55) 10px 20px); background-size: 200% 100%; animation: npShine 4s linear infinite; }
-.np-anarquia::after { inset: auto 8px auto auto; top: 50%; width: 28px; height: 28px; filter: drop-shadow(0 0 6px rgba(255, 0, 20, .9)); animation: npSpin 6s linear infinite;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='%23ff2a36'%3E%3Ccircle cx='50' cy='54' r='36' stroke-width='9'/%3E%3Cpath d='M18 98 L50 6 L82 98' stroke-width='10'/%3E%3Cpath d='M6 66 H94' stroke-width='10'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat; }
+/* Caos da Anarquia: listras, spray e rachadura; o A gira com brilho */
+.np-anarquia::before { background-image: url(plates/anarquia.svg), linear-gradient(90deg, rgba(10, 0, 0, .65), transparent); }
+.np-anarquia::after { inset: auto calc(var(--np-h, 46px) * .52 - 17px) auto auto; top: 50%; width: 34px; height: 34px;
+  background: url(plates/anarquia-a.svg) center / contain no-repeat; animation: npSpin 6s linear infinite, npPulse 1.5s ease-in-out infinite; }
 .np-anarquia .np-name, .np-anarquia .mem-n b { color: #fff !important; animation: npChaos 2.2s steps(1) infinite; }
-@keyframes npChaos { 0%, 100% { text-shadow: 0 0 8px #ff1a2a; } 40% { text-shadow: -2px 0 #ff1a2a, 2px 0 #000; } 42% { text-shadow: 2px 0 #ff1a2a, -2px 0 #fff; } 44% { text-shadow: 0 0 8px #ff1a2a; } }
+@keyframes npChaos { 0%, 100% { text-shadow: 0 0 8px #ff1a2a, 0 1px 1px #000; } 40% { text-shadow: -2px 0 #ff1a2a, 2px 0 #000; } 42% { text-shadow: 2px 0 #ff1a2a, -2px 0 #fff; } 44% { text-shadow: 0 0 8px #ff1a2a; } }
 
-/* espaço para o efeito do lado direito não ficar em cima do nome */
-.np-lua, .np-escarlate, .np-anarquia { padding-right: 46px !important; }
+/* o nome não fica em cima da arte do lado direito */
+.np .mem-n, .np .np-name, .np .lbl { max-width: 58%; }
+.np .mem .info, .np .info { min-width: 0; }
 
-/* sem animações (Configurações > Aparência) ou Modo leve: placas paradas */
+/* sem animações (Configurações > Aparência) ou Modo leve: placas paradas (a arte continua) */
 .no-anim .np::before, .no-anim .np::after, .no-anim .np .mem-n b, .no-anim .np .np-name,
 .lite .np::after { animation: none !important; }
 @media (prefers-reduced-motion: reduce) { .np::before, .np::after, .np .mem-n b, .np .np-name { animation: none !important; } }
