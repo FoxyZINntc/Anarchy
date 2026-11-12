@@ -47,7 +47,7 @@ const RAW = {
   'runas': ['Piso rúnico', 'magico', 'chao', ['#3a3f6b', '#2f3459', '#4a5080'], 'runas', { glow: '#8fa2ff' }],
   'pedra-encantada': ['Pedra encantada', 'magico', 'chao', ['#2d4f5c', '#244350', '#3a6372'], 'runas', { glow: '#6fe3d2' }],
   'corrompido': ['Solo corrompido', 'sobrenatural', 'chao', ['#3b2240', '#2f1a33', '#4d2d54'], 'corrompido', { org: 1 }],
-  'ossos': ['Chão de ossos', 'sobrenatural', 'chao', ['#b9ad94', '#a39780', '#cfc4ab'], 'ossos'],
+  'ossos': ['Chão de ossos', 'sobrenatural', 'chao', ['#b9ad94', '#a39780', '#cfc4ab'], 'ossos', { org: 1 }],
   'vazio': ['Vazio estrelado', 'sobrenatural', 'chao', ['#0d0b1a', '#080612', '#1a1630'], 'vazio'],
   // ---- terreno especial (fica por cima do chão; o chão continua lá embaixo) ----
   'agua': ['Água rasa', 'agua', 'terreno', ['#3a7fb2', '#2e6c9b', '#4b90c2'], 'agua', { org: 1 }],
@@ -179,7 +179,7 @@ const THEME = {
 };
 function fromTiles(tiles, w, h, kind) {
   const T = { '.': 'pedra', ',': 'grama', '=': 'trilha', S: 'areia', f: 'plantacao', '#': 'parede-pedra', H: 'parede-madeira', P: 'pilar', T: 'arvore', ...(THEME[kind] || {}) };
-  const floorOf = ch => ({ '.': T['.'], ',': 'grama', '=': T['='], S: 'areia', f: 'plantacao', D: T['.'], P: T['.'], A: T['.'], T: 'grama', B: 'grama' })[ch] || null;
+  const floorOf = ch => ({ '.': T['.'], ',': 'grama', '=': T['='], S: 'areia', f: 'plantacao', D: T['.'], P: T['.'], A: T['.'], T: 'grama' })[ch] || null; // barricada fica no chão de base (rua, terra...)
   // chão de base (embaixo de paredes, água etc.): o mais comum do mapa
   const cnt = {}; for (const ch of tiles) { const f = floorOf(ch); if (f) cnt[f] = (cnt[f] || 0) + 1; }
   const base = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || T['.'];

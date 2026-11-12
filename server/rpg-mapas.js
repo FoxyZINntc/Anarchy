@@ -143,7 +143,9 @@ const GEN = {
       const nt = G.t.slice();
       for (let y = 0; y < G.h; y++) for (let x = 0; x < G.w; x++) {
         let n = 0; for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if ((a || b) && G.get(x + a, y + b) !== '.') n++;
-        nt[y * G.w + x] = n >= 5 || x === 0 || y === 0 || x === G.w - 1 || y === G.h - 1 ? '#' : '.';
+        // regra 4-5: rocha continua rocha com 4+ vizinhas de rocha; chão vira rocha com 5+ (galerias e pilares naturais)
+        const wall = G.get(x, y) !== '.';
+        nt[y * G.w + x] = (wall ? n >= 4 : n >= 5) || x === 0 || y === 0 || x === G.w - 1 || y === G.h - 1 ? '#' : '.';
       }
       G.t.splice(0, G.t.length, ...nt);
     }
@@ -278,6 +280,115 @@ const GEN = {
   }
 };
 
+/* ---------- decoração com sentido ----------
+   Cada sala ganha uma função (quarto, depósito, biblioteca, cripta, taverna...) e móveis de acordo, encostados nas
+   paredes, longe das portas e sem nunca fechar uma passagem. Fogueiras e braseiros viram fontes de luz.
+   Devolve objetos e pisos (por id de material do rpg-core) e luzes; o mapa de letras não muda. */
+const WALKOBJ = new Set(['cadeira', 'arbusto', 'circulo-arcano']); // objetos que não bloqueiam a passagem
+function decorate(kind, G, r, list, o) {
+  const obj = new Map(), floor = new Map(), lights = [], N = G.w * G.h;
+  const idx = (x, y) => y * G.w + x;
+  const blocked = i => !WALK.has(G.t[i]) || (obj.has(i) && !WALKOBJ.has(obj.get(i)));
+  const comp = s => { const seen = new Uint8Array(N), q = [s]; seen[s] = 1; for (let k = 0; k < q.length; k++) { const i = q[k], x = i % G.w, y = (i / G.w) | 0; for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + a, ny = y + b; if (!G.in(nx, ny)) continue; const j = idx(nx, ny); if (!seen[j] && !blocked(j)) { seen[j] = 1; q.push(j); } } } return q.length; };
+  const isWall = (x, y) => { const v = G.get(x, y); return v === '#' || v === 'H' || v === null; };
+  const nearDoor = (x, y) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (G.get(x + a, y + b) === 'D') return true; return false; };
+  const walls4 = (x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([a, b]) => isWall(x + a, y + b)).length;
+  // põe um objeto se a casa for chão livre e não fechar caminho nenhum
+  const put = (x, y, id, need = 'chao') => {
+    if (!G.in(x, y)) return false;
+    const i = idx(x, y), v = G.get(x, y);
+    if (obj.has(i) || !(v === '.' || v === ',' || v === 'S' || v === '=') || nearDoor(x, y)) return false;
+    if (WALKOBJ.has(id)) { obj.set(i, id); return true; }
+    const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => [x + a, y + b]).find(([a, b]) => G.in(a, b) && !blocked(idx(a, b)));
+    if (!nb) return false;
+    const before = comp(idx(nb[0], nb[1]));
+    obj.set(i, id);
+    if (comp(idx(nb[0], nb[1])) !== before - 1) { obj.delete(i); return false; }
+    return true;
+  };
+  const light = (x, y, rr, color, intensity = 80) => lights.push({ x, y, r: rr, color, intensity, shape: 'circulo' });
+  // casas da sala encostadas na parede (bom lugar para móveis)
+  const edge = s => { const out = []; for (let y = s.y; y < s.y + s.h; y++) for (let x = s.x; x < s.x + s.w; x++) if (walls4(x, y) >= 1) out.push([x, y]); return out; };
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const along = (s, ids, n) => { let k = 0; for (const [x, y] of shuffle(edge(s))) { if (k >= n) break; if (put(x, y, r.pick(ids))) k++; } return k; };
+  const center = s => [s.x + Math.floor(s.w / 2), s.y + Math.floor(s.h / 2)];
+  const rug = (s, id = 'tapete') => { if (s.w < 5 || s.h < 4) return; for (let y = s.y + 1; y < s.y + s.h - 1; y++) for (let x = s.x + 1; x < s.x + s.w - 1; x++) floor.set(idx(x, y), id); };
+  // regiões fechadas de chão (salas e casas): para mapas sem lista de salas
+  const regions = (ch, min, max) => {
+    const seen = new Uint8Array(N), out = [];
+    for (let i = 0; i < N; i++) {
+      if (seen[i] || G.t[i] !== ch) continue;
+      const q = [i]; seen[i] = 1; let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+      for (let k = 0; k < q.length; k++) { const j = q[k], x = j % G.w, y = (j / G.w) | 0; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + a, ny = y + b; if (!G.in(nx, ny)) continue; const n = idx(nx, ny); if (!seen[n] && G.t[n] === ch) { seen[n] = 1; q.push(n); } } }
+      if (q.length >= min && q.length <= max) out.push({ x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, n: q.length });
+    }
+    return out;
+  };
+  // tipos de sala
+  const ROOM = {
+    quarto: s => { along(s, ['cama'], 1 + (s.w * s.h > 30 ? 1 : 0)); along(s, ['bau'], 1); along(s, ['estante', 'caixote'], 1); },
+    deposito: s => { along(s, ['barril', 'caixote', 'caixote', 'barril'], Math.max(3, Math.round(s.w * s.h / 8))); },
+    biblioteca: s => { for (let x = s.x; x < s.x + s.w; x++) if (r() < .8) put(x, s.y, 'estante'); const [cx, cy] = center(s); put(cx, cy, 'mesa'); put(cx, cy + 1, 'cadeira'); light(cx, cy, 4, '#ffd98a', 70); put(cx + 1, cy, 'braseiro'); },
+    cripta: s => { for (let y = s.y + 1; y < s.y + s.h - 1; y += 2) for (let x = s.x + 1; x < s.x + s.w - 1; x += 2) if (r() < .7) put(x, y, 'tumulo'); floor.set(idx(...center(s)), 'ossos'); },
+    santuario: s => { const [cx] = center(s); put(cx, s.y, 'altar'); put(cx - 1, s.y, 'braseiro'); put(cx + 1, s.y, 'braseiro'); light(cx, s.y + 1, 5, '#ffb35a', 85); for (let y = s.y + 1; y < s.y + s.h; y++) floor.set(idx(cx, y), 'tapete'); },
+    guarda: s => { const [cx, cy] = center(s); if (put(cx, cy, 'mesa')) { put(cx - 1, cy, 'cadeira'); put(cx + 1, cy, 'cadeira'); } along(s, ['barril', 'caixote'], 2); put(cx, cy - 1, 'braseiro') && light(cx, cy - 1, 4, '#ffb35a'); },
+    tesouro: s => { along(s, ['bau'], 3); const [cx, cy] = center(s); put(cx, cy, 'estatua'); },
+    covil: s => { for (let k = 0; k < Math.max(2, s.w * s.h / 10); k++) floor.set(idx(s.x + r.int(0, s.w - 1), s.y + r.int(0, s.h - 1)), 'ossos'); along(s, ['pedregulho'], 2); const [cx, cy] = center(s); put(cx, cy, 'fogueira') && light(cx, cy, 6, '#ff9a4a', 85); },
+    arcano: s => { const [cx, cy] = center(s); put(cx, cy, 'circulo-arcano'); floor.set(idx(cx, cy), 'runas'); along(s, ['cristais', 'estante'], 2); light(cx, cy, 4, '#8fb2ff', 70); },
+    taverna: s => { const [cx, cy] = center(s); for (const [a, b] of [[-2, 0], [2, 0], [0, -1]]) if (put(cx + a, cy + b, 'mesa')) { put(cx + a - 1, cy + b, 'cadeira'); put(cx + a + 1, cy + b, 'cadeira'); } along(s, ['barril'], 3); along(s, ['braseiro'], 1); light(cx, cy, 5, '#ffc070', 80); },
+    loja: s => { along(s, ['caixote', 'barril', 'estante', 'bau'], Math.max(3, Math.round(s.w * s.h / 7))); },
+    casa: s => { along(s, ['cama'], 1); const [cx, cy] = center(s); if (put(cx, cy, 'mesa')) put(cx, cy + 1, 'cadeira'); along(s, ['bau', 'barril', 'estante'], 2); },
+    banquete: s => { const [cx, cy] = center(s); for (let x = s.x + 2; x < s.x + s.w - 2; x++) if (put(x, cy, 'mesa')) { put(x, cy - 1, 'cadeira'); put(x, cy + 1, 'cadeira'); } along(s, ['braseiro'], 2); light(cx, cy, 6, '#ffc070', 80); },
+    trono: s => { rug(s); const [cx] = center(s); put(cx - 1, s.y, 'estatua'); put(cx + 1, s.y, 'estatua'); put(cx, s.y, 'altar'); along(s, ['braseiro'], 2); light(cx, s.y + 1, 6, '#ffd98a', 85); }
+  };
+  const furnish = (s, types) => { const t = r.pick(types); ROOM[t](s); return t; };
+  if (kind === 'masmorra') {
+    const types = ['quarto', 'deposito', 'biblioteca', 'cripta', 'santuario', 'guarda', 'tesouro', 'covil', 'arcano'];
+    const order = shuffle(list.slice());
+    order.forEach((s, k) => furnish(s, k < types.length ? [types[(k + r.int(0, 8)) % types.length]] : types));
+  } else if (kind === 'castelo') {
+    const rs = regions('.', 12, 400).sort((a, b) => b.n - a.n);
+    rs.forEach((s, k) => furnish(s, k === 0 ? ['trono', 'banquete'] : ['quarto', 'biblioteca', 'guarda', 'deposito', 'banquete']));
+  } else if (kind === 'cidade') {
+    regions('.', 4, 200).forEach(s => furnish(s, ['casa', 'casa', 'taverna', 'loja']));
+    const cx = Math.floor(G.w / 2), cy = Math.floor(G.h / 2);
+    for (const [a, b] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) if (put(cx + a, cy + b, 'braseiro')) light(cx + a, cy + b, 4, '#ffcf7a', 75);
+    // praças de grama viram parques: árvores e arbustos nas bordas, uma estátua ou poço no meio
+    for (const s of regions(',', 6, 200)) {
+      const [px, py] = center(s); put(px, py, r() < .5 ? 'estatua' : 'poco');
+      for (let y = s.y; y < s.y + s.h; y++) for (let x = s.x; x < s.x + s.w; x++) if ((x === s.x || y === s.y || x === s.x + s.w - 1 || y === s.y + s.h - 1) && r() < .45) put(x, y, r() < .6 ? 'arvore' : 'arbusto');
+    }
+  } else if (kind === 'vila') {
+    regions('.', 4, 200).forEach(s => furnish(s, ['casa', 'casa', 'loja']));
+    const cx = Math.floor(G.w / 2), cy = Math.floor(G.h / 2);
+    if (put(cx + 2, cy + 2, 'fogueira') || put(cx - 2, cy + 2, 'fogueira')) light(cx + 2, cy + 2, 6, '#ff9a4a', 85);
+    for (let k = 0; k < 4; k++) put(r.int(1, G.w - 2), r.int(1, G.h - 2), r.pick(['caixote', 'barril', 'arbusto']));
+  } else if (kind === 'templo') {
+    let alt = -1; G.t.forEach((v, i) => { if (v === 'A' && alt < 0) alt = i; });
+    if (alt >= 0) {
+      const ax = alt % G.w, ay = (alt / G.w) | 0;
+      put(ax - 2, ay, 'braseiro'); put(ax + 1, ay, 'braseiro'); light(ax, ay + 1, 6, '#ffb35a', 85);
+      for (let y = ay + 1; y < G.h; y++) { const v = G.get(ax, y); if (v === '.') { floor.set(idx(ax, y), 'tapete'); floor.set(idx(ax - 1, y), 'tapete'); } else if (v !== 'P') break; }
+    }
+    regions('.', 6, 120).forEach(s => furnish(s, ['biblioteca', 'quarto', 'cripta', 'arcano']));
+  } else if (kind === 'caverna') {
+    const cells = []; G.t.forEach((v, i) => { const x = i % G.w, y = (i / G.w) | 0; if (v === '.' && walls4(x, y) >= 2) cells.push([x, y]); });
+    shuffle(cells).slice(0, Math.round(cells.length * .08)).forEach(([x, y]) => put(x, y, r() < .55 ? 'cristais' : 'pedregulho'));
+    const open = []; G.t.forEach((v, i) => { const x = i % G.w, y = (i / G.w) | 0; if (v === '.' && walls4(x, y) === 0) open.push([x, y]); });
+    for (const [x, y] of shuffle(open).slice(0, 2)) if (put(x, y, 'fogueira')) { light(x, y, 6, '#ff9a4a', 85); put(x + 1, y + 1, 'caixote'); put(x - 1, y + 1, 'barril'); for (let k = 0; k < 3; k++) floor.set(idx(x + r.int(-2, 2), y + r.int(-2, 2)), 'ossos'); break; }
+  } else if (kind === 'floresta' || kind === 'montanha' || kind === 'campo') {
+    const grass = []; G.t.forEach((v, i) => { if (v === ',') grass.push([i % G.w, (i / G.w) | 0]); });
+    shuffle(grass).slice(0, Math.round(grass.length * (kind === 'floresta' ? .05 : .03))).forEach(([x, y]) => put(x, y, r() < .7 ? 'arbusto' : 'pedregulho'));
+    const cx = Math.floor(G.w / 2), cy = Math.floor(G.h / 2);
+    for (const [a, b] of [[0, 0], [1, 0], [0, 1], [-1, 0], [2, 1]]) if (put(cx + a, cy + b, 'fogueira')) { light(cx + a, cy + b, 6, '#ff9a4a', 85); put(cx + a + 2, cy + b, 'caixote'); put(cx + a - 2, cy + b, 'barril'); break; }
+    if (kind === 'campo') for (let k = 0; k < 3; k++) { const x = r.int(2, G.w - 3), y = r.int(2, G.h - 3); if (put(x, y, 'fogueira')) light(x, y, 5, '#ff9a4a', 80); }
+  } else if (kind === 'arena') {
+    const cx = Math.floor(G.w / 2), cy = Math.floor(G.h / 2), rx = Math.floor(G.w / 2) - 3, ry = Math.floor(G.h / 2) - 3;
+    for (const [a, b] of [[-rx, 0], [rx, 0], [0, -ry], [0, ry]]) if (put(cx + a, cy + b, 'braseiro')) light(cx + a, cy + b, 5, '#ffb35a', 85);
+  }
+  return { decor: [...[...obj].map(([i, id]) => [i, 'objeto', id]), ...[...floor].filter(([i]) => WALK.has(G.t[i]) && G.t[i] !== 'D').map(([i, id]) => [i, 'chao', id])], lights };
+}
+
 // gera um mapa. opts: { kind, w, h, rooms, obst (0-100), doors, traps, wide (corredores), seed }
 function generate(opts = {}) {
   const kind = KINDS[opts.kind] ? opts.kind : 'masmorra';
@@ -291,16 +402,19 @@ function generate(opts = {}) {
     wide: +opts.wide === 2 ? 2 : 1
   };
   const G = grid(w, h, '.');
-  GEN[kind](G, r, o);
+  const roomList = GEN[kind](G, r, o) || [];
+  const dec = decorate(kind, G, r, roomList, o);
+  // armadilhas e ponto de partida não caem em cima de móveis
+  const occupied = new Set(dec.decor.filter(d => d[1] === 'objeto' && !WALKOBJ.has(d[2])).map(d => d[0]));
   // armadilhas: em casas de chão/grama/areia/trilha, longe das bordas
   const nTraps = Math.max(0, Math.min(30, Math.round(+opts.traps) || 0)), floor = [];
-  G.t.forEach((v, i) => { const x = i % w, y = (i / w) | 0; if (['.', ',', 'S', '='].includes(v) && x > 1 && y > 1 && x < w - 2 && y < h - 2) floor.push(i); });
+  G.t.forEach((v, i) => { const x = i % w, y = (i / w) | 0; if (['.', ',', 'S', '='].includes(v) && !occupied.has(i) && x > 1 && y > 1 && x < w - 2 && y < h - 2) floor.push(i); });
   const traps = [];
   for (let k = 0; k < nTraps && floor.length; k++) traps.push({ i: floor.splice(Math.floor(r() * floor.length), 1)[0], on: false });
   // um ponto de partida andável perto do centro (onde os personagens aparecem)
   let start = null, best = 1e9;
-  G.t.forEach((v, i) => { if (!WALK.has(v)) return; const x = i % w, y = (i / w) | 0, d = (x - w / 2) ** 2 + (y - h / 2) ** 2; if (d < best) { best = d; start = [x, y]; } });
-  return { kind, name: KINDS[kind], w, h, seed, tiles: G.t.join(''), traps, start: start || [1, 1] };
+  G.t.forEach((v, i) => { if (!WALK.has(v) || occupied.has(i)) return; const x = i % w, y = (i / w) | 0, d = (x - w / 2) ** 2 + (y - h / 2) ** 2; if (d < best) { best = d; start = [x, y]; } });
+  return { kind, name: KINDS[kind], w, h, seed, tiles: G.t.join(''), traps, start: start || [1, 1], decor: dec.decor, lights: dec.lights };
 }
 
 module.exports = { generate, KINDS, WALK: [...WALK], TILE_CHARS: '.,#H~^T=DSPAB_bf' };

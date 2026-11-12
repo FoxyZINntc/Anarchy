@@ -495,8 +495,12 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
   /* ---------- mapas ---------- */
   function mapFromGen(g) {
     const L = C.fromTiles(g.tiles, g.w, g.h, g.kind);
-    const { tiles, ...rest } = g;
-    return { ...rest, pal: L.pal, layers: L.layers, doors: L.doors.map(doorObj) };
+    const { tiles, decor, lights, ...rest } = g;
+    // móveis e pisos das salas (cada sala com sua função) e as luzes de fogueiras e braseiros
+    const M = { w: g.w, h: g.h, pal: L.pal, layers: L.layers };
+    if (decor && decor.length) C.setCells(M, decor);
+    const ls = (lights || []).slice(0, LIM.lights).map(x => ({ id: newId(), name: 'Luz', x: x.x, y: x.y, r: x.r, intensity: x.intensity || 80, color: x.color || '#ffb35a', shape: 'circulo', dir: 0, angle: 90, thru: [], on: true }));
+    return { ...rest, pal: M.pal, layers: M.layers, doors: L.doors.map(doorObj), lights: ls };
   }
   function newMap(c, data) {
     if (byCamp(R.maps, c.id).length >= LIM.maps) throw new Error(`Limite de ${LIM.maps} mapas por campanha. Apague algum.`);
@@ -770,7 +774,7 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
         const g = mapFromGen(generate({ kind: d.kind, w: d.w, h: d.h, rooms: d.rooms, obst: d.obst, doors: d.doors !== false, traps: d.traps, wide: d.wide, seed: d.seed }));
         const old = d.replace && R.maps[str(d.replace, 40)];
         if (old && old.campId === c.id) {
-          Object.assign(old, g, { name: txt(d.name, 40) || old.name, bg: null, seen: '', seenBy: {}, lights: [], marks: [] });
+          Object.assign(old, g, { name: txt(d.name, 40) || old.name, bg: null, seen: '', seenBy: {}, marks: [] });
           for (const e of byCamp(R.ents, c.id)) if (e.mapId === old.id) { e.x = Math.min(e.x, g.w - 1); e.y = Math.min(e.y, g.h - 1); }
           for (const ch of byCamp(R.chars, c.id)) if (ch.pos[old.id]) ch.pos[old.id] = spawn(old, ch);
           m = old;

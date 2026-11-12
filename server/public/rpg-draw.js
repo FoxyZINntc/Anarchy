@@ -77,7 +77,7 @@ function texCanvas(mt) {
 /* ---------- objetos (desenhados por cima do chão, centrados na casa) ---------- */
 const OBJ = {
   pilar(g, x, y, S, c) { g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(x + S * .08, y + S * .14, S * .36, S * .3, 0, 0, 7); g.fill(); const gr = g.createRadialGradient(x - S * .1, y - S * .1, 1, x, y, S * .34); gr.addColorStop(0, c[2]); gr.addColorStop(1, c[1]); g.fillStyle = gr; g.beginPath(); g.arc(x, y, S * .32, 0, 7); g.fill(); g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 1; g.beginPath(); g.arc(x, y, S * .22, 0, 7); g.stroke(); },
-  pedregulho(g, x, y, S, c, i) { const r = S * (.46 + rnd(i, 6) * .14); g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(x + r * .18, y + r * .3, r * 1.02, r * .8, 0, 0, 7); g.fill(); const gr = g.createRadialGradient(x - r * .35, y - r * .4, r * .1, x, y, r * 1.05); gr.addColorStop(0, c[0]); gr.addColorStop(.6, c[1]); gr.addColorStop(1, c[2]); g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, r, r * (.82 + rnd(i, 7) * .15), rnd(i, 8) * 3, 0, 7); g.fill(); g.strokeStyle = 'rgba(30,24,18,.5)'; g.lineWidth = Math.max(1, S * .03); g.beginPath(); g.moveTo(x - r * .3, y - r * .1); g.lineTo(x, y + r * .1); g.lineTo(x + r * .2, y - r * .2); g.stroke(); },
+  pedregulho(g, x, y, S, c, i) { const r = S * (.46 + rnd(i, 6) * .14); g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(x + r * .18, y + r * .3, r * 1.02, r * .8, 0, 0, 7); g.fill(); const gr = g.createRadialGradient(x - r * .35, y - r * .4, r * .1, x, y, r * 1.05); gr.addColorStop(0, c[0]); gr.addColorStop(.6, c[1]); gr.addColorStop(1, c[2]); g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, r, r * (.82 + rnd(i, 7) * .15), rnd(i, 8) * 3, 0, 7); g.fill(); g.strokeStyle = 'rgba(30,24,18,.45)'; g.lineWidth = Math.max(1, S * .025); g.beginPath(); const t = rnd(i, 9) * 6; g.moveTo(x + Math.cos(t) * r * .55, y + Math.sin(t) * r * .45); g.lineTo(x + Math.cos(t + .4) * r * .1, y + Math.sin(t + .4) * r * .1); g.lineTo(x + Math.cos(t + 2.6) * r * .5, y + Math.sin(t + 2.6) * r * .4); g.moveTo(x + Math.cos(t + .4) * r * .1, y + Math.sin(t + .4) * r * .1); g.lineTo(x + Math.cos(t + 4.4) * r * .35, y + Math.sin(t + 4.4) * r * .3); g.stroke(); g.fillStyle = 'rgba(255,255,255,.12)'; g.beginPath(); g.ellipse(x - r * .35, y - r * .35, r * .28, r * .16, -.6, 0, 7); g.fill(); },
   estatua(g, x, y, S, c) { g.fillStyle = 'rgba(0,0,0,.4)'; g.fillRect(x - S * .36, y - S * .26, S * .76, S * .7); g.fillStyle = c[1]; g.fillRect(x - S * .38, y - S * .38, S * .76, S * .76); const gr = g.createRadialGradient(x - S * .08, y - S * .1, 1, x, y, S * .3); gr.addColorStop(0, c[2]); gr.addColorStop(1, c[0]); g.fillStyle = gr; g.beginPath(); g.arc(x, y - S * .04, S * .2, 0, 7); g.fill(); g.beginPath(); g.ellipse(x, y + S * .16, S * .26, S * .14, 0, 0, 7); g.fill(); },
   arvore(g, x, y, S, c, i) { const r = S * (.48 + rnd(i, 52) * .18); x += (rnd(i, 50) - .5) * S * .3; y += (rnd(i, 51) - .5) * S * .3; g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(x + r * .25, y + r * .45, r * 1.05, r * .75, 0, 0, 7); g.fill(); const greens = [c[0], c[1], c[2], c[0]]; for (let k = 0; k < 4; k++) { g.fillStyle = greens[(i + k) % 4]; g.beginPath(); g.arc(x + (rnd(i, 20 + k) - .5) * r * .9, y + (rnd(i, 30 + k) - .5) * r * .9, r * (.55 + rnd(i, 40 + k) * .25), 0, 7); g.fill(); } g.fillStyle = 'rgba(190,240,150,.12)'; g.beginPath(); g.arc(x - r * .25, y - r * .3, r * .4, 0, 7); g.fill(); },
   pinheiro(g, x, y, S, c, i) { const r = S * (.5 + rnd(i, 52) * .12); g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(x + r * .2, y + r * .4, r * .9, r * .65, 0, 0, 7); g.fill(); for (let k = 0; k < 3; k++) { const rr = r * (1 - k * .28); g.fillStyle = [c[1], c[0], c[2]][k]; g.beginPath(); for (let a = 0; a < 8; a++) { const t = a / 8 * Math.PI * 2 + k * .3, q = a % 2 ? rr * .62 : rr; g[a ? 'lineTo' : 'moveTo'](x + Math.cos(t) * q, y + Math.sin(t) * q); } g.closePath(); g.fill(); } },
@@ -146,8 +146,12 @@ function paintMap(m, cv, opt = {}) {
       if (st === 'trevas') g.globalAlpha = .9;
       if (st === 'buraco') { for (const i of cells) { const cx = (i % m.w + .5) * S, cy = (((i / m.w) | 0) + .5) * S, gr = g.createRadialGradient(cx, cy, 0, cx, cy, S * .75); gr.addColorStop(0, 'rgba(0,0,0,.97)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(cx - S, cy - S, 2 * S, 2 * S); } g.restore(); continue; }
       if (st === 'ponte') { if (rects(i => set.has(i))) { g.shadowColor = 'rgba(0,0,0,.5)'; g.shadowBlur = S * .3; g.fillStyle = pat(mt); g.fill(); } g.restore(); continue; }
+      // margem de espuma/umidade em volta da água (contorno claro e úmido antes do líquido)
+      if (st === 'agua' && mt.org && smooth(i => set.has(i), 1.62)) { g.strokeStyle = 'rgba(30,22,14,.35)'; g.stroke(); smooth(i => set.has(i), 1.48); g.strokeStyle = 'rgba(225,240,255,.22)'; g.stroke(); }
       if (mt.org ? smooth(i => set.has(i), 1.35) : rects(i => set.has(i))) { if (mt.org) { g.strokeStyle = pat(mt); g.stroke(); } else { g.fillStyle = pat(mt); g.fill(); } }
       g.restore();
+      // brilhos na água (reflexo da luz) e brasas na lava
+      if (st === 'agua' || st === 'lava') { g.save(); g.globalCompositeOperation = 'lighter'; for (const i of cells) { if (rnd(i, 70) > .35) continue; const x = (i % m.w + rnd(i, 71)) * S, y = (((i / m.w) | 0) + rnd(i, 72)) * S; g.strokeStyle = st === 'lava' ? 'rgba(255,200,90,.5)' : 'rgba(255,255,255,.22)'; g.lineWidth = Math.max(1, S * .04); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + S * .12, y - S * .05, x + S * .25, y); g.stroke(); } g.restore(); }
       // água e lava: fundo mais escuro/quente longe da margem
       if (st === 'agua' || st === 'lava') {
         g.save(); g.beginPath();
@@ -156,9 +160,39 @@ function paintMap(m, cv, opt = {}) {
       }
     }
   }
-  // 3) paredes e estruturas
-  if (showStruct) for (const [id, cells] of Object.entries(group('parede'))) {
-    const mt = M(id); if (!mt) continue; const set = new Set(cells), has = i => set.has(i);
+  // desgaste: manchas de sujeira e umidade no chão, poeira mais clara nas áreas de passagem, cascalho perto das paredes
+  if (!m.bg) {
+    g.save(); g.globalCompositeOperation = 'multiply';
+    for (let k = 0; k < n / 4; k++) { const x = rnd(k, 200) * W, y = rnd(k, 201) * Hh, rr = S * (1 + rnd(k, 202) * 2.6), a = .08 + rnd(k, 203) * .14, gr = g.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, `rgba(55,42,30,${a})`); gr.addColorStop(1, 'rgba(55,42,30,0)'); g.fillStyle = gr; g.fillRect(x - rr, y - rr, 2 * rr, 2 * rr); }
+    g.globalCompositeOperation = 'screen';
+    for (let k = 0; k < n / 14; k++) { const x = rnd(k, 210) * W, y = rnd(k, 211) * Hh, rr = S * (1.5 + rnd(k, 212) * 2), gr = g.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, 'rgba(255,235,200,.05)'); gr.addColorStop(1, 'rgba(255,235,200,0)'); g.fillStyle = gr; g.fillRect(x - rr, y - rr, 2 * rr, 2 * rr); }
+    g.restore();
+    for (let i = 0; i < n; i++) {
+      if (ids.parede[i] || ids.terreno[i]) continue; const x = i % m.w, y = (i / m.w) | 0;
+      const wall = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => { const xx = x + a, yy = y + b; return xx >= 0 && yy >= 0 && xx < m.w && yy < m.h ? ids.parede[yy * m.w + xx] : null; }).find(Boolean);
+      if (!wall || rnd(i, 220) > .45) continue;
+      const wm = M(wall); if (!wm || SEE[wm.st]) continue;
+      for (let k = 0; k < 3; k++) { const px = (x + rnd(i, 221 + k)) * S, py = (y + rnd(i, 224 + k)) * S, rr = S * (.03 + rnd(i, 227 + k) * .05); g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.arc(px + rr * .4, py + rr * .5, rr, 0, 7); g.fill(); g.fillStyle = wm.c[2]; g.beginPath(); g.arc(px, py, rr, 0, 7); g.fill(); }
+    }
+  }
+  // 3) paredes e estruturas. Rocha maciça (parede cercada só de parede) vira escuridão: as salas e os corredores
+  //    ficam em destaque, como num mapa de mesa de verdade. Só a "casca" da parede ganha textura, volume e sombra.
+  const solid = i => { const id = ids.parede[i]; const mt = id && M(id); return !!mt && !SEE[mt.st]; };
+  const deep = new Uint8Array(n);
+  if (showStruct && !m.bg) {
+    for (let i = 0; i < n; i++) {
+      if (!solid(i)) continue; const x = i % m.w, y = (i / m.w) | 0; let all = true;
+      for (let b = -1; b <= 1 && all; b++) for (let a = -1; a <= 1; a++) { const xx = x + a, yy = y + b; if (xx < 0 || yy < 0 || xx >= m.w || yy >= m.h) continue; if (!solid(yy * m.w + xx)) { all = false; break; } }
+      deep[i] = all ? 1 : 0;
+    }
+    g.save(); g.beginPath(); let any = false;
+    for (let i = 0; i < n; i++) if (deep[i]) { any = true; g.rect((i % m.w) * S - .5, ((i / m.w) | 0) * S - .5, S + 1, S + 1); }
+    if (any) { g.fillStyle = '#0c0a09'; g.fill(); g.clip(); g.globalAlpha = .1; for (let k = 0; k < n / 2; k++) { g.fillStyle = rnd(k, 260) < .5 ? '#2a241e' : '#000'; const x = rnd(k, 261) * W, y = rnd(k, 262) * Hh, rr = S * (.08 + rnd(k, 263) * .3); g.beginPath(); g.ellipse(x, y, rr, rr * .7, rnd(k, 264) * 3, 0, 7); g.fill(); } }
+    g.restore();
+  }
+  if (showStruct) for (const [id, all] of Object.entries(group('parede'))) {
+    const cells = all.filter(i => !deep[i]);
+    const mt = M(id); if (!mt || !cells.length) continue; const set = new Set(all), has = i => set.has(i) && !deep[i];
     g.save(); if (m.bg) g.globalAlpha = .4;
     if (SEE[mt.st]) { // grade, vidro e barreira: uma linha ligando as casas (dá para ver através)
       const w = mt.st === 'grade' ? .16 : .2;
@@ -171,12 +205,20 @@ function paintMap(m, cv, opt = {}) {
     const shape = () => (rough ? smooth(has, 1.5) : rects(has));
     const paint = style => { if (rough) { g.strokeStyle = style; g.stroke(); } else { g.fillStyle = style; g.fill(); } };
     if (!shape()) { g.restore(); continue; }
-    g.save(); g.shadowColor = 'rgba(0,0,0,.65)'; g.shadowBlur = S * .6; g.shadowOffsetY = S * .16; paint('#000'); g.restore();
+    // sombra: a luz vem de cima à esquerda, então as paredes projetam sombra para baixo e para a direita;
+    // depois uma sombra de contato suave em volta (oclusão: cantos e rodapés mais escuros)
+    g.save(); g.shadowColor = 'rgba(0,0,0,.72)'; g.shadowBlur = S * .9; g.shadowOffsetX = S * .24; g.shadowOffsetY = S * .34; paint('#000'); g.restore();
+    shape(); g.save(); g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = S * 1.4; paint('#000'); g.restore();
     shape(); paint(pat(mt));
     if (!rough) for (const i of cells) {
-      const x = i % m.w, y = (i / m.w) | 0, below = y + 1 < m.h ? (y + 1) * m.w + x : -1, above = y > 0 ? (y - 1) * m.w + x : -1;
-      if (below >= 0 && !set.has(below)) { const gr = g.createLinearGradient(0, (y + .7) * S, 0, (y + 1) * S); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.45)'); g.fillStyle = gr; g.fillRect(x * S, (y + .62) * S, S, S * .38); }
-      if (above >= 0 && !set.has(above)) { g.fillStyle = 'rgba(255,240,210,.09)'; g.fillRect(x * S, y * S, S, S * .1); }
+      const x = i % m.w, y = (i / m.w) | 0, at = (a, b) => { const xx = x + a, yy = y + b; return xx < 0 || yy < 0 || xx >= m.w || yy >= m.h ? true : set.has(yy * m.w + xx); };
+      // faces: baixo e direita na sombra, cima e esquerda pegando luz (dá volume ao bloco)
+      if (!at(0, 1)) { const gr = g.createLinearGradient(0, (y + .62) * S, 0, (y + 1) * S); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.55)'); g.fillStyle = gr; g.fillRect(x * S, (y + .62) * S, S, S * .38); }
+      if (!at(1, 0)) { const gr = g.createLinearGradient((x + .7) * S, 0, (x + 1) * S, 0); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.4)'); g.fillStyle = gr; g.fillRect((x + .7) * S, y * S, S * .3, S); }
+      if (!at(0, -1)) { g.fillStyle = 'rgba(255,240,210,.16)'; g.fillRect(x * S, y * S, S, S * .07); }
+      if (!at(-1, 0)) { g.fillStyle = 'rgba(255,240,210,.1)'; g.fillRect(x * S, y * S, S * .06, S); }
+      // rachaduras e manchas na pedra
+      if (rnd(i, 240) < .18) { g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = Math.max(1, S * .025); g.beginPath(); const sx = (x + rnd(i, 241)) * S, sy = (y + rnd(i, 242)) * S; g.moveTo(sx, sy); g.lineTo(sx + (rnd(i, 243) - .5) * S * .5, sy + rnd(i, 244) * S * .4); g.lineTo(sx + (rnd(i, 245) - .5) * S * .6, sy + S * .45); g.stroke(); }
     }
     g.restore();
   }
@@ -185,13 +227,20 @@ function paintMap(m, cv, opt = {}) {
     const id = ids.objeto[i]; if (!id) continue; const mt = M(id); if (!mt) continue;
     const f = mt.img ? null : OBJ[mt.st] || OBJ.emoji, x = (i % m.w + .5) * S, y = (((i / m.w) | 0) + .5) * S;
     g.save(); if (m.bg) g.globalAlpha = .5;
+    // todo objeto projeta uma sombra suave na mesma direção das paredes
+    g.shadowColor = 'rgba(0,0,0,.5)'; g.shadowBlur = S * .22; g.shadowOffsetX = S * .1; g.shadowOffsetY = S * .14;
     if (mt.img) { const im = texCanvas(mt); g.drawImage(im, x - S * .45, y - S * .45, S * .9, S * .9); } else f(g, x, y, S, mt.c, i, mt);
     g.restore();
   }
   // brilho dos materiais mágicos/fogo
   if (!m.bg) { g.save(); g.globalCompositeOperation = 'lighter'; for (const L of ['terreno', 'objeto', 'chao']) for (let i = 0; i < n; i++) { const id = ids[L][i]; if (!id) continue; const mt = M(id); if (!mt || !mt.glow) continue; if (L === 'chao' && rnd(i, 9) > .25) continue; const x = (i % m.w + .5) * S, y = (((i / m.w) | 0) + .5) * S, r = S * (L === 'objeto' ? 1.4 : .8), gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, mt.glow + '55'); gr.addColorStop(1, mt.glow + '00'); g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r); } g.restore(); }
-  // luz ambiente: cantos mais escuros
-  if (!m.bg) { const vg = g.createRadialGradient(W / 2, Hh / 2, Math.min(W, Hh) * .3, W / 2, Hh / 2, Math.max(W, Hh) * .75); vg.addColorStop(0, 'rgba(255,220,160,.04)'); vg.addColorStop(1, 'rgba(0,0,0,.42)'); g.fillStyle = vg; g.fillRect(0, 0, W, Hh); }
+  // cor de cinema: luz quente vindo de cima à esquerda, sombras frias embaixo à direita, contraste e cantos escuros
+  if (!m.bg) {
+    g.save(); g.globalCompositeOperation = 'soft-light';
+    const lg = g.createLinearGradient(0, 0, W, Hh); lg.addColorStop(0, 'rgba(255,196,130,.32)'); lg.addColorStop(.55, 'rgba(128,128,128,0)'); lg.addColorStop(1, 'rgba(40,70,150,.32)');
+    g.fillStyle = lg; g.fillRect(0, 0, W, Hh); g.restore();
+    const vg = g.createRadialGradient(W * .45, Hh * .42, Math.min(W, Hh) * .25, W / 2, Hh / 2, Math.max(W, Hh) * .78); vg.addColorStop(0, 'rgba(255,220,160,.05)'); vg.addColorStop(1, 'rgba(0,0,0,.58)'); g.fillStyle = vg; g.fillRect(0, 0, W, Hh);
+  }
   return res;
 }
 
@@ -246,14 +295,20 @@ function drawLight(m, cv, srcs, opt = {}) {
   if (dark) { g.fillStyle = `rgba(4,4,10,${dark})`; g.fillRect(0, 0, cv.width, cv.height); }
   for (const s of srcs) {
     const cx = s.x * k, cy = s.y * k, R = Math.max(1, s.r + .5) * k, a = (s.intensity || 80) / 100;
+    // área alcançada com bordas arredondadas (círculos por casa) em vez de quadrados
     g.save(); g.beginPath();
-    for (let i = 0; i < s.mask.length; i++) if (s.mask[i]) g.rect((i % m.w) * k, ((i / m.w) | 0) * k, k, k);
+    for (let i = 0; i < s.mask.length; i++) if (s.mask[i]) { const x = ((i % m.w) + .5) * k, y = (((i / m.w) | 0) + .5) * k; g.moveTo(x + k * .78, y); g.arc(x, y, k * .78, 0, 7); }
     g.clip();
     if (dark) { g.globalCompositeOperation = 'destination-out'; const gr = g.createRadialGradient(cx, cy, 0, cx, cy, R); gr.addColorStop(0, `rgba(0,0,0,${a})`); gr.addColorStop(.7, `rgba(0,0,0,${a * .85})`); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(cx - R, cy - R, 2 * R, 2 * R); }
-    g.globalCompositeOperation = 'source-over';
-    const col = s.color || '#ffd98a', gr2 = g.createRadialGradient(cx, cy, 0, cx, cy, R);
-    gr2.addColorStop(0, col + Math.round(a * 70).toString(16).padStart(2, '0')); gr2.addColorStop(1, col + '00');
+    // brilho colorido: um halo largo e suave e um miolo quente perto da fonte (efeito de "bloom")
+    g.globalCompositeOperation = 'lighter';
+    const col = s.color || '#ffd98a', hx = v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0');
+    const gr2 = g.createRadialGradient(cx, cy, 0, cx, cy, R);
+    gr2.addColorStop(0, col + hx(a * 95)); gr2.addColorStop(.45, col + hx(a * 40)); gr2.addColorStop(1, col + '00');
     g.fillStyle = gr2; g.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+    const rc = Math.min(R, k * 1.6), gr3 = g.createRadialGradient(cx, cy, 0, cx, cy, rc);
+    gr3.addColorStop(0, `rgba(255,245,220,${(a * .55).toFixed(2)})`); gr3.addColorStop(1, 'rgba(255,245,220,0)');
+    g.fillStyle = gr3; g.fillRect(cx - rc, cy - rc, 2 * rc, 2 * rc);
     g.restore();
   }
   return true;
