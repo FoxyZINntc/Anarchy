@@ -1217,6 +1217,12 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-12-rpg-visual-hud', date: '12/11/2026', title: 'RPG de Mesa: visual do seu jeito', emoji: '🎬', items: [
+    'Novo botão <b>🎬</b> no topo da mesa: escolha o filtro da tela entre <b>Limpo</b>, <b>Suave</b> ou <b>Cinema</b>, ou ajuste cada efeito. Vale só para você.',
+    'O filtro padrão ficou mais leve.',
+    'Botão <b>?</b> com um guia simples de tudo que dá para fazer, e boas-vindas para quem abre a mesa pela primeira vez.',
+    'As ferramentas mostram a tecla de atalho, e a barra de baixo explica o que fazer com cada uma.'
+  ] },
   { id: '2026-11-12-rpg-avancado', date: '12/11/2026', title: 'RPG de Mesa: exploração de verdade', emoji: '🔦', items: [
     '<b>Eventos privados</b>: o Mestre clica com o botão direito num jogador → Criar evento. Cada evento tem mapa, combate e histórico próprios, e quem não participa não vê nada dele.',
     '<b>Luz e névoa por jogador</b>: lâmpadas no mapa, lanternas que apontam para onde o personagem olha (Q/E para virar) e névoa que mostra só o que cada um enxerga.',

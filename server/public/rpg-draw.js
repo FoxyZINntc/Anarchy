@@ -235,12 +235,14 @@ function paintMap(m, cv, opt = {}) {
   // brilho dos materiais mágicos/fogo
   if (!m.bg) { g.save(); g.globalCompositeOperation = 'lighter'; for (const L of ['terreno', 'objeto', 'chao']) for (let i = 0; i < n; i++) { const id = ids[L][i]; if (!id) continue; const mt = M(id); if (!mt || !mt.glow) continue; if (L === 'chao' && rnd(i, 9) > .25) continue; const x = (i % m.w + .5) * S, y = (((i / m.w) | 0) + .5) * S, r = S * (L === 'objeto' ? 1.4 : .8), gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, mt.glow + '55'); gr.addColorStop(1, mt.glow + '00'); g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r); } g.restore(); }
   // cor de cinema: luz quente vindo de cima à esquerda, sombras frias embaixo à direita, contraste e cantos escuros
-  if (!m.bg) {
+  // opt.grade (0 a 1): força da cor de cinema, escolhida por cada pessoa em "Visual" (0 = cores naturais)
+  const gr8 = Math.max(0, Math.min(1, opt.grade ?? .45));
+  if (!m.bg && gr8 > 0) {
     g.save(); g.globalCompositeOperation = 'soft-light';
-    const lg = g.createLinearGradient(0, 0, W, Hh); lg.addColorStop(0, 'rgba(255,196,130,.32)'); lg.addColorStop(.55, 'rgba(128,128,128,0)'); lg.addColorStop(1, 'rgba(40,70,150,.32)');
+    const lg = g.createLinearGradient(0, 0, W, Hh); lg.addColorStop(0, `rgba(255,196,130,${(.36 * gr8).toFixed(3)})`); lg.addColorStop(.55, 'rgba(128,128,128,0)'); lg.addColorStop(1, `rgba(40,70,150,${(.36 * gr8).toFixed(3)})`);
     g.fillStyle = lg; g.fillRect(0, 0, W, Hh); g.restore();
-    const vg = g.createRadialGradient(W * .45, Hh * .42, Math.min(W, Hh) * .25, W / 2, Hh / 2, Math.max(W, Hh) * .78); vg.addColorStop(0, 'rgba(255,220,160,.05)'); vg.addColorStop(1, 'rgba(0,0,0,.58)'); g.fillStyle = vg; g.fillRect(0, 0, W, Hh);
   }
+  if (!m.bg) { const vg = g.createRadialGradient(W * .45, Hh * .42, Math.min(W, Hh) * .25, W / 2, Hh / 2, Math.max(W, Hh) * .78); vg.addColorStop(0, 'rgba(255,220,160,0)'); vg.addColorStop(1, `rgba(0,0,0,${(.18 + .4 * gr8).toFixed(3)})`); g.fillStyle = vg; g.fillRect(0, 0, W, Hh); }
   return res;
 }
 
