@@ -24,6 +24,30 @@ const DIRS = [[270, '⬆️'], [315, '↗️'], [0, '➡️'], [45, '↘️'], [
 
 const R = { scope: null, lobbyEl: null, el: null, st: null, z: 1, tool: 'mover', brush: { L: 'chao', id: 'pedra', size: 1, erase: false }, mark: { e: '🗝️', size: 1, name: '', vis: 'todos' },
   lamp: { r: 5, color: '#ffd98a', shape: 'circulo', intensity: 80 }, doorDef: { look: 'madeira', state: 'fechada' }, tab: 'grupo', sel: null, fx: [], fxOn: false, drag: null, preview: '', paintKey: '' };
+
+/* ---------- visual da mesa (cada pessoa escolhe; fica salvo neste aparelho) ---------- */
+const LOOKS = {
+  limpo: { n: 'Limpo', ic: '🧼', d: 'Sem filtro nenhum: cores naturais, tela nítida.', grain: 0, vig: 0, grade: 0, flicker: false },
+  suave: { n: 'Suave', ic: '🌤️', d: 'Um toque de clima, sem atrapalhar. Recomendado.', grain: .025, vig: .22, grade: .3, flicker: true },
+  cinema: { n: 'Cinema', ic: '🎬', d: 'Granulação de filme, bordas escuras e cor dramática.', grain: .085, vig: .55, grade: 1, flicker: true }
+};
+function loadLook() {
+  let x = null; try { x = JSON.parse(localStorage.getItem('rpg:visual') || 'null'); } catch {}
+  const base = LOOKS[(x && x.preset) || 'suave'] || LOOKS.suave;
+  return { preset: (x && x.preset) || 'suave', grain: base.grain, vig: base.vig, grade: base.grade, flicker: base.flicker, ...(x && x.preset === 'personalizado' ? x : {}) };
+}
+R.look = loadLook();
+function saveLook() { try { localStorage.setItem('rpg:visual', JSON.stringify(R.look)); } catch {} }
+// aplica o filtro: granulação e bordas pela folha de estilo; a cor de cinema é pintada no mapa (repinta)
+function applyLook(repaint) {
+  if (!R.el) return;
+  R.el.style.setProperty('--rg-grain-op', R.look.grain);
+  R.el.style.setProperty('--rg-vig', R.look.vig);
+  R.el.classList.toggle('no-flicker', !R.look.flicker);
+  if (repaint) { R.paintKey = ''; drawMap(); }
+}
+const seen = k => { try { return localStorage.getItem('rpg:visto:' + k) === '1'; } catch { return false; } };
+const markSeen = k => { try { localStorage.setItem('rpg:visto:' + k, '1'); } catch {} };
 const me = () => H.S.me && H.S.me.id;
 const role = () => (R.st ? R.st.camp.role : null);
 const isMaster = () => role() === 'mestre';
@@ -165,10 +189,75 @@ async function openRoom(cid, view) {
     </div>`;
   el.style.setProperty('--rg-grain', `url(${grain()})`);
   document.body.appendChild(el); R.el = el;
+  applyLook(false);
   closeLobby();
   bindBoard();
   renderAll();
   fitZoom();
+  welcome();
+}
+/* ---------- boas-vindas: na primeira vez em cada papel, um cartão curto com o básico ---------- */
+function welcome() {
+  const r = role(), key = 'boasvindas-' + (r === 'mestre' ? 'mestre' : r === 'jogador' ? 'jogador' : 'visita');
+  if (seen(key) || !R.el) return;
+  const steps = r === 'mestre'
+    ? [['🗺️', 'Prepare o mapa', 'Na aba <b>👑 Mestre</b> gere ou importe um mapa. As salas já vêm com móveis e luzes.'], ['✉️', 'Chame o grupo', 'Em <b>🧙 Grupo</b> → Convidar. Cada um cria a própria ficha.'], ['🖱️', 'Botão direito em tudo', 'Na miniatura, no mapa, nas portas e nas luzes: é ali que ficam as opções.'], ['🎭', 'Eventos privados', 'Botão direito num jogador → <b>Criar evento</b> para uma cena só dele.']]
+    : r === 'jogador'
+      ? [['📜', 'Sua ficha', 'Clique em <b>Minha ficha</b> lá em cima para criar ou ver seu personagem.'], ['✋', 'Andar', 'Arraste sua miniatura, ou use <b>👣</b> para traçar o caminho e ela anda sozinha.'], ['🚪', 'Portas', 'Chegue perto e clique na porta para abrir ou fechar.'], ['🎲', 'Dados', 'Na aba <b>🎲 Dados</b>: clique num dado ou nos testes do seu personagem.']]
+      : [['👀', 'Você está assistindo', 'Dá para ver o mapa e o histórico em tempo real.'], ['🙋', 'Quer jogar?', 'Se a campanha estiver aberta, use <b>Entrar como jogador</b> lá em cima.']];
+  const el = document.createElement('div'); el.className = 'rpg-welcome'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Como funciona a mesa');
+  el.innerHTML = `<div class="rpg-wc-h"><b>${r === 'mestre' ? '👑 Bem-vindo, Mestre!' : r === 'jogador' ? '🎭 Bem-vindo à mesa!' : '🎲 Mesa de RPG'}</b><span>O básico em ${steps.length} passos</span></div>
+    <ol>${steps.map(([ic, t, d]) => `<li><i>${ic}</i><div><b>${t}</b><span>${d}</span></div></li>`).join('')}</ol>
+    <div class="rpg-wc-f"><button class="btn ghost sm" data-w="guia">📖 Ver o guia completo</button><button class="btn primary sm" data-w="ok">Entendi!</button></div>`;
+  $r('.rpg-stage').appendChild(el);
+  el.onclick = e => { const b = e.target.closest('[data-w]'); if (!b) return; markSeen(key); el.remove(); if (b.dataset.w === 'guia') helpModal(); };
+}
+/* ---------- guia (botão ? no topo): linguagem simples, por papel ---------- */
+function helpModal() {
+  const master = isMaster();
+  const K = k => `<kbd>${k}</kbd>`;
+  const sec = (t, items) => `<section class="rpg-help-s"><h3>${t}</h3><ul>${items.map(([ic, txt]) => `<li><i>${ic}</i><span>${txt}</span></li>`).join('')}</ul></section>`;
+  H.modal(`<div class="modal-h"><h2>📖 Como usar a mesa</h2><p>Tudo o que dá para fazer, em linguagem simples. Passe o mouse nos botões para ver o nome deles.</p></div>
+    <div class="modal-b rpg-help">
+      ${sec('🧭 Andar pelo mapa', [['✋', `Arraste o fundo do mapa para olhar em volta. ${K('Ctrl')} + rodinha do mouse (ou ＋ e －) muda o zoom.`], ['🧍', 'Arraste a sua miniatura para andar. Paredes e portas fechadas não deixam passar.'], ['👣', `Caminho ${K('C')}: clique no personagem e depois nos pontos do caminho. Clique de novo no último ponto (ou ${K('Enter')}) e ele anda casa por casa.`], ['🧭', `Virar o personagem: ${K('Q')} e ${K('E')} (a lanterna aponta para onde ele olha).`], ['🚪', 'Portas: chegue perto e clique nelas para abrir ou fechar. Trancadas pedem chave ou um teste.']])}
+      ${sec('📏 Medir e mostrar', [['📏', `Régua ${K('R')}: clique ponto a ponto (dá para fazer curvas). 1 casa = 1,5 m.`], ['📍', `Ping ${K('P')} ou ${K('Alt')} + clique: mostra um ponto para todo mundo.`], ['🖱️', 'Botão direito em qualquer coisa (miniatura, mapa, porta) abre as opções dela.']])}
+      ${sec('🎲 Dados e ficha', [['🎲', 'Aba Dados: clique num dado para rolar, ou escreva uma fórmula como 1d20+3. Secreta = só você e o Mestre veem.'], ['📜', '"Minha ficha" mostra atributos, vida, mana, status e inventário. Chaves no inventário abrem portas trancadas.'], ['📜', 'O Histórico guarda tudo que aconteceu: rolagens, narração e combate.']])}
+      ${master ? sec('👑 Ferramentas do Mestre', [['🖌️', `Pincel ${K('B')}: escolha a camada (chão, terreno, paredes, objetos) e pinte. Pôr um objeto não troca o chão.`], ['🚪', `Portas ${K('D')}, lâmpadas ${K('L')} e marcadores ${K('M')}: clique no mapa para colocar; botão direito para editar.`], ['🌫️', 'Luz e névoa (aba Mestre): ligue a névoa e escolha o ambiente. Cada jogador vê só o que o personagem enxerga.'], ['🎭', 'Eventos: botão direito num jogador → Criar evento. Os outros não veem nada do evento.'], ['📊', 'Fichas (aba Mestre): status personalizados, atributos e descanso.']]) : ''}
+      ${sec('🎬 Visual', [['🎬', 'O botão 🎬 lá em cima muda o filtro da tela (limpo, suave ou cinema). Vale só para você.']])}
+    </div>
+    <div class="modal-f"><button class="btn ghost" data-w="reset">Mostrar as boas-vindas de novo</button><span class="spacer" style="flex:1"></span><button class="btn primary" data-close>Fechar</button></div>`, (md, close) => {
+    md.querySelector('[data-w="reset"]').onclick = () => { try { for (const k of ['mestre', 'jogador', 'visita']) localStorage.removeItem('rpg:visto:boasvindas-' + k); } catch {} close(); welcome(); };
+  });
+}
+/* ---------- painel Visual (filtro da tela) ---------- */
+function lookModal() {
+  const before = { ...R.look };
+  H.modal(`<div class="modal-h"><h2>🎬 Visual da mesa</h2><p>Escolha quanto filtro aparece na tela. Vale só para você e fica salvo neste aparelho.</p></div>
+    <div class="modal-b rpg-form">
+      <div class="rpg-looks">${Object.entries(LOOKS).map(([k, x]) => `<button type="button" class="rpg-look ${R.look.preset === k ? 'on' : ''}" data-p="${k}"><i>${x.ic}</i><b>${x.n}</b><span>${x.d}</span></button>`).join('')}</div>
+      <details class="rpg-look-fino" ${R.look.preset === 'personalizado' ? 'open' : ''}><summary>Ajuste fino</summary>
+        <label class="field">Granulação de filme <b data-o="grain"></b><input type="range" data-k="grain" min="0" max="0.12" step="0.005"></label>
+        <label class="field">Bordas escuras <b data-o="vig"></b><input type="range" data-k="vig" min="0" max="0.7" step="0.02"></label>
+        <label class="field">Cor de cinema <b data-o="grade"></b><input type="range" data-k="grade" min="0" max="1" step="0.05"></label>
+        <label class="rpg-check"><input type="checkbox" data-k="flicker"> Luz das tochas tremulando</label>
+      </details>
+      <p class="muted small">Dica: se a tela parecer escura ou "suja", escolha <b>Limpo</b>.</p>
+    </div>
+    <div class="modal-f"><button class="btn ghost" data-close id="lkCancel">Cancelar</button><button class="btn primary" id="lkOk">Salvar</button></div>`, (md, close) => {
+    let done = false;
+    const sync = () => {
+      md.querySelectorAll('.rpg-look').forEach(b => b.classList.toggle('on', b.dataset.p === R.look.preset));
+      md.querySelectorAll('[data-k]').forEach(i => { if (i.type === 'checkbox') i.checked = R.look.flicker; else i.value = R.look[i.dataset.k]; });
+      md.querySelectorAll('[data-o]').forEach(o => { const k = o.dataset.o, v = R.look[k]; o.textContent = Math.round(v / (k === 'grain' ? .12 : k === 'vig' ? .7 : 1) * 100) + '%'; });
+    };
+    let gradeT = null;
+    const live = repaint => { applyLook(false); if (repaint) { clearTimeout(gradeT); gradeT = setTimeout(() => applyLook(true), 150); } };
+    sync();
+    md.querySelector('.rpg-looks').onclick = e => { const b = e.target.closest('[data-p]'); if (!b) return; const x = LOOKS[b.dataset.p]; const g0 = R.look.grade; R.look = { preset: b.dataset.p, grain: x.grain, vig: x.vig, grade: x.grade, flicker: x.flicker }; sync(); live(g0 !== x.grade); };
+    md.querySelector('.rpg-look-fino').oninput = e => { const i = e.target; if (!i.dataset.k) return; const g0 = R.look.grade; R.look = { ...R.look, preset: 'personalizado', [i.dataset.k]: i.type === 'checkbox' ? i.checked : +i.value }; sync(); live(g0 !== R.look.grade); };
+    md.querySelector('#lkOk').onclick = () => { done = true; saveLook(); close(); toast('Visual salvo.'); };
+    md.querySelector('#lkCancel').addEventListener('click', () => { if (done) return; const g0 = R.look.grade; R.look = before; applyLook(g0 !== before.grade); });
+  });
 }
 // granulação de filme (gerada uma vez, ruído cinza)
 let grainUrl = '';
@@ -198,6 +287,8 @@ function renderTop() {
     ${c.role === 'convidado' ? '<button class="btn primary sm" data-a="join">Aceitar convite</button>' : ''}
     ${c.role === 'espectador' && c.open && c.state !== 'encerrada' && c.players.length < c.maxPlayers ? '<button class="btn sm" data-a="join">Entrar como jogador</button>' : ''}
     ${isPlayer() ? '<button class="btn sm" data-a="mysheet">📜 <span>Minha ficha</span></button>' : ''}
+    <button class="icon-btn rpg-top-ic2" data-a="look" data-tip="Visual: filtro da tela (só para você)" aria-label="Visual da mesa">🎬</button>
+    <button class="icon-btn rpg-top-ic2" data-a="help" data-tip="Como usar a mesa" aria-label="Como usar a mesa">?</button>
     ${isMaster() ? `<button class="icon-btn" data-a="settings" data-tip="Configurações da campanha" aria-label="Configurações da campanha">${H.ic('gear')}</button>` : ''}
     <button class="icon-btn rpg-side-tog" data-a="side" aria-label="Painel">${H.ic('menu')}</button>`;
   $r('.rpg-top').onclick = async e => {
@@ -206,6 +297,8 @@ function renderTop() {
     if (a === 'back') closeRoom();
     if (a === 'side') R.el.classList.toggle('side-open');
     if (a === 'settings') settingsModal();
+    if (a === 'look') lookModal();
+    if (a === 'help') helpModal();
     if (a === 'mysheet') { const ch = myChar(); ch ? sheetModal(ch) : sheetModal(null); }
     if (a === 'join') { const q = await call('rpg:join', { cid: R.st.camp.id }, 'Você entrou na campanha! Agora crie seu personagem.'); if (q.ok && !myChar()) setTimeout(() => sheetModal(null), 300); }
   };
@@ -235,7 +328,7 @@ async function switchScene(sid) {
 const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch {} };
 
 /* ---------- mapa: terreno pintado em camadas, portas, luz, névoa e grade ---------- */
-const mapKey = m => [m.id, m.w, m.h, m.bg || '', m.pal.join(','), ...C.LAYERS.map(L => m.layers[L]), JSON.stringify(mats().map(x => [x.id, x.c, x.st, x.img, x.emoji])), isMaster()].join('|');
+const mapKey = m => [m.id, m.w, m.h, m.bg || '', m.pal.join(','), ...C.LAYERS.map(L => m.layers[L]), JSON.stringify(mats().map(x => [x.id, x.c, x.st, x.img, x.emoji])), isMaster(), R.look.grade].join('|');
 function drawMap() {
   const m = curMap(), board = $r('.rpg-board'), tiles = $r('.rpg-tiles'), bg = $r('.rpg-bg'), nomap = $r('.rpg-nomap');
   if (!m) {
@@ -247,11 +340,11 @@ function drawMap() {
   board.style.width = m.w * CELL + 'px'; board.style.height = m.h * CELL + 'px';
   if (m.bg) { bg.hidden = false; if (bg.getAttribute('src') !== m.bg) bg.src = m.bg; } else { bg.hidden = true; bg.removeAttribute('src'); }
   const key = mapKey(m);
-  if (key !== R.paintKey) { R.paintKey = key; if (m.bg && !isMaster()) { tiles.width = tiles.height = 1; } else D.paintMap(m, tiles, { cell: CELL, mats: mats(), master: isMaster() }); }
+  if (key !== R.paintKey) { R.paintKey = key; if (m.bg && !isMaster()) { tiles.width = tiles.height = 1; } else D.paintMap(m, tiles, { cell: CELL, mats: mats(), master: isMaster(), grade: R.look.grade }); }
   drawDoors(); drawGrid(); drawMarks(); drawLight(); drawFog(); drawHandles(); setZoom(R.z);
 }
 let repaintT = null;
-function repaintSoon() { if (repaintT) return; repaintT = setTimeout(() => { repaintT = null; const m = curMap(); if (m && R.el) { R.paintKey = mapKey(m); D.paintMap(m, $r('.rpg-tiles'), { cell: CELL, mats: mats(), master: isMaster() }); drawLight(); } }, 120); }
+function repaintSoon() { if (repaintT) return; repaintT = setTimeout(() => { repaintT = null; const m = curMap(); if (m && R.el) { R.paintKey = mapKey(m); D.paintMap(m, $r('.rpg-tiles'), { cell: CELL, mats: mats(), master: isMaster(), grade: R.look.grade }); drawLight(); } }, 120); }
 function drawDoors() { const m = curMap(), cv = $r('.rpg-doors'); if (m && cv) D.drawDoors(m, cv, { cell: CELL, master: isMaster() }); }
 function drawGrid() {
   const m = curMap(), c = $r('.rpg-gridc'); if (!m || !c) return;
@@ -658,7 +751,10 @@ function matPreview(cv, mt) {
 function renderTools() {
   const t = $r('.rpg-toolbar'); if (!t) return;
   const m = curMap(), master = isMaster() && m;
-  t.innerHTML = `${TOOLS.filter(x => !x[3] || master).map(([k, i, l]) => `<button data-t="tool" data-v="${k}" class="${R.tool === k ? 'on' : ''}" data-tip="${l}" aria-label="${l}">${i}</button>`).join('')}
+  const KEYS = { mover: 'V', regua: 'R', caminho: 'C', ping: 'P', pincel: 'B', porta: 'D', luz: 'L', marcador: 'M' };
+  const btn = ([k, i, l]) => `<button data-t="tool" data-v="${k}" class="${R.tool === k ? 'on' : ''}" data-tip="${l}" aria-label="${l}" ${KEYS[k] ? `data-key="${KEYS[k]}"` : ''}>${i}</button>`;
+  // ferramentas de todos em cima; as do Mestre num grupo separado, com etiqueta
+  t.innerHTML = `${TOOLS.filter(x => !x[3]).map(btn).join('')}${master ? `<hr><span class="rpg-tb-lbl">Mestre</span>${TOOLS.filter(x => x[3]).map(btn).join('')}` : ''}
     <hr><button data-t="in" aria-label="Aumentar zoom" data-tip="Aumentar (+)">＋</button><button data-t="zoom" class="z" data-tip="Ajustar à tela">${Math.round(R.z * 100)}%</button><button data-t="out" aria-label="Diminuir zoom" data-tip="Diminuir (−)">－</button>`;
   const fly = $r('.rpg-brush');
   fly.hidden = !(master && ['pincel', 'marcador', 'luz', 'porta'].includes(R.tool));
@@ -692,7 +788,15 @@ function renderTools() {
       <label class="rpg-br-f">Começa<select data-f="state">${[['fechada', 'Fechada'], ['aberta', 'Aberta'], ['trancada', 'Trancada']].map(([v, l]) => `<option value="${v}" ${k.state === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <p class="muted small">Clique numa casa (de preferência numa abertura da parede). Clique numa porta para editar chave, teste e mensagem.</p>`;
   }
-  const hint = $r('.rpg-hint'); if (hint) { hint.textContent = TOOL_HINT[R.tool] || ''; hint.hidden = !TOOL_HINT[R.tool]; }
+  // barra de dica: ícone da ferramenta + o que fazer. Com ✋, quem está começando vê uma dica que dá para fechar.
+  const hint = $r('.rpg-hint');
+  if (hint) {
+    const T = TOOLS.find(x => x[0] === R.tool), first = R.tool === 'mover' && !seen('dica-mover');
+    const txt = TOOL_HINT[R.tool] || (first ? (isPlayer() ? 'Arraste sua miniatura para andar · clique numa porta para abrir · botão direito em qualquer coisa mostra as opções' : 'Arraste o mapa para olhar em volta · botão direito em qualquer coisa mostra as opções') : '');
+    hint.innerHTML = txt ? `<i>${T ? T[1] : '✋'}</i><span>${esc(txt)}</span>${first ? '<button data-h="x" aria-label="Esconder esta dica" title="Entendi, esconder">×</button>' : ''}` : '';
+    hint.hidden = !txt;
+    hint.onclick = e => { if (e.target.closest('[data-h="x"]')) { markSeen('dica-mover'); renderTools(); } };
+  }
   $r('.rpg-view').dataset.tool = R.tool;
   const onClick = e => {
     const b = e.target.closest('[data-t]'); if (!b) return;
