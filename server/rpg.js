@@ -182,7 +182,9 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
   function cleanRules(v, old = {}) {
     const o = v && typeof v === 'object' ? v : {};
     const b = (k, d) => (k in o ? !!o[k] : (k in old ? !!old[k] : d));
-    return { grid: b('grid', true), lock: b('lock', false), walls: b('walls', true), editOwn: b('editOwn', true), monsterHp: b('monsterHp', false), spect: b('spect', true) };
+    // gridStyle: como a grade aparece no mapa (só visual; "grid" decide se o movimento encaixa nas casas)
+    const gs = ['nenhuma', 'pontos', 'quadrados'].includes(o.gridStyle) ? o.gridStyle : (['nenhuma', 'pontos', 'quadrados'].includes(old.gridStyle) ? old.gridStyle : 'nenhuma');
+    return { grid: b('grid', true), lock: b('lock', false), walls: b('walls', true), editOwn: b('editOwn', true), monsterHp: b('monsterHp', false), spect: b('spect', true), gridStyle: gs };
   }
   const cleanConds = v => list(v, LIM.conds, x => txt(x, 24));
   function cleanChar(d, old, c) {
@@ -623,6 +625,15 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
       let r; try { r = roll(d.expr); } catch (e) { return fail(cb, e.message); }
       const ev = addEvent(c, { type: 'roll', uid, text: txt(d.label, 60), roll: r, priv: !!d.priv });
       touched(c); ok(cb, { event: ev });
+    });
+    // ping: marca um ponto no mapa para todo mundo ver (como nas mesas virtuais). Não salva nada.
+    on('rpg:ping', (d, cb) => {
+      const c = camp(d, 'jogar'); if (!c) return fail(cb, NO);
+      if (limited('rpg-ping:' + uid, 12, 10e3)) return fail(cb, 'Calma com os pings!');
+      const m = R.maps[c.mapId]; if (!m) return fail(cb, 'Nenhum mapa.');
+      const x = num(d.x, 0, m.w, 0), y = num(d.y, 0, m.h, 0);
+      emitCamp(c, 'rpg:ping', { uid, x, y, color: hex(users[uid] && users[uid].color, '#ffd36b') });
+      ok(cb, {});
     });
     // acontecimento escrito (narração do Mestre ou ação de um jogador)
     on('rpg:say', (d, cb) => {

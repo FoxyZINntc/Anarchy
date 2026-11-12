@@ -1217,6 +1217,13 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-12-rpg-visual', date: '12/11/2026', title: 'RPG de Mesa de cara nova', emoji: '🗺️', items: [
+    'Mapas pintados: terreno com contornos naturais, paredes com sombra, água funda, árvores e rochas com volume. Sem quadradinhos (a grade virou opcional).',
+    '<b>Botão direito</b> nas miniaturas e nos retratos: o Mestre edita a ficha dos jogadores, dá dano, cura e condições, esconde, duplica e muda o tamanho de criaturas.',
+    'Botão direito no mapa: ping para todos verem, criar criatura no lugar e trazer o grupo para perto.',
+    'Novas ferramentas: régua de distância (casas e metros), ping (Alt+clique) e atalhos V, R, P e B.',
+    'Retratos do grupo com anel de vida no canto da mesa, e visual de fantasia em toda a mesa.'
+  ] },
   { id: '2026-11-12-rpg', date: '12/11/2026', title: 'RPG de Mesa', emoji: '🎲', items: [
     'Novo botão <b>🎲</b> no topo dos canais e das conversas: crie campanhas de RPG e jogue com o pessoal.',
     'Mapas gerados na hora (masmorra, castelo, floresta, cidade e mais) ou importados de uma imagem, com névoa e armadilhas.',

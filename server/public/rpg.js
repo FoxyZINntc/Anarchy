@@ -137,9 +137,12 @@ async function openRoom(cid) {
   el.innerHTML = `<header class="rpg-top"></header>
     <div class="rpg-body">
       <section class="rpg-stage">
+        <div class="rpg-view"><div class="rpg-board"><img class="rpg-bg" alt="" hidden draggable="false"><canvas class="rpg-tiles"></canvas><canvas class="rpg-gridc"></canvas><div class="rpg-marks"></div><div class="rpg-toks"></div><canvas class="rpg-fog"></canvas><svg class="rpg-ruler"></svg></div></div>
+        <nav class="rpg-toolbar" aria-label="Ferramentas do mapa"></nav>
+        <div class="rpg-brush" hidden></div>
         <div class="rpg-combat" hidden></div>
-        <div class="rpg-view"><div class="rpg-board"><img class="rpg-bg" alt="" hidden><canvas class="rpg-tiles"></canvas><canvas class="rpg-fog"></canvas><div class="rpg-toks"></div></div></div>
-        <div class="rpg-tools"></div>
+        <div class="rpg-party" hidden></div>
+        <div class="rpg-hint" hidden></div>
         <div class="rpg-selbox" hidden></div>
         <div class="rpg-dicefx" aria-live="polite"></div>
         <div class="rpg-nomap" hidden></div>
@@ -184,32 +187,146 @@ function renderTop() {
   };
 }
 
-/* ---------- mapa (desenho das casas) ---------- */
+// segura o ponteiro no elemento enquanto arrasta (alguns toques/canetas não deixam: segue sem)
+const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch {} };
+
+/* ---------- mapa pintado (sem quadrados) ----------
+   Cada tipo de terreno vira uma mancha orgânica (círculos sobrepostos com textura), as paredes ganham sombra e
+   "face" de pedra, a água tem fundo mais escuro, árvores têm copa e sombra. A grade é só um enfeite opcional
+   (rules.gridStyle: nenhuma, pontos ou quadrados); o movimento continua encaixando nas casas quando rules.grid. */
 function rnd(i, k = 0) { let x = (i * 374761393 + k * 668265263) | 0; x = (x ^ (x >>> 13)) * 1274126177 | 0; return ((x ^ (x >>> 16)) >>> 0) / 4294967296; }
-function drawTile(g, ch, x, y, s, i) {
-  const X = x * s, Y = y * s;
-  const fill = (c) => { g.fillStyle = c; g.fillRect(X, Y, s, s); };
-  const ground = () => { fill(rnd(i) < 0.5 ? '#3a3e46' : '#373b43'); g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 1; g.strokeRect(X + .5, Y + .5, s - 1, s - 1); };
-  const grass = () => { fill(rnd(i) < 0.5 ? '#3c6a33' : '#3f6f36'); g.fillStyle = 'rgba(20,50,15,.45)'; for (let k = 0; k < 4; k++) g.fillRect(X + rnd(i, k) * (s - 3), Y + rnd(i, k + 9) * (s - 3), 2, 3); };
-  switch (ch) {
-    case '.': ground(); break;
-    case ',': grass(); break;
-    case 'f': fill('#6f7d33'); g.fillStyle = '#8fa040'; for (let k = 2; k < s; k += 6) g.fillRect(X + 1, Y + k, s - 2, 2); break;
-    case '#': fill('#1b1d22'); g.fillStyle = '#25282f'; g.fillRect(X, Y, s, s * .35); g.fillStyle = 'rgba(255,255,255,.04)'; g.fillRect(X, Y, s, 2); break;
-    case 'H': fill('#5b3d25'); g.strokeStyle = '#3e2816'; g.lineWidth = 1; for (let k = 6; k < s; k += 8) { g.beginPath(); g.moveTo(X, Y + k + .5); g.lineTo(X + s, Y + k + .5); g.stroke(); } break;
-    case '~': fill('#24527c'); g.strokeStyle = 'rgba(160,210,255,.35)'; g.lineWidth = 1.5; g.beginPath(); const wy = Y + s * (.35 + rnd(i) * .3); g.moveTo(X + 4, wy); g.quadraticCurveTo(X + s / 2, wy - 4, X + s - 4, wy); g.stroke(); break;
-    case 'b': fill('#24527c'); g.fillStyle = '#8a6239'; g.fillRect(X + 2, Y, s - 4, s); g.strokeStyle = '#5e4024'; for (let k = 4; k < s; k += 7) { g.beginPath(); g.moveTo(X + 2, Y + k + .5); g.lineTo(X + s - 2, Y + k + .5); g.stroke(); } break;
-    case '^': fill('#575046'); g.fillStyle = '#6e665a'; g.beginPath(); g.moveTo(X + s * .15, Y + s * .85); g.lineTo(X + s * .5, Y + s * .15); g.lineTo(X + s * .85, Y + s * .85); g.fill(); g.fillStyle = '#d8d2c6'; g.beginPath(); g.moveTo(X + s * .4, Y + s * .35); g.lineTo(X + s * .5, Y + s * .15); g.lineTo(X + s * .6, Y + s * .35); g.fill(); break;
-    case 'T': grass(); g.fillStyle = '#5b3b1f'; g.fillRect(X + s * .44, Y + s * .55, s * .12, s * .35); g.fillStyle = rnd(i, 3) < .5 ? '#1f4a1c' : '#245422'; g.beginPath(); g.arc(X + s / 2, Y + s * .45, s * .38, 0, 7); g.fill(); g.fillStyle = 'rgba(255,255,255,.08)'; g.beginPath(); g.arc(X + s * .4, Y + s * .35, s * .14, 0, 7); g.fill(); break;
-    case '=': fill(rnd(i) < .5 ? '#86704c' : '#8c7650'); g.fillStyle = 'rgba(60,40,20,.25)'; g.fillRect(X + rnd(i, 1) * s * .8, Y + rnd(i, 2) * s * .8, 3, 2); break;
-    case 'S': fill(rnd(i) < .5 ? '#c4ad74' : '#c9b37b'); g.fillStyle = 'rgba(120,90,40,.25)'; g.fillRect(X + rnd(i, 4) * s * .8, Y + rnd(i, 5) * s * .8, 2, 2); break;
-    case 'D': ground(); g.fillStyle = '#7b4a22'; g.fillRect(X + 3, Y + 3, s - 6, s - 6); g.strokeStyle = '#3d220c'; g.lineWidth = 2; g.strokeRect(X + 3, Y + 3, s - 6, s - 6); g.fillStyle = '#e0b04a'; g.beginPath(); g.arc(X + s * .7, Y + s * .5, 2, 0, 7); g.fill(); break;
-    case 'P': ground(); g.fillStyle = '#8b8f99'; g.beginPath(); g.arc(X + s / 2, Y + s / 2, s * .32, 0, 7); g.fill(); g.fillStyle = '#b6bac3'; g.beginPath(); g.arc(X + s * .45, Y + s * .45, s * .16, 0, 7); g.fill(); break;
-    case 'A': ground(); g.fillStyle = '#c99b2a'; g.fillRect(X + 4, Y + s * .3, s - 8, s * .45); g.fillStyle = '#f3d27a'; g.fillRect(X + 4, Y + s * .3, s - 8, 3); break;
-    case 'B': (rnd(i) < .5 ? grass : ground)(); g.strokeStyle = '#6b4520'; g.lineWidth = 4; g.beginPath(); g.moveTo(X + 4, Y + 4); g.lineTo(X + s - 4, Y + s - 4); g.moveTo(X + s - 4, Y + 4); g.lineTo(X + 4, Y + s - 4); g.stroke(); break;
-    case '_': fill('#0b0b0d'); { const gr = g.createRadialGradient(X + s / 2, Y + s / 2, 2, X + s / 2, Y + s / 2, s * .7); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(60,60,70,.6)'); g.fillStyle = gr; g.fillRect(X, Y, s, s); } break;
-    default: ground();
+const GROUND = { '.': '.', ',': ',', f: 'f', S: 'S', '=': '=', '~': '~', _: '_', b: '~', D: '.', P: '.', A: '.', B: ',', T: ',', '#': '#', H: 'H', '^': '^' };
+const TEX_COL = { 'c.': ['#5e5547', '#52493c', '#6b6152'], 'c#': ['#1c1916', '#141210', '#28231f'], '.': ['#57514a', '#4c463f', '#635c53'], ',': ['#4d7a37', '#436d30', '#5b8a41'], f: ['#7d8b38', '#6e7c30', '#93a243'], S: ['#cdb57e', '#c2a96f', '#d9c391'], '=': ['#957b55', '#86704c', '#a68b62'], '~': ['#2e6c9b', '#285f8a', '#3a7fb2'], _: ['#0d0b0a', '#080706', '#151210'], '#': ['#3f3a35', '#36312c', '#4a443e'], H: ['#6b4a2c', '#5c3f25', '#7a5634'], '^': ['#7b7164', '#6d6457', '#8a8073'] };
+const texCache = {};
+function texCanvas(t) {
+  if (texCache[t]) return texCache[t];
+  const n = 128, c = document.createElement('canvas'); c.width = c.height = n; const g = c.getContext('2d'), [base, dark, light] = TEX_COL[t] || TEX_COL['.'];
+  g.fillStyle = base; g.fillRect(0, 0, n, n);
+  for (let k = 0; k < 420; k++) { g.fillStyle = rnd(k, 1) < .5 ? dark : light; g.globalAlpha = .18 + rnd(k, 2) * .25; const s = 1 + rnd(k, 3) * (t === '.' || t === '#' ? 3 : 2); g.fillRect(rnd(k, 4) * n, rnd(k, 5) * n, s, s); }
+  g.globalAlpha = 1;
+  if (t === '.') { g.strokeStyle = 'rgba(0,0,0,.22)'; g.lineWidth = 1.2; for (let y = 0; y < n; y += 32) for (let x = (y / 32) % 2 ? 16 : 0; x < n + 16; x += 32) { g.beginPath(); g.moveTo(x + rnd(x, y) * 4, y); g.lineTo(x + 30, y + rnd(y, x) * 3); g.lineTo(x + 31, y + 30); g.lineTo(x, y + 31); g.closePath(); g.stroke(); } }
+  if (t === ',') { g.strokeStyle = 'rgba(30,60,20,.5)'; g.lineWidth = 1; for (let k = 0; k < 90; k++) { const x = rnd(k, 7) * n, y = rnd(k, 8) * n; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd(k, 9) - .5) * 4, y - 4 - rnd(k, 10) * 3); g.stroke(); } }
+  if (t === 'f') { g.fillStyle = 'rgba(160,180,70,.55)'; for (let y = 4; y < n; y += 10) g.fillRect(0, y, n, 3); }
+  if (t === '#') { g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1.5; for (let y = 0; y < n; y += 16) { g.beginPath(); g.moveTo(0, y); g.lineTo(n, y); g.stroke(); for (let x = (y / 16) % 2 ? 0 : 16; x < n; x += 32) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 16); g.stroke(); } } }
+  if (t === 'H') { g.strokeStyle = 'rgba(40,24,10,.55)'; g.lineWidth = 1.5; for (let y = 0; y < n; y += 10) { g.beginPath(); g.moveTo(0, y + .5); g.lineTo(n, y + .5); g.stroke(); } }
+  if (t === '~') { g.strokeStyle = 'rgba(190,230,255,.22)'; g.lineWidth = 1.5; for (let k = 0; k < 14; k++) { const x = rnd(k, 11) * n, y = rnd(k, 12) * n; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 8, y - 4, x + 16, y); g.stroke(); } }
+  if (t === '=') { g.fillStyle = 'rgba(70,52,30,.35)'; for (let k = 0; k < 40; k++) { g.beginPath(); g.arc(rnd(k, 13) * n, rnd(k, 14) * n, 1 + rnd(k, 15) * 2, 0, 7); g.fill(); } }
+  return (texCache[t] = c);
+}
+const ORGANIC_KINDS = ['caverna', 'montanha', 'floresta', 'campo'];
+function paintMap(m, cv) {
+  const res = Math.min(2, Math.max(1, 2400 / (Math.max(m.w, m.h) * CELL))), S = CELL * res;
+  cv.width = Math.round(m.w * S); cv.height = Math.round(m.h * S);
+  const g = cv.getContext('2d'), W = cv.width, Hh = cv.height;
+  const at = (x, y) => (x < 0 || y < 0 || x >= m.w || y >= m.h ? null : m.tiles[y * m.w + x]);
+  const organic = ORGANIC_KINDS.includes(m.kind);
+  // caverna e montanha: chão de terra e parede de rocha (sem lajotas nem tijolos)
+  const texOf = t => (organic && (t === '.' || t === '#') ? 'c' + t : t);
+  const pat = t => g.createPattern(texCanvas(texOf(t)), 'repeat');
+  // terreno contínuo: cada casa liga no centro das vizinhas (inclusive na diagonal) com um traço grosso e redondo.
+  // O resultado são manchas e caminhos com contorno suave (nada de quadrados nem de "bolinhas").
+  const jx = i => (rnd(i, 1) - .5) * .22 * S, jy = i => (rnd(i, 2) - .5) * .22 * S;
+  const smooth = (match, width) => {
+    g.beginPath(); let any = false;
+    for (let i = 0; i < m.tiles.length; i++) {
+      if (!match(m.tiles[i])) continue; any = true;
+      const x = i % m.w, y = (i / m.w) | 0, cx = (x + .5) * S + jx(i), cy = (y + .5) * S + jy(i);
+      g.moveTo(cx, cy); g.lineTo(cx + .01, cy);
+      for (const [a, b] of [[1, 0], [0, 1], [1, 1], [-1, 1]]) {
+        const nx = x + a, ny = y + b; if (nx < 0 || ny < 0 || nx >= m.w || ny >= m.h) continue;
+        const k = ny * m.w + nx; if (!match(m.tiles[k])) continue;
+        g.moveTo(cx, cy); g.lineTo((nx + .5) * S + jx(k), (ny + .5) * S + jy(k));
+      }
+    }
+    if (any) { g.lineWidth = width * S; g.lineCap = 'round'; g.lineJoin = 'round'; }
+    return any;
+  };
+  // 1) chão principal (o tipo mais comum) e os outros por cima, do mais "baixo" para o mais alto
+  const count = {}; for (const ch of m.tiles) { const k = GROUND[ch] || '.'; if ('.,fS=~_'.includes(k)) count[k] = (count[k] || 0) + 1; }
+  const base = Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || '.';
+  g.fillStyle = pat(base); g.fillRect(0, 0, W, Hh);
+  for (const t of [',', 'f', '.', 'S', '=', '_', '~']) {
+    if (t === base) continue;
+    if (smooth(ch => GROUND[ch] === t, t === '=' ? .95 : t === '_' ? 1.05 : 1.45)) { g.strokeStyle = pat(t); g.stroke(); }
+  }  // água: fundo mais escuro longe da margem
+  if (count['~']) {
+    g.save(); g.beginPath();
+    for (let i = 0; i < m.tiles.length; i++) { if (GROUND[m.tiles[i]] !== '~') continue; const x = i % m.w, y = (i / m.w) | 0; if ([[1, 0], [-1, 0], [0, 1], [0, -1]].every(([a, b]) => { const n = at(x + a, y + b); return n === null || GROUND[n] === '~'; })) { const cx = (x + .5) * S, cy = (y + .5) * S; g.moveTo(cx + S * .7, cy); g.arc(cx, cy, S * .7, 0, 7); } }
+    g.fillStyle = 'rgba(10,35,70,.38)'; g.filter = `blur(${S * .35}px)`; g.fill(); g.restore();
   }
+  // buracos: escuro no meio
+  for (let i = 0; i < m.tiles.length; i++) if (m.tiles[i] === '_') { const cx = (i % m.w + .5) * S, cy = (((i / m.w) | 0) + .5) * S, gr = g.createRadialGradient(cx, cy, 0, cx, cy, S * .7); gr.addColorStop(0, 'rgba(0,0,0,.95)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(cx - S, cy - S, 2 * S, 2 * S); }
+  // 2) paredes e prédios: sombra no chão, depois o bloco com textura, depois a "face" de baixo (dá altura).
+  //    Caverna e montanha: rocha contínua com contorno irregular (mesmo traço redondo do terreno).
+  for (const [t, f] of [['#', ch => ch === '#'], ['H', ch => ch === 'H']]) {
+    const rough = organic && t === '#';
+    const shape = () => {
+      if (rough) return smooth(f, 1.5);
+      g.beginPath(); let any = false;
+      for (let i = 0; i < m.tiles.length; i++) { if (!f(m.tiles[i])) continue; any = true; const x = i % m.w, y = (i / m.w) | 0; g.rect(x * S - .6, y * S - .6, S + 1.2, S + 1.2); }
+      return any;
+    };
+    const paint = style => { if (rough) { g.strokeStyle = style; g.stroke(); } else { g.fillStyle = style; g.fill(); } };
+    if (!shape()) continue;
+    g.save(); g.shadowColor = 'rgba(0,0,0,.65)'; g.shadowBlur = S * .6; g.shadowOffsetY = S * .16; paint('#000'); g.restore();
+    shape(); paint(pat(t));
+    if (rough) continue; // rocha da caverna: a sombra já marca a borda
+    for (let i = 0; i < m.tiles.length; i++) {
+      if (!f(m.tiles[i])) continue; const x = i % m.w, y = (i / m.w) | 0, below = at(x, y + 1), above = at(x, y - 1);
+      if (below !== null && !f(below)) { const gr = g.createLinearGradient(0, (y + .7) * S, 0, (y + 1) * S); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.45)'); g.fillStyle = gr; g.fillRect(x * S, (y + .62) * S, S, S * .38); }
+      if (above !== null && !f(above)) { g.fillStyle = 'rgba(255,240,210,.09)'; g.fillRect(x * S, y * S, S, S * .1); }
+    }
+  }
+  // rochas: pedras com volume (sombra, luz de cima à esquerda e uma rachadura)
+  for (let i = 0; i < m.tiles.length; i++) {
+    if (m.tiles[i] !== '^') continue;
+    const x = i % m.w, y = (i / m.w) | 0, cx = (x + .5) * S + jx(i), cy = (y + .5) * S + jy(i), r = S * (.5 + rnd(i, 6) * .14);
+    g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(cx + r * .18, cy + r * .3, r * 1.02, r * .8, 0, 0, 7); g.fill();
+    const gr = g.createRadialGradient(cx - r * .35, cy - r * .4, r * .1, cx, cy, r * 1.05);
+    gr.addColorStop(0, organic ? '#9b8f7c' : '#a99e8d'); gr.addColorStop(.6, organic ? '#6a604f' : '#776d5e'); gr.addColorStop(1, '#3a332b');
+    g.fillStyle = gr; g.beginPath(); g.ellipse(cx, cy, r, r * (.82 + rnd(i, 7) * .15), rnd(i, 8) * 3, 0, 7); g.fill();
+    g.strokeStyle = 'rgba(30,24,18,.5)'; g.lineWidth = Math.max(1, S * .03); g.beginPath(); g.moveTo(cx - r * .3, cy - r * .1); g.lineTo(cx, cy + r * .1); g.lineTo(cx + r * .2, cy - r * .2); g.stroke();
+  }
+  // 3) objetos
+  const tree = (cx, cy, r, i) => {
+    g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(cx + r * .25, cy + r * .45, r * 1.05, r * .75, 0, 0, 7); g.fill();
+    const greens = ['#24521f', '#2c6326', '#1f4a1b', '#336d2b'];
+    for (let k = 0; k < 4; k++) { g.fillStyle = greens[(i + k) % 4]; g.beginPath(); g.arc(cx + (rnd(i, 20 + k) - .5) * r * .9, cy + (rnd(i, 30 + k) - .5) * r * .9, r * (.55 + rnd(i, 40 + k) * .25), 0, 7); g.fill(); }
+    g.fillStyle = 'rgba(190,240,150,.12)'; g.beginPath(); g.arc(cx - r * .25, cy - r * .3, r * .4, 0, 7); g.fill();
+  };
+  for (let i = 0; i < m.tiles.length; i++) {
+    const ch = m.tiles[i], x = i % m.w, y = (i / m.w) | 0, cx = (x + .5) * S, cy = (y + .5) * S;
+    if (ch === 'T') tree(cx + (rnd(i, 50) - .5) * S * .3, cy + (rnd(i, 51) - .5) * S * .3, S * (.48 + rnd(i, 52) * .18), i);
+    else if (ch === 'P') { g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(cx + S * .08, cy + S * .14, S * .36, S * .3, 0, 0, 7); g.fill(); const gr = g.createRadialGradient(cx - S * .1, cy - S * .1, 1, cx, cy, S * .34); gr.addColorStop(0, '#c9c3b8'); gr.addColorStop(1, '#6f6a62'); g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, S * .32, 0, 7); g.fill(); }
+    else if (ch === 'A') { g.fillStyle = 'rgba(0,0,0,.4)'; g.fillRect(x * S + S * .14, y * S + S * .34, S * .8, S * .5); const gr = g.createLinearGradient(0, y * S + S * .25, 0, y * S + S * .75); gr.addColorStop(0, '#e9dcc0'); gr.addColorStop(1, '#a8987c'); g.fillStyle = gr; g.fillRect(x * S + S * .1, y * S + S * .26, S * .8, S * .46); g.fillStyle = '#ffcf6b'; for (const k of [.25, .75]) { g.beginPath(); g.arc(x * S + S * k, y * S + S * .3, S * .05, 0, 7); g.fill(); } }
+    else if (ch === 'B') { g.strokeStyle = '#4a2f16'; g.lineWidth = S * .12; g.lineCap = 'round'; g.beginPath(); g.moveTo(x * S + S * .15, y * S + S * .8); g.lineTo(x * S + S * .85, y * S + S * .25); g.moveTo(x * S + S * .15, y * S + S * .25); g.lineTo(x * S + S * .85, y * S + S * .8); g.stroke(); g.strokeStyle = '#8a5a2b'; g.lineWidth = S * .07; g.stroke(); }
+    else if (ch === 'b') {
+      const horiz = GROUND[at(x - 1, y)] !== '~' || GROUND[at(x + 1, y)] !== '~' ? at(x, y - 1) === 'b' || at(x, y + 1) === 'b' ? false : true : false;
+      g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(x * S + S * .08, y * S + S * .12, S * .9, S * .9);
+      g.fillStyle = '#8a6239'; g.fillRect(x * S - 1, y * S - 1, S + 2, S + 2);
+      g.strokeStyle = '#5a3d20'; g.lineWidth = 1.5;
+      for (let k = 1; k < 5; k++) { g.beginPath(); if (horiz) { g.moveTo(x * S + k * S / 5, y * S); g.lineTo(x * S + k * S / 5, y * S + S); } else { g.moveTo(x * S, y * S + k * S / 5); g.lineTo(x * S + S, y * S + k * S / 5); } g.stroke(); }
+    } else if (ch === 'D') {
+      const wl = '#H'.includes(at(x - 1, y) || ''), wr = '#H'.includes(at(x + 1, y) || ''), horiz = wl || wr;
+      g.fillStyle = 'rgba(0,0,0,.45)';
+      if (horiz) { g.fillRect(x * S, y * S + S * .3, S, S * .4); g.fillStyle = '#7b4a22'; g.fillRect(x * S + 1, y * S + S * .34, S - 2, S * .32); g.fillStyle = '#c99a3a'; g.fillRect(x * S + S * .72, y * S + S * .45, S * .07, S * .1); }
+      else { g.fillRect(x * S + S * .3, y * S, S * .4, S); g.fillStyle = '#7b4a22'; g.fillRect(x * S + S * .34, y * S + 1, S * .32, S - 2); g.fillStyle = '#c99a3a'; g.fillRect(x * S + S * .45, y * S + S * .72, S * .1, S * .07); }
+    }
+  }
+  // 4) luz: cantos mais escuros (vinheta) e um calor leve no meio
+  const vg = g.createRadialGradient(W / 2, Hh / 2, Math.min(W, Hh) * .3, W / 2, Hh / 2, Math.max(W, Hh) * .75);
+  vg.addColorStop(0, 'rgba(255,220,160,.04)'); vg.addColorStop(1, 'rgba(0,0,0,.42)'); g.fillStyle = vg; g.fillRect(0, 0, W, Hh);
+  return res;
+}
+function drawGrid() {
+  const m = curMap(), c = $r('.rpg-gridc'); if (!m || !c) return;
+  const style = R.st.camp.rules.gridStyle || 'nenhuma', res = 2;
+  c.width = m.w * CELL * res; c.height = m.h * CELL * res;
+  const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+  if (style === 'nenhuma') return;
+  const S = CELL * res;
+  if (style === 'pontos') { g.fillStyle = m.bg ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.35)'; for (let y = 1; y < m.h; y++) for (let x = 1; x < m.w; x++) { g.beginPath(); g.arc(x * S, y * S, res * 1.3, 0, 7); g.fill(); } }
+  else { g.strokeStyle = m.bg ? 'rgba(255,255,255,.2)' : 'rgba(0,0,0,.28)'; g.lineWidth = res; g.beginPath(); for (let x = 0; x <= m.w; x++) { g.moveTo(x * S, 0); g.lineTo(x * S, m.h * S); } for (let y = 0; y <= m.h; y++) { g.moveTo(0, y * S); g.lineTo(m.w * S, y * S); } g.stroke(); }
 }
 function drawMap() {
   const m = curMap(), board = $r('.rpg-board'), tiles = $r('.rpg-tiles'), bg = $r('.rpg-bg'), nomap = $r('.rpg-nomap');
@@ -219,44 +336,37 @@ function drawMap() {
     return;
   }
   board.hidden = false; nomap.hidden = true;
-  const W = m.w * CELL, Hh = m.h * CELL;
-  board.style.width = W + 'px'; board.style.height = Hh + 'px';
-  for (const c of [tiles, $r('.rpg-fog')]) { c.width = W; c.height = Hh; }
-  const g = tiles.getContext('2d');
-  g.clearRect(0, 0, W, Hh);
-  if (m.bg) {
-    bg.hidden = false; if (bg.getAttribute('src') !== m.bg) bg.src = m.bg;
-  } else {
-    bg.hidden = true; bg.removeAttribute('src');
-    for (let i = 0; i < m.tiles.length; i++) drawTile(g, m.tiles[i], i % m.w, (i / m.w) | 0, CELL, i);
-  }
-  // grade
-  if (R.st.camp.rules.grid || m.bg) {
-    g.strokeStyle = m.bg ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.22)'; g.lineWidth = 1; g.beginPath();
-    for (let x = 0; x <= m.w; x++) { g.moveTo(x * CELL + .5, 0); g.lineTo(x * CELL + .5, Hh); }
-    for (let y = 0; y <= m.h; y++) { g.moveTo(0, y * CELL + .5); g.lineTo(W, y * CELL + .5); }
-    g.stroke();
-  }
-  setZoom(R.z); // a área de rolagem acompanha o tamanho do mapa
-  // armadilhas (o Mestre vê todas; os jogadores só as reveladas)
-  for (const t of m.traps || []) {
-    const X = (t.i % m.w) * CELL, Y = ((t.i / m.w) | 0) * CELL;
-    g.fillStyle = t.on ? 'rgba(255,90,60,.55)' : 'rgba(255,60,60,.28)'; g.fillRect(X + 3, Y + 3, CELL - 6, CELL - 6);
-    g.font = `${CELL * .55}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText(t.on ? '⚠️' : '🪤', X + CELL / 2, Y + CELL / 2 + 1);
-  }
-  drawFog();
+  board.style.width = m.w * CELL + 'px'; board.style.height = m.h * CELL + 'px';
+  if (m.bg) { bg.hidden = false; if (bg.getAttribute('src') !== m.bg) bg.src = m.bg; tiles.width = tiles.height = 1; }
+  else { bg.hidden = true; bg.removeAttribute('src'); paintMap(m, tiles); }
+  drawGrid(); drawMarks(); drawFog(); setZoom(R.z);
 }
+// repinta o mapa no máximo a cada 120 ms (pincel do Mestre)
+let repaintT = null;
+function repaintSoon() { if (repaintT) return; repaintT = setTimeout(() => { repaintT = null; const m = curMap(); if (m && !m.bg && R.el) paintMap(m, $r('.rpg-tiles')); }, 120); }
+// névoa: 1 pixel por casa, esticada com suavização (bordas macias, sem quadrados)
 function drawFog() {
   const m = curMap(), c = $r('.rpg-fog'); if (!m || !c) return;
-  const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+  c.width = m.w; c.height = m.h;
+  const g = c.getContext('2d'); g.clearRect(0, 0, m.w, m.h);
+  c.classList.toggle('master', isMaster());
   if (!m.fog) return;
-  const master = isMaster();
-  for (let i = 0; i < m.seen.length; i++) {
-    if (m.seen[i] === '1') continue;
-    const X = (i % m.w) * CELL, Y = ((i / m.w) | 0) * CELL;
-    g.fillStyle = master ? 'rgba(10,10,20,.55)' : '#07080b'; g.fillRect(X, Y, CELL, CELL);
-    if (master) { g.strokeStyle = 'rgba(120,120,160,.25)'; g.beginPath(); g.moveTo(X, Y + CELL); g.lineTo(X + CELL, Y); g.stroke(); }
-  }
+  const img = g.createImageData(m.w, m.h);
+  for (let i = 0; i < m.seen.length; i++) { const k = i * 4; img.data[k] = 6; img.data[k + 1] = 5; img.data[k + 2] = 8; img.data[k + 3] = m.seen[i] === '1' ? 0 : 255; }
+  g.putImageData(img, 0, 0);
+}
+// armadilhas e pings (por cima do mapa, embaixo das miniaturas)
+function drawMarks() {
+  const m = curMap(), layer = $r('.rpg-marks'); if (!m || !layer) return;
+  layer.querySelectorAll('.rpg-trap').forEach(x => x.remove());
+  layer.insertAdjacentHTML('afterbegin', (m.traps || []).map(t => `<i class="rpg-trap ${t.on ? 'on' : ''}" style="left:${(t.i % m.w) * CELL}px;top:${((t.i / m.w) | 0) * CELL}px" title="${t.on ? 'Armadilha revelada' : 'Armadilha escondida (só você vê)'}">${t.on ? '⚠️' : '🪤'}</i>`).join(''));
+}
+function showPing(p) {
+  const layer = $r('.rpg-marks'); if (!layer) return;
+  const el = document.createElement('div'); el.className = 'rpg-ping'; el.style.left = p.x * CELL + 'px'; el.style.top = p.y * CELL + 'px'; el.style.setProperty('--pc', p.color || '#ffd36b');
+  el.innerHTML = `<i></i><i></i><b>${esc(H.nameOf(p.uid))}</b>`;
+  layer.appendChild(el); setTimeout(() => el.remove(), 2600);
+  H.tone([[880, .05], [1175, .08]], 'sine', .04);
 }
 const fogged = (m, x, y) => m && m.fog && !isMaster() && m.seen[Math.floor(y + .5) * m.w + Math.floor(x + .5)] !== '1';
 
@@ -273,26 +383,42 @@ function canMove(k, t) {
   const c = R.st.camp;
   return k === 'c' && t.ownerId === me() && !c.rules.lock && c.state === 'ativa';
 }
+const hpColor = p => (p > 60 ? '#5fd07d' : p > 30 ? '#f2c14e' : '#e2484e');
+const tokImg = o => (o.k === 'c' ? (o.t.img || avatarUrl(o.t.ownerId)) : o.t.img);
 function tokHtml(o) {
-  const t = o.t, m = curMap();
-  const img = o.k === 'c' ? (t.img || avatarUrl(t.ownerId)) : t.img;
+  const t = o.t, m = curMap(), img = tokImg(o);
   const face = img ? `<img src="${esc(img)}" alt="" draggable="false">` : `<span>${o.k === 'e' && t.emoji ? esc(t.emoji) : initial(t.name)}</span>`;
-  const showHp = o.k === 'c' || isMaster() || t.hp !== undefined;
-  const hp = showHp && t.hpMax ? `<div class="rpg-tok-hp"><i style="width:${pct(t.hp, t.hpMax)}%"></i></div>` : '';
-  const turn = R.st.camp.combat.on && R.st.camp.combat.order[R.st.camp.combat.turn];
-  const isTurn = turn && turn.k === o.k && turn.id === o.id;
-  const cls = ['rpg-tok', 'k-' + o.k, o.k === 'e' ? 'kind-' + t.kind : '', o.k === 'e' && t.img ? 'cut' : '', R.sel && R.sel.k === o.k && R.sel.id === o.id ? 'sel' : '', isTurn ? 'turn' : '', o.k === 'e' && t.hidden ? 'hid' : '', (o.k === 'c' && t.hp <= 0) || (o.k === 'e' && t.hpMax && t.hp <= 0) ? 'down' : '', canMove(o.k, t) ? 'mov' : '', o.k === 'c' && t.ownerId === me() ? 'mine' : ''].filter(Boolean).join(' ');
+  const showHp = t.hpMax && (o.k === 'c' || isMaster() || t.hp !== undefined);
+  const p = showHp ? pct(t.hp, t.hpMax) : 100;
+  const cb = R.st.camp.combat, turn = cb.on && cb.order[cb.turn], isTurn = turn && turn.k === o.k && turn.id === o.id;
+  const cls = ['rpg-tok', 'k-' + o.k, o.k === 'e' ? 'kind-' + t.kind : '', o.k === 'e' && t.img ? 'cut' : '', R.sel && R.sel.k === o.k && R.sel.id === o.id ? 'sel' : '', isTurn ? 'turn' : '', o.k === 'e' && t.hidden ? 'hid' : '', showHp && t.hp <= 0 ? 'down' : '', canMove(o.k, t) ? 'mov' : '', o.k === 'c' && t.ownerId === me() ? 'mine' : ''].filter(Boolean).join(' ');
   const conds = (t.conds || []).slice(0, 4).map(x => COND_IC[x] || '•').join('');
-  return `<div class="${cls}" data-k="${o.k}" data-id="${o.id}" style="--s:${o.size};--tc:${esc(t.color || '#6c7cff')};left:${o.x * CELL}px;top:${o.y * CELL}px" ${fogged(m, o.x, o.y) && !(o.k === 'c' && t.ownerId === me()) ? 'hidden' : ''}>
-    <div class="rpg-tok-face">${face}</div>${conds ? `<div class="rpg-tok-cond">${conds}</div>` : ''}${hp}<div class="rpg-tok-name">${esc(t.name)}</div></div>`;
+  return `<div class="${cls}" data-k="${o.k}" data-id="${o.id}" style="--s:${o.size};--tc:${esc(t.color || '#6c7cff')};--hp:${p};--hpc:${hpColor(p)};left:${o.x * CELL}px;top:${o.y * CELL}px" ${fogged(m, o.x, o.y) && !(o.k === 'c' && t.ownerId === me()) ? 'hidden' : ''}>
+    <div class="rpg-tok-base"></div>${showHp ? '<div class="rpg-tok-ring"></div>' : ''}<div class="rpg-tok-face">${face}</div>${conds ? `<div class="rpg-tok-cond">${conds}</div>` : ''}<div class="rpg-tok-name">${esc(t.name)}</div></div>`;
 }
 function renderTokens() {
   const layer = $r('.rpg-toks'); if (!layer) return;
   const list = tokens().sort((a, b) => (a.k === 'c') - (b.k === 'c') || b.size - a.size);
   layer.innerHTML = list.map(tokHtml).join('');
+  renderParty();
 }
 
-/* ---------- arrastar, pintar e navegar no mapa ---------- */
+/* ---------- retratos do grupo (canto de baixo, como nas mesas virtuais) ---------- */
+function renderParty() {
+  const box = $r('.rpg-party'); if (!box) return;
+  const list = R.st.chars.slice().sort((a, b) => (b.ownerId === me()) - (a.ownerId === me()) || a.name.localeCompare(b.name));
+  const cb = R.st.camp.combat, turn = cb.on && cb.order[cb.turn];
+  box.innerHTML = list.map(ch => {
+    const p = pct(ch.hp, ch.hpMax), img = ch.img || avatarUrl(ch.ownerId);
+    return `<button class="rpg-pp ${ch.ownerId === me() ? 'mine' : ''} ${ch.hp <= 0 ? 'down' : ''} ${turn && turn.k === 'c' && turn.id === ch.id ? 'turn' : ''} ${R.sel && R.sel.id === ch.id ? 'sel' : ''}" data-pp="${ch.id}" style="--tc:${esc(ch.color)};--hp:${p};--hpc:${hpColor(p)}" title="${esc(ch.name)} · ❤️ ${ch.hp}/${ch.hpMax}${ch.mpMax ? ` · 🔷 ${ch.mp}/${ch.mpMax}` : ''}">
+      <span class="rpg-pp-ring"></span><span class="rpg-pp-face">${img ? `<img src="${esc(img)}" alt="">` : initial(ch.name)}</span>
+      ${ch.mpMax ? `<span class="rpg-pp-mp"><i style="width:${pct(ch.mp, ch.mpMax)}%"></i></span>` : ''}${(ch.conds || []).length ? `<span class="rpg-pp-cond">${ch.conds.slice(0, 3).map(x => COND_IC[x] || '•').join('')}</span>` : ''}
+      <b>${esc(ch.name.split(/[ ,]/)[0])}</b></button>`;
+  }).join('');
+  box.hidden = !list.length;
+}
+
+/* ---------- arrastar, medir, pintar, ping e navegar ---------- */
 function boardPos(e) {
   const b = $r('.rpg-board').getBoundingClientRect();
   return { x: (e.clientX - b.left) / R.z / CELL, y: (e.clientY - b.top) / R.z / CELL };
@@ -303,7 +429,7 @@ function setZoom(z, keep) {
   const cx = keep ? keep.x : v.clientWidth / 2, cy = keep ? keep.y : v.clientHeight / 2;
   const px = (v.scrollLeft + cx) / old, py = (v.scrollTop + cy) / old;
   b.style.transform = `scale(${R.z})`;
-  const m = curMap(); if (m) { b.parentElement.style.setProperty('--bw', m.w * CELL * R.z + 'px'); b.parentElement.style.setProperty('--bh', m.h * CELL * R.z + 'px'); }
+  const m = curMap(); if (m) { v.style.setProperty('--bw', m.w * CELL * R.z + 'px'); v.style.setProperty('--bh', m.h * CELL * R.z + 'px'); }
   v.scrollLeft = px * R.z - cx; v.scrollTop = py * R.z - cy;
   const zl = $r('[data-t="zoom"]'); if (zl) zl.textContent = Math.round(R.z * 100) + '%';
 }
@@ -311,15 +437,27 @@ function fitZoom() {
   const m = curMap(), v = $r('.rpg-view'); if (!m || !v) return;
   setZoom(Math.min(1.4, Math.max(0.3, Math.min((v.clientWidth - 24) / (m.w * CELL), (v.clientHeight - 24) / (m.h * CELL)))));
 }
-// segura o ponteiro no elemento enquanto arrasta (alguns toques/canetas não deixam: segue sem)
-const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch {} };
+// régua: distância em casas (diagonal conta 1, como no D&D 5e) e em metros (1 casa = 1,5 m)
+function ruler(a, b) {
+  const svg = $r('.rpg-ruler'); if (!svg) return;
+  if (!a) { svg.innerHTML = ''; return; }
+  const n = Math.max(Math.abs(Math.round(b.x) - Math.round(a.x)), Math.abs(Math.round(b.y) - Math.round(a.y)));
+  const x1 = (a.x + .5) * CELL, y1 = (a.y + .5) * CELL, x2 = (b.x + .5) * CELL, y2 = (b.y + .5) * CELL;
+  const label = `${n} casa${n === 1 ? '' : 's'} · ${(n * 1.5).toLocaleString('pt-BR')} m`;
+  svg.innerHTML = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="rl-bg"/><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="rl"/><circle cx="${x1}" cy="${y1}" r="4" class="rl-dot"/><circle cx="${x2}" cy="${y2}" r="${CELL * .48}" class="rl-end"/>
+    <g transform="translate(${(x1 + x2) / 2},${(y1 + y2) / 2 - 14})"><rect x="-${label.length * 3.4 + 8}" y="-11" width="${label.length * 6.8 + 16}" height="22" rx="11" class="rl-tag"/><text text-anchor="middle" dy="4">${label}</text></g>`;
+}
 function bindBoard() {
   const view = $r('.rpg-view');
-  let pan = null, paint = null;
+  let pan = null, paint = null, meas = null;
   view.addEventListener('wheel', e => { if (!e.ctrlKey && !e.metaKey) return; e.preventDefault(); const r = view.getBoundingClientRect(); setZoom(R.z * (e.deltaY < 0 ? 1.12 : 1 / 1.12), { x: e.clientX - r.left, y: e.clientY - r.top }); }, { passive: false });
   view.addEventListener('pointerdown', e => {
     if (e.button !== 0 && e.button !== 1) return;
+    closeCtx();
     const tok = e.target.closest('.rpg-tok'), m = curMap(); if (!m) return;
+    // Alt+clique (ou a ferramenta 📍): ping para todo mundo
+    if (e.button === 0 && (e.altKey || R.tool === 'ping')) { const p = boardPos(e); if (isPlayer()) call('rpg:ping', { cid: R.st.camp.id, x: p.x - .5, y: p.y - .5 }); else showPing({ uid: me(), x: p.x - .5, y: p.y - .5 }); return; }
+    if (R.tool === 'regua' && e.button === 0) { const p = boardPos(e); meas = { a: { x: Math.floor(p.x), y: Math.floor(p.y) } }; capture(view, e); return; }
     if (tok && R.tool === 'mover' && e.button === 0) {
       const k = tok.dataset.k, id = tok.dataset.id, t = k === 'c' ? charOf(id) : entOf(id); if (!t) return;
       const p = boardPos(e), ox = parseFloat(tok.style.left) / CELL, oy = parseFloat(tok.style.top) / CELL;
@@ -342,28 +480,46 @@ function bindBoard() {
       if (!d.can) return;
       d.moved = true; d.x = nx; d.y = ny;
       d.el.classList.add('dragging'); d.el.style.left = nx * CELL + 'px'; d.el.style.top = ny * CELL + 'px';
+      const snap = R.st.camp.rules.grid ? { x: Math.round(nx), y: Math.round(ny) } : { x: nx, y: ny };
+      ruler({ x: d.ox, y: d.oy }, snap);
       const t0 = performance.now(); if (t0 - d.last > 60) { d.last = t0; H.socket && H.socket.emit('rpg:drag', { cid: R.st.camp.id, k: d.k, id: d.id, x: nx, y: ny }); }
       return;
     }
+    if (meas) { const p = boardPos(e); ruler(meas.a, { x: Math.floor(p.x), y: Math.floor(p.y) }); return; }
     if (paint) { paintAt(e, paint); return; }
     if (pan) { view.scrollLeft = pan.sl - (e.clientX - pan.x); view.scrollTop = pan.st - (e.clientY - pan.y); }
   });
   const end = async e => {
     const d = R.drag; R.drag = null;
     if (d) {
-      d.el.classList.remove('dragging');
+      d.el.classList.remove('dragging'); ruler(null);
       if (!d.moved) { select(d.k, d.id); return; }
       const r = await H.emit('rpg:move', { cid: R.st.camp.id, k: d.k, id: d.id, x: d.x, y: d.y });
       if (!r.ok) { toast(r.erro || 'Não deu para mover.', true); d.el.style.left = d.ox * CELL + 'px'; d.el.style.top = d.oy * CELL + 'px'; }
       else applyMove({ k: d.k, id: d.id, x: r.x, y: r.y, mapId: curMap() && curMap().id });
       return;
     }
+    if (meas) { meas = null; setTimeout(() => ruler(null), 1200); return; }
     if (paint) { const p = paint; paint = null; flushPaint(p); return; }
     if (pan) { const moved = Math.abs(e.clientX - pan.x) + Math.abs(e.clientY - pan.y) > 4; pan = null; view.classList.remove('panning'); if (!moved && !e.target.closest('.rpg-tok')) select(null); }
   };
   view.addEventListener('pointerup', end);
   view.addEventListener('pointercancel', end);
   window.addEventListener('resize', onResize);
+  // botão direito: menu da miniatura ou do mapa (o menu do app para pessoas não abre aqui dentro)
+  R.el.addEventListener('contextmenu', e => {
+    if (e.target.closest('input, textarea, select')) { e.stopPropagation(); return; }
+    e.stopPropagation();
+    const tok = e.target.closest('.rpg-tok'), pp = e.target.closest('[data-pp]'), party = e.target.closest('.rpg-party-it[data-id]');
+    if (tok) { e.preventDefault(); return tokenMenu(tok.dataset.k, tok.dataset.id, e.clientX, e.clientY); }
+    if (pp || party) { e.preventDefault(); return tokenMenu('c', (pp || party).dataset.pp || party.dataset.id, e.clientX, e.clientY); }
+    if (e.target.closest('.rpg-view') && curMap()) { e.preventDefault(); const p = boardPos(e); return mapMenu(Math.floor(p.x), Math.floor(p.y), e.clientX, e.clientY); }
+    e.preventDefault();
+  });
+  // retratos do grupo: clique seleciona e centraliza, duplo clique abre a ficha
+  $r('.rpg-party').addEventListener('click', e => { const b = e.target.closest('[data-pp]'); if (!b) return; const ch = charOf(b.dataset.pp), m = curMap(); if (!ch) return; if (m && ch.pos && ch.pos[m.id]) { select('c', ch.id); centerOn(ch.pos[m.id][0], ch.pos[m.id][1]); } else sheetModal(ch); });
+  $r('.rpg-party').addEventListener('dblclick', e => { const b = e.target.closest('[data-pp]'); if (b && charOf(b.dataset.pp)) sheetModal(charOf(b.dataset.pp)); });
+  $r('.rpg-toks').addEventListener('dblclick', e => { const t = e.target.closest('.rpg-tok'); if (!t) return; if (t.dataset.k === 'c') sheetModal(charOf(t.dataset.id)); else if (isMaster()) entModal(entOf(t.dataset.id)); });
 }
 function onResize() { if (!R.el) { window.removeEventListener('resize', onResize); return; } setZoom(R.z); }
 function paintAt(e, p) {
@@ -373,7 +529,7 @@ function paintAt(e, p) {
   if (R.tool === 'pincel') {
     if (m.bg || p.cells.get(i) === R.brush) return;
     p.cells.set(i, R.brush); m.tiles = m.tiles.slice(0, i) + R.brush + m.tiles.slice(i + 1);
-    const g = $r('.rpg-tiles').getContext('2d'); drawTile(g, R.brush, x, y, CELL, i);
+    repaintSoon();
   } else if (R.tool === 'revelar' || R.tool === 'esconder') {
     const show = R.tool === 'revelar', ch = show ? '1' : '0';
     for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
@@ -407,23 +563,140 @@ function applyMove(mv) {
   }
 }
 
-/* ---------- ferramentas sobre o mapa ---------- */
+/* ---------- barra de ferramentas (vertical, à esquerda) ---------- */
+const TOOLS = [
+  ['mover', '✋', 'Mover e selecionar (V)', false], ['regua', '📏', 'Régua: arraste para medir (R)', false], ['ping', '📍', 'Ping: mostre um ponto para todos (P ou Alt+clique)', false],
+  ['pincel', '🖌️', 'Pincel: pintar o terreno (B)', true], ['revelar', '🔦', 'Revelar névoa', true], ['esconder', '🌫️', 'Cobrir com névoa', true], ['armadilha', '🪤', 'Armadilha: clique para criar, revelar e apagar', true]
+];
+const TOOL_HINT = { mover: '', regua: 'Arraste no mapa para medir a distância.', ping: 'Clique no mapa para mostrar um ponto para todo mundo.', pincel: 'Escolha o terreno e pinte no mapa.', revelar: 'Pinte para revelar o que os jogadores veem.', esconder: 'Pinte para esconder de novo com névoa.', armadilha: 'Clique numa casa: cria (escondida) → revela → apaga.' };
 function renderTools() {
-  const t = $r('.rpg-tools'); if (!t) return;
-  const m = curMap();
-  const master = isMaster() && m;
-  t.innerHTML = `<div class="rpg-tool-g"><button data-t="out" aria-label="Diminuir zoom">−</button><button data-t="zoom" data-tip="Ajustar à tela">${Math.round(R.z * 100)}%</button><button data-t="in" aria-label="Aumentar zoom">+</button></div>
-    ${master ? `<div class="rpg-tool-g">
-      ${[['mover', '✋', 'Mover e selecionar'], ['pincel', '🖌️', 'Pincel (mudar casas)'], ['revelar', '🔦', 'Revelar névoa'], ['esconder', '🌫️', 'Esconder com névoa'], ['armadilha', '🪤', 'Armadilha (clique: criar, revelar, apagar)']].filter(x => !(x[0] === 'pincel' && m.bg)).map(([k, i, l]) => `<button data-t="tool" data-v="${k}" class="${R.tool === k ? 'on' : ''}" data-tip="${l}" aria-label="${l}">${i}</button>`).join('')}
-    </div>${R.tool === 'pincel' ? `<div class="rpg-tool-g rpg-brush">${Object.entries(TILE_NAMES).map(([c, n]) => `<button data-t="brush" data-v="${esc(c)}" class="${R.brush === c ? 'on' : ''}" data-tip="${n}" aria-label="${n}"><canvas width="20" height="20" data-tile="${esc(c)}"></canvas></button>`).join('')}</div>` : ''}` : ''}`;
-  t.querySelectorAll('canvas[data-tile]').forEach(cv => { const g = cv.getContext('2d'); g.scale(20 / CELL, 20 / CELL); drawTile(g, cv.dataset.tile, 0, 0, CELL, 7); });
-  t.onclick = e => {
+  const t = $r('.rpg-toolbar'); if (!t) return;
+  const m = curMap(), master = isMaster() && m;
+  t.innerHTML = `${TOOLS.filter(x => !x[3] || master).filter(x => !(x[0] === 'pincel' && m && m.bg)).map(([k, i, l]) => `<button data-t="tool" data-v="${k}" class="${R.tool === k ? 'on' : ''}" data-tip="${l}" aria-label="${l}">${i}</button>`).join('')}
+    <hr><button data-t="in" aria-label="Aumentar zoom" data-tip="Aumentar (+)">＋</button><button data-t="zoom" class="z" data-tip="Ajustar à tela">${Math.round(R.z * 100)}%</button><button data-t="out" aria-label="Diminuir zoom" data-tip="Diminuir (−)">－</button>`;
+  const fly = $r('.rpg-brush');
+  if (master && R.tool === 'pincel') {
+    fly.hidden = false;
+    fly.innerHTML = Object.entries(TILE_NAMES).map(([c, n]) => `<button data-t="brush" data-v="${esc(c)}" class="${R.brush === c ? 'on' : ''}" data-tip="${n}" aria-label="${n}"><canvas width="26" height="26" data-tile="${esc(c)}"></canvas><span>${n}</span></button>`).join('');
+    fly.querySelectorAll('canvas[data-tile]').forEach(cv => { const g = cv.getContext('2d'), ch = cv.dataset.tile, gr = GROUND[ch] || '.'; g.fillStyle = g.createPattern(texCanvas(gr), 'repeat'); g.beginPath(); g.arc(13, 13, 12, 0, 7); g.fill(); const ic = { T: '🌳', D: '🚪', P: '🏛️', A: '🕯️', B: '🚧', b: '🌉' }[ch]; if (ic) { g.font = '13px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(ic, 13, 14); } });
+  } else fly.hidden = true;
+  const hint = $r('.rpg-hint'); if (hint) { hint.textContent = TOOL_HINT[R.tool] || ''; hint.hidden = !TOOL_HINT[R.tool]; }
+  $r('.rpg-view').dataset.tool = R.tool;
+  const onClick = e => {
     const b = e.target.closest('[data-t]'); if (!b) return;
     const a = b.dataset.t;
     if (a === 'in') setZoom(R.z * 1.2); if (a === 'out') setZoom(R.z / 1.2); if (a === 'zoom') fitZoom();
-    if (a === 'tool') { R.tool = b.dataset.v; if (R.tool !== 'mover') select(null); if (R.tool !== 'mover' && !curMap().fog && (R.tool === 'revelar' || R.tool === 'esconder')) toast('A névoa está desligada. Ligue em Mestre → Mapa para os jogadores verem a diferença.'); renderTools(); $r('.rpg-view').dataset.tool = R.tool; }
+    if (a === 'tool') setTool(b.dataset.v);
     if (a === 'brush') { R.brush = b.dataset.v; renderTools(); }
   };
+  t.onclick = onClick; fly.onclick = onClick;
+}
+function setTool(v) {
+  R.tool = v; if (v !== 'mover') select(null);
+  if ((v === 'revelar' || v === 'esconder') && curMap() && !curMap().fog) toast('A névoa está desligada. Ligue em Mestre → Mapa para os jogadores verem a diferença.');
+  renderTools();
+}
+
+/* ---------- menu do botão direito ---------- */
+let ctxEl = null;
+function closeCtx() { if (ctxEl) { ctxEl.remove(); ctxEl = null; } }
+// itens: { ic, label, act, danger, keep } | { sep: true } | { html, bind(el) }
+function ctxMenu(x, y, title, items) {
+  closeCtx();
+  const el = document.createElement('div'); el.className = 'rpg-ctx'; el.setAttribute('role', 'menu');
+  el.innerHTML = (title ? `<div class="rpg-ctx-h">${title}</div>` : '') + items.map((it, i) => it.sep ? '<hr>' : it.html ? `<div class="rpg-ctx-c" data-i="${i}">${it.html}</div>` : `<button role="menuitem" data-i="${i}" class="${it.danger ? 'danger' : ''}" ${it.disabled ? 'disabled' : ''}><span>${it.ic || ''}</span>${esc(it.label)}${it.hint ? `<small>${esc(it.hint)}</small>` : ''}</button>`).join('');
+  document.body.appendChild(el); ctxEl = el;
+  const r = el.getBoundingClientRect();
+  el.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
+  el.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+  items.forEach((it, i) => { if (it.bind) it.bind(el.querySelector(`.rpg-ctx-c[data-i="${i}"]`), closeCtx); });
+  el.addEventListener('click', e => { const b = e.target.closest('button[data-i]'); if (!b || !el.contains(b) || b.closest('.rpg-ctx-c')) return; const it = items[+b.dataset.i]; if (!it.keep) closeCtx(); it.act && it.act(); });
+  el.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); });
+  setTimeout(() => {
+    const off = ev => { if (!ctxEl || ctxEl.contains(ev.target)) return; closeCtx(); document.removeEventListener('mousedown', off, true); };
+    document.addEventListener('mousedown', off, true);
+  });
+}
+// vida rápida dentro do menu: número + Dano / Cura (e Mana nos personagens)
+function hpBlock(k, t) {
+  return {
+    html: `<div class="rpg-ctx-hp"><input type="number" min="1" max="9999" value="5" aria-label="Quantidade"><button data-h="dmg" class="dmg">💥 Dano</button><button data-h="heal" class="heal">💚 Cura</button>${k === 'c' && t.mpMax ? '<button data-h="mp" class="mp">🔷 −Mana</button>' : ''}</div>`,
+    bind: (el, close) => {
+      const inp = el.querySelector('input'); setTimeout(() => { inp.focus(); inp.select(); }, 30);
+      const go = h => { const n = Math.abs(+inp.value || 0); if (!n) return; call('rpg:hp', { cid: R.st.camp.id, k, id: t.id, ...(h === 'mp' ? { dmg: n, field: 'mp' } : { dmg: h === 'dmg' ? n : -n }) }); close(); };
+      el.addEventListener('click', e => { const b = e.target.closest('[data-h]'); if (b) go(b.dataset.h); });
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(e.shiftKey ? 'heal' : 'dmg'); if (e.key === 'Escape') close(); });
+    }
+  };
+}
+function condBlock(k, t) {
+  return {
+    html: `<div class="rpg-ctx-cond">${CONDS.map(c => `<button data-c="${esc(c)}" class="${(t.conds || []).includes(c) ? 'on' : ''}" title="${esc(c)}">${COND_IC[c]}</button>`).join('')}</div>`,
+    bind: el => el.addEventListener('click', e => {
+      const b = e.target.closest('[data-c]'); if (!b) return;
+      const v = b.dataset.c, has = (t.conds || []).includes(v), conds = has ? t.conds.filter(x => x !== v) : [...(t.conds || []), v];
+      b.classList.toggle('on', !has); t.conds = conds; call('rpg:cond', { cid: R.st.camp.id, k, id: t.id, conds });
+    })
+  };
+}
+function tokenMenu(k, id, x, y) {
+  const t = k === 'c' ? charOf(id) : entOf(id); if (!t) return;
+  const master = isMaster(), own = k === 'c' && t.ownerId === me(), cid = R.st.camp.id, m = curMap();
+  const canEdit = master || (own && R.st.camp.rules.editOwn);
+  const pos = k === 'c' ? (m && t.pos && t.pos[m.id]) : (m && t.mapId === m.id ? [t.x, t.y] : null);
+  const items = [];
+  if (k === 'c') {
+    items.push({ ic: '📜', label: canEdit ? 'Editar ficha' : 'Ver ficha', act: () => sheetModal(t) });
+    if (canEdit) items.push({ sep: true }, hpBlock(k, t));
+    if (master) items.push({ sep: true }, condBlock(k, t));
+    items.push({ sep: true });
+    if (pos) items.push({ ic: '🎯', label: 'Centralizar no mapa', act: () => { select('c', id); centerOn(pos[0], pos[1]); } });
+    if (master) items.push({ ic: '🧭', label: 'Passar para outro jogador', act: () => ownerModal(t) });
+    if (master || own) items.push({ ic: '🗑️', label: 'Apagar personagem', danger: true, act: async () => { if (await H.confirmBox('Apagar personagem', `Apagar ${t.name}? Não dá para desfazer.`, 'Apagar')) call('rpg:char:del', { cid, id }); } });
+  } else {
+    if (master) {
+      items.push({ ic: '✏️', label: 'Editar', act: () => entModal(t) }, { sep: true }, hpBlock(k, t), { sep: true }, condBlock(k, t), { sep: true },
+        { ic: t.hidden ? '👁️' : '🙈', label: t.hidden ? 'Mostrar para os jogadores' : 'Esconder dos jogadores', act: () => call('rpg:ent:save', { cid, ent: { id, hidden: !t.hidden } }) },
+        { ic: '⧉', label: 'Duplicar', act: () => { const { id: _, ...copy } = t; call('rpg:ent:save', { cid, ent: { ...copy, x: Math.min(m.w - 1, t.x + t.size), y: t.y } }); } },
+        { ic: '➕', label: 'Aumentar', hint: `${t.size}×${t.size}`, disabled: t.size >= 6, act: () => call('rpg:ent:save', { cid, ent: { id, size: t.size + 1 } }) },
+        { ic: '➖', label: 'Diminuir', disabled: t.size <= 1, act: () => call('rpg:ent:save', { cid, ent: { id, size: t.size - 1 } }) },
+        { sep: true }, { ic: '🗑️', label: 'Apagar', danger: true, act: () => call('rpg:ent:del', { cid, id }).then(r => r.ok && R.sel && R.sel.id === id && select(null)) });
+    } else items.push({ ic: '🎯', label: 'Centralizar', act: () => centerOn(t.x, t.y) });
+  }
+  if (isPlayer() && pos) items.push({ sep: true }, { ic: '📍', label: 'Ping aqui', act: () => call('rpg:ping', { cid, x: pos[0], y: pos[1] }) });
+  const sub = k === 'c' ? (R.st.camp.classes.find(c => c.id === t.classId)?.name || 'Personagem') + ' · ' + esc(H.nameOf(t.ownerId)) : (ENT_KIND[t.kind] || '');
+  ctxMenu(x, y, `<b>${esc(t.name)}</b><span>${sub}${t.hpMax !== undefined && (k === 'c' || master || t.hp !== undefined) ? ` · ❤️ ${t.hp}/${t.hpMax}` : ''}</span>`, items);
+}
+function mapMenu(cx, cy, x, y) {
+  const m = curMap(), cid = R.st.camp.id, master = isMaster(); if (!m) return;
+  cx = Math.max(0, Math.min(m.w - 1, cx)); cy = Math.max(0, Math.min(m.h - 1, cy));
+  const items = [];
+  if (isPlayer()) items.push({ ic: '📍', label: 'Ping aqui', act: () => call('rpg:ping', { cid, x: cx, y: cy }) });
+  items.push({ ic: '📏', label: 'Medir daqui', act: () => setTool('regua') });
+  if (master) {
+    items.push({ sep: true },
+      { ic: '👾', label: 'Criar criatura aqui', act: () => entModal(null, { x: cx, y: cy }) },
+      ...PRESETS.slice(0, 6).map(([name, kind, emoji, hp, def, atk, level]) => ({ ic: emoji, label: name, hint: ENT_KIND[kind], act: () => call('rpg:ent:save', { cid, ent: { name, kind, emoji, hpMax: hp, hp, def, atk, level, x: cx, y: cy } }) })),
+      { sep: true },
+      { ic: '🧙', label: 'Trazer o grupo para cá', act: () => gatherParty(cx, cy) });
+    if (m.fog) items.push({ ic: '🔦', label: 'Revelar em volta', act: () => { const reveal = []; for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) { const xx = cx + a, yy = cy + b; if (xx >= 0 && yy >= 0 && xx < m.w && yy < m.h && a * a + b * b <= 10) reveal.push(yy * m.w + xx); } call('rpg:map:edit', { cid, mapId: m.id, reveal }); } });
+  }
+  ctxMenu(x, y, `<b>${esc(m.name)}</b><span>casa ${cx + 1}, ${cy + 1}${!m.bg ? ' · ' + esc(TILE_NAMES[m.tiles[cy * m.w + cx]] || '') : ''}</span>`, items);
+}
+// o Mestre traz todos os personagens para perto de um ponto (em volta, sem empilhar)
+async function gatherParty(cx, cy) {
+  const m = curMap(), ring = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1], [2, 0], [-2, 0], [0, 2], [0, -2], [2, 1], [-2, 1], [2, -1], [-2, -1]];
+  let k = 0;
+  for (const ch of R.st.chars) { const [a, b] = ring[k++ % ring.length]; await H.emit('rpg:move', { cid: R.st.camp.id, k: 'c', id: ch.id, x: Math.max(0, Math.min(m.w - 1, cx + a)), y: Math.max(0, Math.min(m.h - 1, cy + b)) }); }
+  toast('O grupo foi trazido para cá.');
+}
+function ownerModal(ch) {
+  const c = R.st.camp, list = [c.masterId, ...c.players];
+  H.modal(`<div class="modal-h"><h2>Passar ${esc(ch.name)} para…</h2><p>Quem controla o personagem pode movê-lo e editar a ficha (se a regra deixar).</p></div>
+    <div class="modal-b rpg-form"><div class="rpg-pick">${list.map(u => `<button class="rpg-person btn ghost ${u === ch.ownerId ? 'on' : ''}" data-u="${u}">${H.av(u, 24, false)} ${esc(H.nameOf(u))}${u === ch.ownerId ? ' (agora)' : ''}</button>`).join('')}</div></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button></div>`, (m, close) => {
+    m.querySelector('.rpg-pick').onclick = async e => { const b = e.target.closest('[data-u]'); if (!b || b.dataset.u === ch.ownerId) return; const r = await call('rpg:char:save', { cid: c.id, char: { ...ch, ownerId: b.dataset.u } }, `${ch.name} agora é de ${H.nameOf(b.dataset.u)}.`); if (r.ok) close(); };
+  });
 }
 
 /* ---------- combate ---------- */
@@ -444,8 +717,9 @@ function renderCombat() {
 /* ---------- seleção (painel rápido da miniatura) ---------- */
 function select(k, id) {
   R.sel = k ? { k, id } : null;
-  $r('.rpg-toks') && R.el.querySelectorAll('.rpg-tok.sel').forEach(x => x.classList.remove('sel'));
-  if (R.sel) { const el = $r(`.rpg-tok[data-k="${k}"][data-id="${id}"]`); if (el) el.classList.add('sel'); }
+  if (!R.el) return;
+  R.el.querySelectorAll('.rpg-tok.sel, .rpg-pp.sel').forEach(x => x.classList.remove('sel'));
+  if (R.sel) { const el = $r(`.rpg-tok[data-k="${k}"][data-id="${id}"]`); if (el) el.classList.add('sel'); const pp = $r(`.rpg-pp[data-pp="${id}"]`); if (pp) pp.classList.add('sel'); }
   renderSel();
 }
 function renderSel() {
@@ -510,7 +784,7 @@ function paneGrupo(p) {
   p.innerHTML = `${isPlayer() && !mine && role() === 'jogador' ? `<div class="rpg-cta">🎭<div><b>Crie seu personagem</b><span class="muted small">Escolha nome, classe e atributos.</span></div><button class="btn primary sm" data-g="new">Criar</button></div>` : ''}
     ${role() === 'convidado' ? `<div class="rpg-cta">✉️<div><b>Você foi convidado</b><span class="muted small">Aceite para criar seu personagem e jogar.</span></div><button class="btn primary sm" data-g="join">Aceitar</button></div>` : ''}
     <h4 class="rpg-h">Personagens <span class="muted">${chars.length}</span>${isMaster() ? '<button class="btn sm ghost" data-g="newfor">+ Para jogador</button>' : ''}</h4>
-    ${chars.length ? `<div class="rpg-party">${chars.map(row).join('')}</div>` : '<p class="muted small">Ninguém criou personagem ainda.</p>'}
+    ${chars.length ? `<div class="rpg-party-list">${chars.map(row).join('')}</div>` : '<p class="muted small">Ninguém criou personagem ainda.</p>'}
     <h4 class="rpg-h">Participantes ${isMaster() ? '<button class="btn sm ghost" data-g="invite">+ Convidar</button>' : ''}</h4>
     ${people([c.masterId], '👑 Mestre')}${people(c.players, '🎭 Jogadores (' + c.players.length + '/' + c.maxPlayers + ')')}${people(c.invited, '✉️ Convidados')}
     ${role() === 'jogador' ? '<button class="btn sm ghost danger-t" data-g="leave">Sair da campanha</button>' : ''}`;
@@ -767,7 +1041,7 @@ function pickPlayerFor() {
     m.querySelector('.rpg-pick').onclick = e => { const b = e.target.closest('[data-u]'); if (!b) return; close(); sheetModal(null, b.dataset.u); };
   });
 }
-function entModal(e) {
+function entModal(e, at) {
   const d = e ? { ...e } : { kind: 'monstro', name: '', emoji: '👾', img: null, size: 1, hpMax: 10, hp: 10, def: 10, atk: 2, level: 1, init: 0, hidden: false, notes: '', color: '#d9822b' };
   H.modal(`<div class="modal-h"><h2>${e ? '✏️ ' + esc(e.name) : '👾 Nova criatura'}</h2><p>Monstros, chefes, NPCs e objetos. Use um PNG com fundo transparente para ficar bonito no mapa.</p></div>
     <div class="modal-b rpg-form">
@@ -786,7 +1060,7 @@ function entModal(e) {
     const ix = q('#enImgX'); if (ix) ix.onclick = () => { d.img = null; q('#enImg').innerHTML = `<span>${esc(q('#enEmoji').value || '👾')}</span>`; ix.remove(); };
     q('#enKind').onchange = () => { if (!e) q('#enColor').value = { chefe: '#ff3b3b', npc: '#3fb97a', objeto: '#9aa4b6', monstro: '#d9822b' }[q('#enKind').value]; };
     q('#enSave').onclick = async () => {
-      const pos = viewCenter();
+      const pos = at || viewCenter(); // botão direito no mapa: nasce onde clicou
       const x = { id: e ? e.id : undefined, kind: q('#enKind').value, name: q('#enName').value, emoji: q('#enEmoji').value, img: d.img, color: q('#enColor').value, hp: +q('#enHp').value, hpMax: +q('#enHpMax').value, def: +q('#enDef').value, atk: +q('#enAtk').value, level: +q('#enLvl').value, init: +q('#enInit').value, size: +q('#enSize').value, hidden: q('#enHid').checked, notes: q('#enNotes').value, conds: d.conds || [] };
       if (!e) { x.x = pos.x; x.y = pos.y; }
       if (!x.name.trim()) return toast('Dê um nome.', true);
@@ -809,6 +1083,7 @@ function settingsModal() {
         <label class="field">Máx. jogadores<input id="csMax" type="number" min="1" max="20" value="${c.maxPlayers}"></label></div>
       <label class="rpg-check"><input type="checkbox" id="csOpen" ${c.open ? 'checked' : ''}> Qualquer membro pode entrar sem convite</label>
       <h4 class="rpg-h">Regras</h4><div class="rpg-rules">${RL.map(([k, l]) => `<label class="rpg-check"><input type="checkbox" data-rule="${k}" ${rules[k] ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+      <label class="field">Grade no mapa<select id="csGrid">${[['nenhuma', 'Nenhuma (mapa pintado)'], ['pontos', 'Pontos discretos'], ['quadrados', 'Quadrados']].map(([k, l]) => `<option value="${k}" ${(rules.gridStyle || 'nenhuma') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="field">Atributos <span class="muted small">(separados por vírgula, até 8)</span><input id="csAttrs" maxlength="80" value="${esc(c.attrs.join(', '))}"></label>
       <h4 class="rpg-h">Classes <button type="button" class="btn sm ghost" id="csClsAdd">+ Classe</button></h4><div class="rpg-classes" id="csCls"></div>
       <h4 class="rpg-h">Passar o papel de Mestre</h4>
@@ -838,6 +1113,7 @@ function settingsModal() {
     };
     q('#csSave').onclick = async () => {
       m.querySelectorAll('[data-rule]').forEach(i => { rules[i.dataset.rule] = i.checked; });
+      rules.gridStyle = q('#csGrid').value;
       const r = await call('rpg:update', { cid: c.id, name: q('#csName').value, desc: q('#csDesc').value, cover, state: q('#csState').value, maxPlayers: +q('#csMax').value, open: q('#csOpen').checked, rules, attrs: q('#csAttrs').value.split(',').map(s => s.trim()).filter(Boolean), classes }, 'Campanha salva.');
       if (r.ok) close();
     };
@@ -896,6 +1172,7 @@ function attach(sock) {
   sock.on('rpg:ent:del', live(d => { R.st.ents = R.st.ents.filter(x => x.id !== d.id); if (R.sel && R.sel.id === d.id) select(null); renderTokens(); renderCombat(); if (R.tab === 'mestre') renderPane(); }));
   sock.on('rpg:chars', live(list => { R.st.chars = list; renderTokens(); renderCombat(); renderSel(); if (R.tab === 'grupo' || R.tab === 'dados' || R.tab === 'mestre') renderPane(); renderTop(); }));
   sock.on('rpg:move', live(applyMove));
+  sock.on('rpg:ping', live(showPing));
   sock.on('rpg:drag', live(d => { if (R.drag && R.drag.id === d.id) return; const el = $r(`.rpg-tok[data-k="${d.k}"][data-id="${d.id}"]`); if (el) { el.classList.add('remote'); el.style.left = d.x * CELL + 'px'; el.style.top = d.y * CELL + 'px'; clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('remote'), 400); } }));
   sock.on('rpg:event', live(e => {
     R.st.events.push(e); if (R.st.events.length > 300) R.st.events.splice(0, R.st.events.length - 300);
@@ -919,7 +1196,10 @@ function invitedCard(d) {
 
 document.addEventListener('keydown', e => {
   if (!R.el || e.target.closest('input, textarea, select') || document.querySelector('.modal-back')) return;
-  if (e.key === 'Escape') { if (R.sel) select(null); else if (R.tool !== 'mover') { R.tool = 'mover'; renderTools(); } }
+  if (e.key === 'Escape') { if (ctxEl) closeCtx(); else if (R.sel) select(null); else if (R.tool !== 'mover') setTool('mover'); }
+  // atalhos das ferramentas (como nas mesas virtuais)
+  const k = e.key.toLowerCase(), sh = { v: 'mover', r: 'regua', p: 'ping', b: 'pincel' }[k];
+  if (sh && !e.ctrlKey && !e.metaKey && !e.altKey && (sh !== 'pincel' || (isMaster() && curMap() && !curMap().bg))) setTool(sh);
   if (e.key === 'Delete' && R.sel && R.sel.k === 'e' && isMaster()) { const t = entOf(R.sel.id); if (t) H.confirmBox('Apagar', `Tirar ${t.name} do mapa?`, 'Apagar').then(ok => ok && call('rpg:ent:del', { cid: R.st.camp.id, id: t.id }).then(r => r.ok && select(null))); }
   if (e.key === '+' || e.key === '=') setZoom(R.z * 1.2);
   if (e.key === '-') setZoom(R.z / 1.2);
@@ -937,6 +1217,7 @@ window.anarchyRpg = {
     if (R.lobbyEl) { closeLobby(); return true; }
     return false;
   },
-  _state: () => R // testes
+  _state: () => R, // testes
+  _paint: (m, cv) => paintMap(m, cv), _tex: t => texCanvas(t) // testes do desenho do mapa
 };
 })();
