@@ -1217,6 +1217,14 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-12-rpg-avancado', date: '12/11/2026', title: 'RPG de Mesa: exploração de verdade', emoji: '🔦', items: [
+    '<b>Eventos privados</b>: o Mestre clica com o botão direito num jogador → Criar evento. Cada evento tem mapa, combate e histórico próprios, e quem não participa não vê nada dele.',
+    '<b>Luz e névoa por jogador</b>: lâmpadas no mapa, lanternas que apontam para onde o personagem olha (Q/E para virar) e névoa que mostra só o que cada um enxerga.',
+    '<b>Portas e paredes que funcionam</b>: ninguém atravessa parede nem porta fechada. Portas abrem com um clique; as trancadas pedem chave ou um teste.',
+    'Mapa em camadas com dezenas de materiais (madeiras, mármore, gelo, lava, cristal, vidro, grades...) e materiais próprios. Pôr um objeto não troca o chão.',
+    'Marcadores de emoji com nome ao passar o mouse, e status personalizados na ficha (Fadiga, Sanidade, Mana...).',
+    'Atributos novos: Percepção; Sabedoria e Inteligência viraram <b>Intelecto</b>. As fichas antigas foram convertidas sozinhas.'
+  ] },
   { id: '2026-11-12-rpg-visual', date: '12/11/2026', title: 'RPG de Mesa de cara nova', emoji: '🗺️', items: [
     'Mapas pintados: terreno com contornos naturais, paredes com sombra, água funda, árvores e rochas com volume. Sem quadradinhos (a grade virou opcional).',
     '<b>Botão direito</b> nas miniaturas e nos retratos: o Mestre edita a ficha dos jogadores, dá dano, cura e condições, esconde, duplica e muda o tamanho de criaturas.',

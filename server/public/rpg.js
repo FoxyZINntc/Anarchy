@@ -1,12 +1,14 @@
 /* Anarchy — RPG de Mesa
    Atividade opcional de qualquer grupo ou conversa. Abre por cima do app (não muda o layout principal) e fala com o
-   servidor pelos eventos "rpg:*" do Socket.IO. Tudo que é sensível (dados, permissões, o que cada um vê) é decidido
-   no servidor (server/rpg.js); aqui só desenha e envia pedidos. O app.js entrega o que este arquivo usa em init(). */
+   servidor pelos eventos "rpg:*" do Socket.IO. Tudo que é sensível (dados, permissões, o que cada um vê, colisão,
+   portas, cenas privadas) é decidido no servidor (server/rpg.js); aqui só desenha e envia pedidos.
+   Usa window.RpgCore (rpg-core.js: materiais, camadas, luz e visão, igual ao servidor) e window.RpgDraw (rpg-draw.js).
+   O app.js entrega o que este arquivo usa em init(). */
 (() => {
 'use strict';
 let H = null; // utilidades do app.js (init)
+const C = window.RpgCore, D = window.RpgDraw;
 const CELL = 32; // tamanho da casa no mapa (px, antes do zoom)
-const TILE_NAMES = { '.': 'Chão', ',': 'Grama', '#': 'Parede', H: 'Parede de madeira', '~': 'Água', '^': 'Rocha', T: 'Árvore', '=': 'Trilha', D: 'Porta', S: 'Areia', P: 'Pilar', A: 'Altar', B: 'Barricada', _: 'Buraco', b: 'Ponte', f: 'Plantação' };
 const CONDS = ['Envenenado', 'Atordoado', 'Caído', 'Invisível', 'Amedrontado', 'Queimando', 'Abençoado', 'Paralisado', 'Sangrando', 'Dormindo', 'Congelado', 'Furioso'];
 const COND_IC = { Envenenado: '🤢', Atordoado: '💫', Caído: '🛌', Invisível: '👻', Amedrontado: '😱', Queimando: '🔥', Abençoado: '✨', Paralisado: '🧊', Sangrando: '🩸', Dormindo: '💤', Congelado: '❄️', Furioso: '😡' };
 const DICE = [4, 6, 8, 10, 12, 20, 100];
@@ -17,8 +19,11 @@ const PRESETS = [
   ['Mercador', 'npc', '🧔', 9, 10, 0, 1], ['Guarda', 'npc', '💂', 16, 16, 4, 2], ['Baú', 'objeto', '🧰', 10, 12, 0, 0], ['Barril', 'objeto', '🛢️', 6, 10, 0, 0]
 ];
 const MAP_KINDS = { masmorra: 'Masmorra', caverna: 'Caverna', castelo: 'Castelo', templo: 'Templo', floresta: 'Floresta', montanha: 'Montanha', cidade: 'Cidade', vila: 'Vila', arena: 'Arena', campo: 'Campo de batalha' };
+const MARK_EMOJIS = ['🗝️', '💀', '⚠️', '❓', '❗', '📜', '💰', '💎', '🧪', '⚗️', '🗡️', '🛡️', '🏹', '🔮', '📦', '🧰', '🕯️', '🔥', '💧', '❄️', '⚡', '🌿', '🍄', '🦴', '👣', '🩸', '🕸️', '🐀', '🐍', '🦇', '👁️', '🚪', '🪜', '🏳️', '⛺', '🪦', '⭐', '🎯', '📍', '🔒'];
+const DIRS = [[270, '⬆️'], [315, '↗️'], [0, '➡️'], [45, '↘️'], [90, '⬇️'], [135, '↙️'], [180, '⬅️'], [225, '↖️']];
 
-const R = { scope: null, lobbyEl: null, el: null, st: null, z: 1, tool: 'mover', brush: '.', tab: 'grupo', sel: null, fx: [], fxOn: false, drag: null };
+const R = { scope: null, lobbyEl: null, el: null, st: null, z: 1, tool: 'mover', brush: { L: 'chao', id: 'pedra', size: 1, erase: false }, mark: { e: '🗝️', size: 1, name: '', vis: 'todos' },
+  lamp: { r: 5, color: '#ffd98a', shape: 'circulo', intensity: 80 }, doorDef: { look: 'madeira', state: 'fechada' }, tab: 'grupo', sel: null, fx: [], fxOn: false, drag: null, preview: '', paintKey: '' };
 const me = () => H.S.me && H.S.me.id;
 const role = () => (R.st ? R.st.camp.role : null);
 const isMaster = () => role() === 'mestre';
@@ -27,16 +32,23 @@ const curMap = () => (R.st && R.st.map) || null;
 const charOf = id => R.st.chars.find(c => c.id === id);
 const entOf = id => R.st.ents.find(e => e.id === id);
 const myChar = () => R.st && R.st.chars.find(c => c.ownerId === me());
+const mats = () => (R.st && R.st.camp.mats) || [];
+const MAT = id => C.mat(id, mats());
+const attrName = a => (R.st.camp.attrNames && R.st.camp.attrNames[a]) || a;
+const bonus = (ch, a) => C.attrBonus(R.st.camp, ch, a);
+const sgn = n => (n >= 0 ? '+' : '') + n;
 const esc = s => H.esc(s);
 const toast = (m, e) => H.toast(m, e);
 async function call(ev, data, okMsg) { const r = await H.emit(ev, data); if (!r.ok) toast(r.erro || 'Algo deu errado.', true); else if (okMsg) toast(okMsg); return r; }
 const pct = (a, b) => Math.max(0, Math.min(100, b > 0 ? (a / b) * 100 : 0));
-const mod = v => { const m = Math.floor(((+v || 10) - 10) / 2); return (m >= 0 ? '+' : '') + m; };
+const mod = v => sgn(Math.floor(((+v || 10) - 10) / 2));
 const scopeName = s => (s.kind === 'g' ? (H.S.groups[s.id] && H.S.groups[s.id].name) || 'Grupo' : 'Conversa com ' + H.nameOf((H.S.dms[s.id] && H.S.dms[s.id].members.find(m => m !== me())) || ''));
 const avatarUrl = uid => { const u = H.user(uid); return u && u.avatar ? u.avatar : null; };
 const initial = n => esc((String(n || '?').trim()[0] || '?').toUpperCase());
+const sceneName = sid => { const s = (R.st.camp.scenes || []).find(x => x.id === sid); return s ? s.name : 'Cena principal'; };
+const doorAt = (m, i) => (m.doors || []).find(d => d.i === i);
 
-/* imagem com transparência (PNG/WEBP) para miniaturas e mapas: o envio comum do app vira JPG e perde o fundo transparente */
+/* imagem com transparência (PNG/WEBP) para miniaturas, mapas e texturas */
 async function upImg(file, max) {
   if (!file) return null;
   if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) { toast('Use uma imagem PNG, JPG, WEBP ou GIF.', true); return null; }
@@ -128,16 +140,18 @@ function createModal() {
 }
 
 /* =============== mesa (sala da campanha) =============== */
-async function openRoom(cid) {
-  const r = await H.emit('rpg:open', { cid });
+async function openRoom(cid, view) {
+  const r = await H.emit('rpg:open', { cid, view: view || '' });
   if (!r.ok) return toast(r.erro || 'Não consegui abrir a mesa.', true);
   closeRoom(true);
-  R.st = r; R.sel = null; R.tool = 'mover'; R.z = 1;
+  R.st = r; R.sel = null; R.tool = 'mover'; R.z = 1; R.preview = ''; R.paintKey = '';
   const el = document.createElement('div'); el.className = 'rpg-room'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Mesa de RPG');
+  // camadas: imagem/terreno, portas, grade, personagens, iluminação, marcadores e efeitos, névoa, alças do Mestre
   el.innerHTML = `<header class="rpg-top"></header>
+    <div class="rpg-scenes" hidden></div>
     <div class="rpg-body">
       <section class="rpg-stage">
-        <div class="rpg-view"><div class="rpg-board"><img class="rpg-bg" alt="" hidden draggable="false"><canvas class="rpg-tiles"></canvas><canvas class="rpg-gridc"></canvas><div class="rpg-marks"></div><div class="rpg-toks"></div><canvas class="rpg-fog"></canvas><svg class="rpg-ruler"></svg></div></div>
+        <div class="rpg-view"><div class="rpg-board"><img class="rpg-bg" alt="" hidden draggable="false"><canvas class="rpg-tiles"></canvas><canvas class="rpg-doors"></canvas><canvas class="rpg-gridc"></canvas><div class="rpg-toks"></div><canvas class="rpg-light" hidden></canvas><div class="rpg-marks"></div><canvas class="rpg-fog"></canvas><div class="rpg-handles"></div><svg class="rpg-ruler"></svg></div></div>
         <nav class="rpg-toolbar" aria-label="Ferramentas do mapa"></nav>
         <div class="rpg-brush" hidden></div>
         <div class="rpg-combat" hidden></div>
@@ -158,18 +172,18 @@ async function openRoom(cid) {
 function closeRoom(silent) {
   if (!R.el) return;
   if (!silent) H.emit('rpg:close', {});
-  R.el.remove(); R.el = null; R.st = null; R.sel = null; R.fx = []; R.drag = null;
+  R.el.remove(); R.el = null; R.st = null; R.sel = null; R.fx = []; R.drag = null; R.paintKey = '';
 }
 const $r = s => R.el && R.el.querySelector(s);
 
-function renderAll() { if (!R.el) return; renderTop(); drawMap(); renderTokens(); renderCombat(); renderTools(); renderTabs(); renderPane(); renderSel(); }
+function renderAll() { if (!R.el) return; renderTop(); renderScenes(); drawMap(); renderTokens(); renderCombat(); renderTools(); renderTabs(); renderPane(); renderSel(); }
 
 function renderTop() {
   const c = R.st.camp, m = curMap();
   const stLbl = { ativa: 'Ativa', pausada: 'Pausada', encerrada: 'Encerrada' }[c.state];
   const roleLbl = { mestre: '👑 Mestre', jogador: '🎭 Jogador', convidado: '✉️ Convidado', espectador: '👀 Assistindo' }[c.role];
   $r('.rpg-top').innerHTML = `<button class="btn ghost sm rpg-back" data-a="back">${H.ic('reply')}<span>Voltar ao Anarchy</span></button>
-    <div class="rpg-top-t">${c.cover ? `<img src="${esc(c.cover)}" alt="">` : '<span class="rpg-top-ic">🐉</span>'}<div><b>${esc(c.name)}</b><span><i class="rpg-st st-${c.state}">${stLbl}</i> ${roleLbl}${m ? ` · 🗺️ ${esc(m.name)}` : ''}</span></div></div>
+    <div class="rpg-top-t">${c.cover ? `<img src="${esc(c.cover)}" alt="">` : '<span class="rpg-top-ic">🐉</span>'}<div><b>${esc(c.name)}</b><span><i class="rpg-st st-${c.state}">${stLbl}</i> ${roleLbl}${m ? ` · 🗺️ ${esc(m.name)}` : ''}${c.view ? ` · 🎭 ${esc(sceneName(c.view))}` : ''}</span></div></div>
     <span class="spacer"></span>
     ${c.role === 'convidado' ? '<button class="btn primary sm" data-a="join">Aceitar convite</button>' : ''}
     ${c.role === 'espectador' && c.open && c.state !== 'encerrada' && c.players.length < c.maxPlayers ? '<button class="btn sm" data-a="join">Entrar como jogador</button>' : ''}
@@ -186,138 +200,49 @@ function renderTop() {
     if (a === 'join') { const q = await call('rpg:join', { cid: R.st.camp.id }, 'Você entrou na campanha! Agora crie seu personagem.'); if (q.ok && !myChar()) setTimeout(() => sheetModal(null), 300); }
   };
 }
+/* ---------- barra de cenas: o Mestre alterna entre a principal e os eventos; quem está num evento vê o nome dele ---------- */
+function renderScenes() {
+  const box = $r('.rpg-scenes'); if (!box) return;
+  const c = R.st.camp, sc = (c.scenes || []).filter(s => s.state === 'ativa');
+  if (!isMaster() && !sc.length) { box.hidden = true; return; }
+  box.hidden = false;
+  if (!isMaster() && c.myScene) {
+    const s = sc.find(x => x.id === c.myScene);
+    box.innerHTML = `<span class="rpg-sc-me">🎭 Você está no evento <b>${esc(s ? s.name : '')}</b>${s && s.desc ? ` <span class="muted">— ${esc(s.desc)}</span>` : ''}</span>`;
+    return;
+  }
+  const chip = (sid, label, n, extra = '') => `<button class="rpg-sc ${c.view === sid ? 'on' : ''}" data-sc="${sid}">${label}${n !== null ? ` <i>${n}</i>` : ''}${extra}</button>`;
+  box.innerHTML = chip('', '🏰 Principal', null) + sc.map(s => chip(s.id, `${s.vis === 'compartilhada' ? '👁️' : '🎭'} ${esc(s.name)}`, isMaster() ? s.uids.length : null)).join('')
+    + (isMaster() ? '<button class="rpg-sc add" data-sc="+">+ Evento</button>' : '<span class="muted small">Eventos compartilhados: clique para assistir</span>');
+  box.onclick = e => { const b = e.target.closest('[data-sc]'); if (!b) return; if (b.dataset.sc === '+') return eventModal([]); switchScene(b.dataset.sc); };
+}
+async function switchScene(sid) {
+  const r = await call('rpg:scene:view', { cid: R.st.camp.id, sid });
+  if (!r.ok) return;
+  R.st = r; R.sel = null; R.preview = ''; R.paintKey = ''; renderAll(); fitZoom();
+}
 
-// segura o ponteiro no elemento enquanto arrasta (alguns toques/canetas não deixam: segue sem)
 const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch {} };
 
-/* ---------- mapa pintado (sem quadrados) ----------
-   Cada tipo de terreno vira uma mancha orgânica (círculos sobrepostos com textura), as paredes ganham sombra e
-   "face" de pedra, a água tem fundo mais escuro, árvores têm copa e sombra. A grade é só um enfeite opcional
-   (rules.gridStyle: nenhuma, pontos ou quadrados); o movimento continua encaixando nas casas quando rules.grid. */
-function rnd(i, k = 0) { let x = (i * 374761393 + k * 668265263) | 0; x = (x ^ (x >>> 13)) * 1274126177 | 0; return ((x ^ (x >>> 16)) >>> 0) / 4294967296; }
-const GROUND = { '.': '.', ',': ',', f: 'f', S: 'S', '=': '=', '~': '~', _: '_', b: '~', D: '.', P: '.', A: '.', B: ',', T: ',', '#': '#', H: 'H', '^': '^' };
-const TEX_COL = { 'c.': ['#5e5547', '#52493c', '#6b6152'], 'c#': ['#1c1916', '#141210', '#28231f'], '.': ['#57514a', '#4c463f', '#635c53'], ',': ['#4d7a37', '#436d30', '#5b8a41'], f: ['#7d8b38', '#6e7c30', '#93a243'], S: ['#cdb57e', '#c2a96f', '#d9c391'], '=': ['#957b55', '#86704c', '#a68b62'], '~': ['#2e6c9b', '#285f8a', '#3a7fb2'], _: ['#0d0b0a', '#080706', '#151210'], '#': ['#3f3a35', '#36312c', '#4a443e'], H: ['#6b4a2c', '#5c3f25', '#7a5634'], '^': ['#7b7164', '#6d6457', '#8a8073'] };
-const texCache = {};
-function texCanvas(t) {
-  if (texCache[t]) return texCache[t];
-  const n = 128, c = document.createElement('canvas'); c.width = c.height = n; const g = c.getContext('2d'), [base, dark, light] = TEX_COL[t] || TEX_COL['.'];
-  g.fillStyle = base; g.fillRect(0, 0, n, n);
-  for (let k = 0; k < 420; k++) { g.fillStyle = rnd(k, 1) < .5 ? dark : light; g.globalAlpha = .18 + rnd(k, 2) * .25; const s = 1 + rnd(k, 3) * (t === '.' || t === '#' ? 3 : 2); g.fillRect(rnd(k, 4) * n, rnd(k, 5) * n, s, s); }
-  g.globalAlpha = 1;
-  if (t === '.') { g.strokeStyle = 'rgba(0,0,0,.22)'; g.lineWidth = 1.2; for (let y = 0; y < n; y += 32) for (let x = (y / 32) % 2 ? 16 : 0; x < n + 16; x += 32) { g.beginPath(); g.moveTo(x + rnd(x, y) * 4, y); g.lineTo(x + 30, y + rnd(y, x) * 3); g.lineTo(x + 31, y + 30); g.lineTo(x, y + 31); g.closePath(); g.stroke(); } }
-  if (t === ',') { g.strokeStyle = 'rgba(30,60,20,.5)'; g.lineWidth = 1; for (let k = 0; k < 90; k++) { const x = rnd(k, 7) * n, y = rnd(k, 8) * n; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd(k, 9) - .5) * 4, y - 4 - rnd(k, 10) * 3); g.stroke(); } }
-  if (t === 'f') { g.fillStyle = 'rgba(160,180,70,.55)'; for (let y = 4; y < n; y += 10) g.fillRect(0, y, n, 3); }
-  if (t === '#') { g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1.5; for (let y = 0; y < n; y += 16) { g.beginPath(); g.moveTo(0, y); g.lineTo(n, y); g.stroke(); for (let x = (y / 16) % 2 ? 0 : 16; x < n; x += 32) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 16); g.stroke(); } } }
-  if (t === 'H') { g.strokeStyle = 'rgba(40,24,10,.55)'; g.lineWidth = 1.5; for (let y = 0; y < n; y += 10) { g.beginPath(); g.moveTo(0, y + .5); g.lineTo(n, y + .5); g.stroke(); } }
-  if (t === '~') { g.strokeStyle = 'rgba(190,230,255,.22)'; g.lineWidth = 1.5; for (let k = 0; k < 14; k++) { const x = rnd(k, 11) * n, y = rnd(k, 12) * n; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 8, y - 4, x + 16, y); g.stroke(); } }
-  if (t === '=') { g.fillStyle = 'rgba(70,52,30,.35)'; for (let k = 0; k < 40; k++) { g.beginPath(); g.arc(rnd(k, 13) * n, rnd(k, 14) * n, 1 + rnd(k, 15) * 2, 0, 7); g.fill(); } }
-  return (texCache[t] = c);
+/* ---------- mapa: terreno pintado em camadas, portas, luz, névoa e grade ---------- */
+const mapKey = m => [m.id, m.w, m.h, m.bg || '', m.pal.join(','), ...C.LAYERS.map(L => m.layers[L]), JSON.stringify(mats().map(x => [x.id, x.c, x.st, x.img, x.emoji])), isMaster()].join('|');
+function drawMap() {
+  const m = curMap(), board = $r('.rpg-board'), tiles = $r('.rpg-tiles'), bg = $r('.rpg-bg'), nomap = $r('.rpg-nomap');
+  if (!m) {
+    board.hidden = true; nomap.hidden = false;
+    nomap.innerHTML = `<div class="rpg-empty">🗺️<b>Nenhum mapa ainda</b><span>${isMaster() ? 'Gere ou importe um mapa na aba Mestre.' : 'Espere o Mestre preparar o mapa.'}</span></div>`;
+    return;
+  }
+  board.hidden = false; nomap.hidden = true;
+  board.style.width = m.w * CELL + 'px'; board.style.height = m.h * CELL + 'px';
+  if (m.bg) { bg.hidden = false; if (bg.getAttribute('src') !== m.bg) bg.src = m.bg; } else { bg.hidden = true; bg.removeAttribute('src'); }
+  const key = mapKey(m);
+  if (key !== R.paintKey) { R.paintKey = key; if (m.bg && !isMaster()) { tiles.width = tiles.height = 1; } else D.paintMap(m, tiles, { cell: CELL, mats: mats(), master: isMaster() }); }
+  drawDoors(); drawGrid(); drawMarks(); drawLight(); drawFog(); drawHandles(); setZoom(R.z);
 }
-const ORGANIC_KINDS = ['caverna', 'montanha', 'floresta', 'campo'];
-function paintMap(m, cv) {
-  const res = Math.min(2, Math.max(1, 2400 / (Math.max(m.w, m.h) * CELL))), S = CELL * res;
-  cv.width = Math.round(m.w * S); cv.height = Math.round(m.h * S);
-  const g = cv.getContext('2d'), W = cv.width, Hh = cv.height;
-  const at = (x, y) => (x < 0 || y < 0 || x >= m.w || y >= m.h ? null : m.tiles[y * m.w + x]);
-  const organic = ORGANIC_KINDS.includes(m.kind);
-  // caverna e montanha: chão de terra e parede de rocha (sem lajotas nem tijolos)
-  const texOf = t => (organic && (t === '.' || t === '#') ? 'c' + t : t);
-  const pat = t => g.createPattern(texCanvas(texOf(t)), 'repeat');
-  // terreno contínuo: cada casa liga no centro das vizinhas (inclusive na diagonal) com um traço grosso e redondo.
-  // O resultado são manchas e caminhos com contorno suave (nada de quadrados nem de "bolinhas").
-  const jx = i => (rnd(i, 1) - .5) * .22 * S, jy = i => (rnd(i, 2) - .5) * .22 * S;
-  const smooth = (match, width) => {
-    g.beginPath(); let any = false;
-    for (let i = 0; i < m.tiles.length; i++) {
-      if (!match(m.tiles[i])) continue; any = true;
-      const x = i % m.w, y = (i / m.w) | 0, cx = (x + .5) * S + jx(i), cy = (y + .5) * S + jy(i);
-      g.moveTo(cx, cy); g.lineTo(cx + .01, cy);
-      for (const [a, b] of [[1, 0], [0, 1], [1, 1], [-1, 1]]) {
-        const nx = x + a, ny = y + b; if (nx < 0 || ny < 0 || nx >= m.w || ny >= m.h) continue;
-        const k = ny * m.w + nx; if (!match(m.tiles[k])) continue;
-        g.moveTo(cx, cy); g.lineTo((nx + .5) * S + jx(k), (ny + .5) * S + jy(k));
-      }
-    }
-    if (any) { g.lineWidth = width * S; g.lineCap = 'round'; g.lineJoin = 'round'; }
-    return any;
-  };
-  // 1) chão principal (o tipo mais comum) e os outros por cima, do mais "baixo" para o mais alto
-  const count = {}; for (const ch of m.tiles) { const k = GROUND[ch] || '.'; if ('.,fS=~_'.includes(k)) count[k] = (count[k] || 0) + 1; }
-  const base = Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || '.';
-  g.fillStyle = pat(base); g.fillRect(0, 0, W, Hh);
-  for (const t of [',', 'f', '.', 'S', '=', '_', '~']) {
-    if (t === base) continue;
-    if (smooth(ch => GROUND[ch] === t, t === '=' ? .95 : t === '_' ? 1.05 : 1.45)) { g.strokeStyle = pat(t); g.stroke(); }
-  }  // água: fundo mais escuro longe da margem
-  if (count['~']) {
-    g.save(); g.beginPath();
-    for (let i = 0; i < m.tiles.length; i++) { if (GROUND[m.tiles[i]] !== '~') continue; const x = i % m.w, y = (i / m.w) | 0; if ([[1, 0], [-1, 0], [0, 1], [0, -1]].every(([a, b]) => { const n = at(x + a, y + b); return n === null || GROUND[n] === '~'; })) { const cx = (x + .5) * S, cy = (y + .5) * S; g.moveTo(cx + S * .7, cy); g.arc(cx, cy, S * .7, 0, 7); } }
-    g.fillStyle = 'rgba(10,35,70,.38)'; g.filter = `blur(${S * .35}px)`; g.fill(); g.restore();
-  }
-  // buracos: escuro no meio
-  for (let i = 0; i < m.tiles.length; i++) if (m.tiles[i] === '_') { const cx = (i % m.w + .5) * S, cy = (((i / m.w) | 0) + .5) * S, gr = g.createRadialGradient(cx, cy, 0, cx, cy, S * .7); gr.addColorStop(0, 'rgba(0,0,0,.95)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(cx - S, cy - S, 2 * S, 2 * S); }
-  // 2) paredes e prédios: sombra no chão, depois o bloco com textura, depois a "face" de baixo (dá altura).
-  //    Caverna e montanha: rocha contínua com contorno irregular (mesmo traço redondo do terreno).
-  for (const [t, f] of [['#', ch => ch === '#'], ['H', ch => ch === 'H']]) {
-    const rough = organic && t === '#';
-    const shape = () => {
-      if (rough) return smooth(f, 1.5);
-      g.beginPath(); let any = false;
-      for (let i = 0; i < m.tiles.length; i++) { if (!f(m.tiles[i])) continue; any = true; const x = i % m.w, y = (i / m.w) | 0; g.rect(x * S - .6, y * S - .6, S + 1.2, S + 1.2); }
-      return any;
-    };
-    const paint = style => { if (rough) { g.strokeStyle = style; g.stroke(); } else { g.fillStyle = style; g.fill(); } };
-    if (!shape()) continue;
-    g.save(); g.shadowColor = 'rgba(0,0,0,.65)'; g.shadowBlur = S * .6; g.shadowOffsetY = S * .16; paint('#000'); g.restore();
-    shape(); paint(pat(t));
-    if (rough) continue; // rocha da caverna: a sombra já marca a borda
-    for (let i = 0; i < m.tiles.length; i++) {
-      if (!f(m.tiles[i])) continue; const x = i % m.w, y = (i / m.w) | 0, below = at(x, y + 1), above = at(x, y - 1);
-      if (below !== null && !f(below)) { const gr = g.createLinearGradient(0, (y + .7) * S, 0, (y + 1) * S); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.45)'); g.fillStyle = gr; g.fillRect(x * S, (y + .62) * S, S, S * .38); }
-      if (above !== null && !f(above)) { g.fillStyle = 'rgba(255,240,210,.09)'; g.fillRect(x * S, y * S, S, S * .1); }
-    }
-  }
-  // rochas: pedras com volume (sombra, luz de cima à esquerda e uma rachadura)
-  for (let i = 0; i < m.tiles.length; i++) {
-    if (m.tiles[i] !== '^') continue;
-    const x = i % m.w, y = (i / m.w) | 0, cx = (x + .5) * S + jx(i), cy = (y + .5) * S + jy(i), r = S * (.5 + rnd(i, 6) * .14);
-    g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(cx + r * .18, cy + r * .3, r * 1.02, r * .8, 0, 0, 7); g.fill();
-    const gr = g.createRadialGradient(cx - r * .35, cy - r * .4, r * .1, cx, cy, r * 1.05);
-    gr.addColorStop(0, organic ? '#9b8f7c' : '#a99e8d'); gr.addColorStop(.6, organic ? '#6a604f' : '#776d5e'); gr.addColorStop(1, '#3a332b');
-    g.fillStyle = gr; g.beginPath(); g.ellipse(cx, cy, r, r * (.82 + rnd(i, 7) * .15), rnd(i, 8) * 3, 0, 7); g.fill();
-    g.strokeStyle = 'rgba(30,24,18,.5)'; g.lineWidth = Math.max(1, S * .03); g.beginPath(); g.moveTo(cx - r * .3, cy - r * .1); g.lineTo(cx, cy + r * .1); g.lineTo(cx + r * .2, cy - r * .2); g.stroke();
-  }
-  // 3) objetos
-  const tree = (cx, cy, r, i) => {
-    g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(cx + r * .25, cy + r * .45, r * 1.05, r * .75, 0, 0, 7); g.fill();
-    const greens = ['#24521f', '#2c6326', '#1f4a1b', '#336d2b'];
-    for (let k = 0; k < 4; k++) { g.fillStyle = greens[(i + k) % 4]; g.beginPath(); g.arc(cx + (rnd(i, 20 + k) - .5) * r * .9, cy + (rnd(i, 30 + k) - .5) * r * .9, r * (.55 + rnd(i, 40 + k) * .25), 0, 7); g.fill(); }
-    g.fillStyle = 'rgba(190,240,150,.12)'; g.beginPath(); g.arc(cx - r * .25, cy - r * .3, r * .4, 0, 7); g.fill();
-  };
-  for (let i = 0; i < m.tiles.length; i++) {
-    const ch = m.tiles[i], x = i % m.w, y = (i / m.w) | 0, cx = (x + .5) * S, cy = (y + .5) * S;
-    if (ch === 'T') tree(cx + (rnd(i, 50) - .5) * S * .3, cy + (rnd(i, 51) - .5) * S * .3, S * (.48 + rnd(i, 52) * .18), i);
-    else if (ch === 'P') { g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(cx + S * .08, cy + S * .14, S * .36, S * .3, 0, 0, 7); g.fill(); const gr = g.createRadialGradient(cx - S * .1, cy - S * .1, 1, cx, cy, S * .34); gr.addColorStop(0, '#c9c3b8'); gr.addColorStop(1, '#6f6a62'); g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, S * .32, 0, 7); g.fill(); }
-    else if (ch === 'A') { g.fillStyle = 'rgba(0,0,0,.4)'; g.fillRect(x * S + S * .14, y * S + S * .34, S * .8, S * .5); const gr = g.createLinearGradient(0, y * S + S * .25, 0, y * S + S * .75); gr.addColorStop(0, '#e9dcc0'); gr.addColorStop(1, '#a8987c'); g.fillStyle = gr; g.fillRect(x * S + S * .1, y * S + S * .26, S * .8, S * .46); g.fillStyle = '#ffcf6b'; for (const k of [.25, .75]) { g.beginPath(); g.arc(x * S + S * k, y * S + S * .3, S * .05, 0, 7); g.fill(); } }
-    else if (ch === 'B') { g.strokeStyle = '#4a2f16'; g.lineWidth = S * .12; g.lineCap = 'round'; g.beginPath(); g.moveTo(x * S + S * .15, y * S + S * .8); g.lineTo(x * S + S * .85, y * S + S * .25); g.moveTo(x * S + S * .15, y * S + S * .25); g.lineTo(x * S + S * .85, y * S + S * .8); g.stroke(); g.strokeStyle = '#8a5a2b'; g.lineWidth = S * .07; g.stroke(); }
-    else if (ch === 'b') {
-      const horiz = GROUND[at(x - 1, y)] !== '~' || GROUND[at(x + 1, y)] !== '~' ? at(x, y - 1) === 'b' || at(x, y + 1) === 'b' ? false : true : false;
-      g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(x * S + S * .08, y * S + S * .12, S * .9, S * .9);
-      g.fillStyle = '#8a6239'; g.fillRect(x * S - 1, y * S - 1, S + 2, S + 2);
-      g.strokeStyle = '#5a3d20'; g.lineWidth = 1.5;
-      for (let k = 1; k < 5; k++) { g.beginPath(); if (horiz) { g.moveTo(x * S + k * S / 5, y * S); g.lineTo(x * S + k * S / 5, y * S + S); } else { g.moveTo(x * S, y * S + k * S / 5); g.lineTo(x * S + S, y * S + k * S / 5); } g.stroke(); }
-    } else if (ch === 'D') {
-      const wl = '#H'.includes(at(x - 1, y) || ''), wr = '#H'.includes(at(x + 1, y) || ''), horiz = wl || wr;
-      g.fillStyle = 'rgba(0,0,0,.45)';
-      if (horiz) { g.fillRect(x * S, y * S + S * .3, S, S * .4); g.fillStyle = '#7b4a22'; g.fillRect(x * S + 1, y * S + S * .34, S - 2, S * .32); g.fillStyle = '#c99a3a'; g.fillRect(x * S + S * .72, y * S + S * .45, S * .07, S * .1); }
-      else { g.fillRect(x * S + S * .3, y * S, S * .4, S); g.fillStyle = '#7b4a22'; g.fillRect(x * S + S * .34, y * S + 1, S * .32, S - 2); g.fillStyle = '#c99a3a'; g.fillRect(x * S + S * .45, y * S + S * .72, S * .1, S * .07); }
-    }
-  }
-  // 4) luz: cantos mais escuros (vinheta) e um calor leve no meio
-  const vg = g.createRadialGradient(W / 2, Hh / 2, Math.min(W, Hh) * .3, W / 2, Hh / 2, Math.max(W, Hh) * .75);
-  vg.addColorStop(0, 'rgba(255,220,160,.04)'); vg.addColorStop(1, 'rgba(0,0,0,.42)'); g.fillStyle = vg; g.fillRect(0, 0, W, Hh);
-  return res;
-}
+let repaintT = null;
+function repaintSoon() { if (repaintT) return; repaintT = setTimeout(() => { repaintT = null; const m = curMap(); if (m && R.el) { R.paintKey = mapKey(m); D.paintMap(m, $r('.rpg-tiles'), { cell: CELL, mats: mats(), master: isMaster() }); drawLight(); } }, 120); }
+function drawDoors() { const m = curMap(), cv = $r('.rpg-doors'); if (m && cv) D.drawDoors(m, cv, { cell: CELL, master: isMaster() }); }
 function drawGrid() {
   const m = curMap(), c = $r('.rpg-gridc'); if (!m || !c) return;
   const style = R.st.camp.rules.gridStyle || 'nenhuma', res = 2;
@@ -328,38 +253,53 @@ function drawGrid() {
   if (style === 'pontos') { g.fillStyle = m.bg ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.35)'; for (let y = 1; y < m.h; y++) for (let x = 1; x < m.w; x++) { g.beginPath(); g.arc(x * S, y * S, res * 1.3, 0, 7); g.fill(); } }
   else { g.strokeStyle = m.bg ? 'rgba(255,255,255,.2)' : 'rgba(0,0,0,.28)'; g.lineWidth = res; g.beginPath(); for (let x = 0; x <= m.w; x++) { g.moveTo(x * S, 0); g.lineTo(x * S, m.h * S); } for (let y = 0; y <= m.h; y++) { g.moveTo(0, y * S); g.lineTo(m.w * S, y * S); } g.stroke(); }
 }
-function drawMap() {
-  const m = curMap(), board = $r('.rpg-board'), tiles = $r('.rpg-tiles'), bg = $r('.rpg-bg'), nomap = $r('.rpg-nomap');
-  if (!m) {
-    board.hidden = true; nomap.hidden = false;
-    nomap.innerHTML = `<div class="rpg-empty">🗺️<b>Nenhum mapa ainda</b><span>${isMaster() ? 'Gere ou importe um mapa na aba Mestre.' : 'Espere o Mestre preparar o mapa.'}</span></div>`;
-    return;
-  }
-  board.hidden = false; nomap.hidden = true;
-  board.style.width = m.w * CELL + 'px'; board.style.height = m.h * CELL + 'px';
-  if (m.bg) { bg.hidden = false; if (bg.getAttribute('src') !== m.bg) bg.src = m.bg; tiles.width = tiles.height = 1; }
-  else { bg.hidden = true; bg.removeAttribute('src'); paintMap(m, tiles); }
-  drawGrid(); drawMarks(); drawFog(); setZoom(R.z);
+// luz calculada aqui com o mesmo código do servidor (paredes e portas fechadas bloqueiam)
+function lightNow() {
+  const m = curMap(); if (!m) return null;
+  const F = C.flags(m, mats()), chars = R.st.chars.filter(c => c.pos && c.pos[m.id]);
+  return { F, chars, ...C.lighting(m, mats(), F, chars) };
 }
-// repinta o mapa no máximo a cada 120 ms (pincel do Mestre)
-let repaintT = null;
-function repaintSoon() { if (repaintT) return; repaintT = setTimeout(() => { repaintT = null; const m = curMap(); if (m && !m.bg && R.el) paintMap(m, $r('.rpg-tiles')); }, 120); }
-// névoa: 1 pixel por casa, esticada com suavização (bordas macias, sem quadrados)
+function drawLight() {
+  const m = curMap(), cv = $r('.rpg-light'); if (!m || !cv) return;
+  const L = lightNow(); R.lit = L;
+  cv.hidden = !D.drawLight(m, cv, L.srcs, { master: isMaster() });
+}
+// névoa: jogadores recebem do servidor o que veem agora (vis) e o que já exploraram (seenMask).
+// O Mestre vê por cima (meio transparente) o que o grupo vê, ou "como" um personagem escolhido.
+function fogMasks(m) {
+  const n = m.w * m.h, mode = m.fogMode || 'manual';
+  if (!isMaster()) return { vis: C.bitsDec(m.vis, n), seen: C.bitsDec(m.seenMask, n), mode };
+  const L = R.lit || lightNow(), manual = C.bitsDec(m.seen, n), vis = new Uint8Array(n);
+  const who = R.preview ? L.chars.filter(c => c.id === R.preview) : L.chars;
+  if (mode !== 'manual') for (const ch of who) C.bitsOr(vis, C.vision(m, L.F, L.lit, ch));
+  C.bitsOr(vis, manual);
+  let seen = vis;
+  if (mode === 'descoberto') { seen = vis.slice(); for (const ch of who) C.bitsOr(seen, C.bitsDec((m.seenBy || {})[ch.id], n)); }
+  return { vis, seen, mode };
+}
 function drawFog() {
   const m = curMap(), c = $r('.rpg-fog'); if (!m || !c) return;
   c.width = m.w; c.height = m.h;
   const g = c.getContext('2d'); g.clearRect(0, 0, m.w, m.h);
-  c.classList.toggle('master', isMaster());
+  c.classList.toggle('master', isMaster() && !R.preview);
+  c.classList.toggle('preview', isMaster() && !!R.preview);
   if (!m.fog) return;
-  const img = g.createImageData(m.w, m.h);
-  for (let i = 0; i < m.seen.length; i++) { const k = i * 4; img.data[k] = 6; img.data[k + 1] = 5; img.data[k + 2] = 8; img.data[k + 3] = m.seen[i] === '1' ? 0 : 255; }
+  const { vis, seen, mode } = fogMasks(m), img = g.createImageData(m.w, m.h);
+  for (let i = 0; i < m.w * m.h; i++) { const k = i * 4; img.data[k] = 6; img.data[k + 1] = 5; img.data[k + 2] = 9; img.data[k + 3] = vis[i] ? 0 : seen[i] && mode === 'descoberto' ? 165 : 255; }
   g.putImageData(img, 0, 0);
 }
-// armadilhas e pings (por cima do mapa, embaixo das miniaturas)
+// armadilhas, marcadores (emojis com nome) e pings: camada de efeitos, por cima da luz
 function drawMarks() {
   const m = curMap(), layer = $r('.rpg-marks'); if (!m || !layer) return;
-  layer.querySelectorAll('.rpg-trap').forEach(x => x.remove());
-  layer.insertAdjacentHTML('afterbegin', (m.traps || []).map(t => `<i class="rpg-trap ${t.on ? 'on' : ''}" style="left:${(t.i % m.w) * CELL}px;top:${((t.i / m.w) | 0) * CELL}px" title="${t.on ? 'Armadilha revelada' : 'Armadilha escondida (só você vê)'}">${t.on ? '⚠️' : '🪤'}</i>`).join(''));
+  layer.querySelectorAll('.rpg-trap, .rpg-mk').forEach(x => x.remove());
+  const master = isMaster();
+  layer.insertAdjacentHTML('afterbegin', (m.traps || []).map(t => `<i class="rpg-trap ${t.on ? 'on' : ''}" style="left:${(t.i % m.w) * CELL}px;top:${((t.i / m.w) | 0) * CELL}px" title="${t.on ? 'Armadilha revelada' : 'Armadilha escondida (só você vê)'}">${t.on ? '⚠️' : '🪤'}</i>`).join('')
+    + (m.marks || []).map(x => `<div class="rpg-mk ${master ? 'mv' : ''} ${master && x.vis !== 'todos' ? 'priv' : ''}" data-mk="${x.id}" style="left:${x.x * CELL}px;top:${x.y * CELL}px;--sz:${x.size}" ${x.name ? `data-name="${esc(x.name)}"` : ''} aria-label="${esc(x.name || x.emoji)}"><span>${esc(x.emoji)}</span></div>`).join(''));
+}
+// alças do Mestre: lâmpadas (arrasta para mover, botão direito para editar)
+function drawHandles() {
+  const m = curMap(), layer = $r('.rpg-handles'); if (!layer) return;
+  layer.innerHTML = m && isMaster() ? (m.lights || []).map(L => `<div class="rpg-lamp ${L.on ? '' : 'off'}" data-lamp="${L.id}" style="left:${L.x * CELL}px;top:${L.y * CELL}px;--lc:${esc(L.color)}" title="${esc(L.name || 'Lâmpada')} · ${L.r} casas${L.on ? '' : ' (apagada)'}">💡</div>`).join('') : '';
 }
 function showPing(p) {
   const layer = $r('.rpg-marks'); if (!layer) return;
@@ -368,7 +308,6 @@ function showPing(p) {
   layer.appendChild(el); setTimeout(() => el.remove(), 2600);
   H.tone([[880, .05], [1175, .08]], 'sine', .04);
 }
-const fogged = (m, x, y) => m && m.fog && !isMaster() && m.seen[Math.floor(y + .5) * m.w + Math.floor(x + .5)] !== '1';
 
 /* ---------- miniaturas ---------- */
 function tokens() {
@@ -380,21 +319,22 @@ function tokens() {
 }
 function canMove(k, t) {
   if (isMaster()) return true;
-  const c = R.st.camp;
-  return k === 'c' && t.ownerId === me() && !c.rules.lock && c.state === 'ativa';
+  const c = R.st.camp, s = (c.scenes || []).find(x => x.id === c.myScene);
+  return k === 'c' && t.ownerId === me() && !c.rules.lock && c.state === 'ativa' && !(s && s.perm && s.perm.move === false);
 }
 const hpColor = p => (p > 60 ? '#5fd07d' : p > 30 ? '#f2c14e' : '#e2484e');
 const tokImg = o => (o.k === 'c' ? (o.t.img || avatarUrl(o.t.ownerId)) : o.t.img);
 function tokHtml(o) {
-  const t = o.t, m = curMap(), img = tokImg(o);
+  const t = o.t, img = tokImg(o);
   const face = img ? `<img src="${esc(img)}" alt="" draggable="false">` : `<span>${o.k === 'e' && t.emoji ? esc(t.emoji) : initial(t.name)}</span>`;
   const showHp = t.hpMax && (o.k === 'c' || isMaster() || t.hp !== undefined);
   const p = showHp ? pct(t.hp, t.hpMax) : 100;
   const cb = R.st.camp.combat, turn = cb.on && cb.order[cb.turn], isTurn = turn && turn.k === o.k && turn.id === o.id;
-  const cls = ['rpg-tok', 'k-' + o.k, o.k === 'e' ? 'kind-' + t.kind : '', o.k === 'e' && t.img ? 'cut' : '', R.sel && R.sel.k === o.k && R.sel.id === o.id ? 'sel' : '', isTurn ? 'turn' : '', o.k === 'e' && t.hidden ? 'hid' : '', showHp && t.hp <= 0 ? 'down' : '', canMove(o.k, t) ? 'mov' : '', o.k === 'c' && t.ownerId === me() ? 'mine' : ''].filter(Boolean).join(' ');
+  const lt = o.k === 'c' && t.lantern;
+  const cls = ['rpg-tok', 'k-' + o.k, o.k === 'e' ? 'kind-' + t.kind : '', o.k === 'e' && t.img ? 'cut' : '', R.sel && R.sel.k === o.k && R.sel.id === o.id ? 'sel' : '', isTurn ? 'turn' : '', o.k === 'e' && t.hidden ? 'hid' : '', showHp && t.hp <= 0 ? 'down' : '', canMove(o.k, t) ? 'mov' : '', o.k === 'c' && t.ownerId === me() ? 'mine' : '', lt && lt.on ? 'lit' : ''].filter(Boolean).join(' ');
   const conds = (t.conds || []).slice(0, 4).map(x => COND_IC[x] || '•').join('');
-  return `<div class="${cls}" data-k="${o.k}" data-id="${o.id}" style="--s:${o.size};--tc:${esc(t.color || '#6c7cff')};--hp:${p};--hpc:${hpColor(p)};left:${o.x * CELL}px;top:${o.y * CELL}px" ${fogged(m, o.x, o.y) && !(o.k === 'c' && t.ownerId === me()) ? 'hidden' : ''}>
-    <div class="rpg-tok-base"></div>${showHp ? '<div class="rpg-tok-ring"></div>' : ''}<div class="rpg-tok-face">${face}</div>${conds ? `<div class="rpg-tok-cond">${conds}</div>` : ''}<div class="rpg-tok-name">${esc(t.name)}</div></div>`;
+  return `<div class="${cls}" data-k="${o.k}" data-id="${o.id}" style="--s:${o.size};--tc:${esc(t.color || '#6c7cff')};--hp:${p};--hpc:${hpColor(p)};--dir:${o.k === 'c' ? (t.dir || 0) : 0}deg;left:${o.x * CELL}px;top:${o.y * CELL}px">
+    <div class="rpg-tok-base"></div>${o.k === 'c' ? `<div class="rpg-tok-dir" ${lt ? `style="--lc:${esc(lt.color)}"` : ''}></div>` : ''}${showHp ? '<div class="rpg-tok-ring"></div>' : ''}<div class="rpg-tok-face">${face}</div>${conds ? `<div class="rpg-tok-cond">${conds}</div>` : ''}<div class="rpg-tok-name">${esc(t.name)}</div></div>`;
 }
 function renderTokens() {
   const layer = $r('.rpg-toks'); if (!layer) return;
@@ -403,22 +343,22 @@ function renderTokens() {
   renderParty();
 }
 
-/* ---------- retratos do grupo (canto de baixo, como nas mesas virtuais) ---------- */
+/* ---------- retratos do grupo ---------- */
 function renderParty() {
   const box = $r('.rpg-party'); if (!box) return;
-  const list = R.st.chars.slice().sort((a, b) => (b.ownerId === me()) - (a.ownerId === me()) || a.name.localeCompare(b.name));
+  const list = R.st.chars.slice().sort((a, b) => (b.ownerId === me()) - (a.ownerId === me()) || a.away - b.away || a.name.localeCompare(b.name));
   const cb = R.st.camp.combat, turn = cb.on && cb.order[cb.turn];
   box.innerHTML = list.map(ch => {
     const p = pct(ch.hp, ch.hpMax), img = ch.img || avatarUrl(ch.ownerId);
-    return `<button class="rpg-pp ${ch.ownerId === me() ? 'mine' : ''} ${ch.hp <= 0 ? 'down' : ''} ${turn && turn.k === 'c' && turn.id === ch.id ? 'turn' : ''} ${R.sel && R.sel.id === ch.id ? 'sel' : ''}" data-pp="${ch.id}" style="--tc:${esc(ch.color)};--hp:${p};--hpc:${hpColor(p)}" title="${esc(ch.name)} · ❤️ ${ch.hp}/${ch.hpMax}${ch.mpMax ? ` · 🔷 ${ch.mp}/${ch.mpMax}` : ''}">
+    return `<button class="rpg-pp ${ch.ownerId === me() ? 'mine' : ''} ${ch.hp <= 0 ? 'down' : ''} ${ch.away ? 'away' : ''} ${turn && turn.k === 'c' && turn.id === ch.id ? 'turn' : ''} ${R.sel && R.sel.id === ch.id ? 'sel' : ''}" data-pp="${ch.id}" style="--tc:${esc(ch.color)};--hp:${p};--hpc:${hpColor(p)}" title="${esc(ch.name)} · ❤️ ${ch.hp}/${ch.hpMax}${ch.mpMax ? ` · 🔷 ${ch.mp}/${ch.mpMax}` : ''}${ch.away ? ' · em outra cena' : ''}">
       <span class="rpg-pp-ring"></span><span class="rpg-pp-face">${img ? `<img src="${esc(img)}" alt="">` : initial(ch.name)}</span>
-      ${ch.mpMax ? `<span class="rpg-pp-mp"><i style="width:${pct(ch.mp, ch.mpMax)}%"></i></span>` : ''}${(ch.conds || []).length ? `<span class="rpg-pp-cond">${ch.conds.slice(0, 3).map(x => COND_IC[x] || '•').join('')}</span>` : ''}
+      ${ch.mpMax ? `<span class="rpg-pp-mp"><i style="width:${pct(ch.mp, ch.mpMax)}%"></i></span>` : ''}${(ch.conds || []).length ? `<span class="rpg-pp-cond">${ch.conds.slice(0, 3).map(x => COND_IC[x] || '•').join('')}</span>` : ''}${ch.away ? '<span class="rpg-pp-away">🎭</span>' : ''}
       <b>${esc(ch.name.split(/[ ,]/)[0])}</b></button>`;
   }).join('');
   box.hidden = !list.length;
 }
 
-/* ---------- arrastar, medir, pintar, ping e navegar ---------- */
+/* ---------- arrastar, medir, pintar, ping, portas e navegar ---------- */
 function boardPos(e) {
   const b = $r('.rpg-board').getBoundingClientRect();
   return { x: (e.clientX - b.left) / R.z / CELL, y: (e.clientY - b.top) / R.z / CELL };
@@ -437,7 +377,6 @@ function fitZoom() {
   const m = curMap(), v = $r('.rpg-view'); if (!m || !v) return;
   setZoom(Math.min(1.4, Math.max(0.3, Math.min((v.clientWidth - 24) / (m.w * CELL), (v.clientHeight - 24) / (m.h * CELL)))));
 }
-// régua: distância em casas (diagonal conta 1, como no D&D 5e) e em metros (1 casa = 1,5 m)
 function ruler(a, b) {
   const svg = $r('.rpg-ruler'); if (!svg) return;
   if (!a) { svg.innerHTML = ''; return; }
@@ -447,17 +386,29 @@ function ruler(a, b) {
   svg.innerHTML = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="rl-bg"/><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="rl"/><circle cx="${x1}" cy="${y1}" r="4" class="rl-dot"/><circle cx="${x2}" cy="${y2}" r="${CELL * .48}" class="rl-end"/>
     <g transform="translate(${(x1 + x2) / 2},${(y1 + y2) / 2 - 14})"><rect x="-${label.length * 3.4 + 8}" y="-11" width="${label.length * 6.8 + 16}" height="22" rx="11" class="rl-tag"/><text text-anchor="middle" dy="4">${label}</text></g>`;
 }
+// clique numa porta: abre/fecha (jogadores precisam estar do lado; o servidor confere)
+async function toggleDoor(d) {
+  const m = curMap(), cid = R.st.camp.id;
+  const r = await H.emit('rpg:door', { cid, mapId: m.id, id: d.id, action: d.state === 'aberta' ? 'fechar' : 'abrir' });
+  if (!r.ok) toast(r.erro || 'Não deu.', true);
+}
 function bindBoard() {
   const view = $r('.rpg-view');
-  let pan = null, paint = null, meas = null;
+  let pan = null, paint = null, meas = null, hd = null;
   view.addEventListener('wheel', e => { if (!e.ctrlKey && !e.metaKey) return; e.preventDefault(); const r = view.getBoundingClientRect(); setZoom(R.z * (e.deltaY < 0 ? 1.12 : 1 / 1.12), { x: e.clientX - r.left, y: e.clientY - r.top }); }, { passive: false });
   view.addEventListener('pointerdown', e => {
     if (e.button !== 0 && e.button !== 1) return;
     closeCtx();
     const tok = e.target.closest('.rpg-tok'), m = curMap(); if (!m) return;
-    // Alt+clique (ou a ferramenta 📍): ping para todo mundo
     if (e.button === 0 && (e.altKey || R.tool === 'ping')) { const p = boardPos(e); if (isPlayer()) call('rpg:ping', { cid: R.st.camp.id, x: p.x - .5, y: p.y - .5 }); else showPing({ uid: me(), x: p.x - .5, y: p.y - .5 }); return; }
     if (R.tool === 'regua' && e.button === 0) { const p = boardPos(e); meas = { a: { x: Math.floor(p.x), y: Math.floor(p.y) } }; capture(view, e); return; }
+    // Mestre arrasta lâmpadas e marcadores
+    const lamp = e.target.closest('.rpg-lamp'), mk = e.target.closest('.rpg-mk.mv');
+    if (isMaster() && R.tool === 'mover' && e.button === 0 && (lamp || mk)) {
+      const el = lamp || mk, p = boardPos(e), ox = parseFloat(el.style.left) / CELL, oy = parseFloat(el.style.top) / CELL;
+      hd = { el, kind: lamp ? 'luz' : 'marca', id: lamp ? lamp.dataset.lamp : mk.dataset.mk, ox, oy, dx: p.x - ox, dy: p.y - oy, moved: false, x: ox, y: oy };
+      capture(view, e); return;
+    }
     if (tok && R.tool === 'mover' && e.button === 0) {
       const k = tok.dataset.k, id = tok.dataset.id, t = k === 'c' ? charOf(id) : entOf(id); if (!t) return;
       const p = boardPos(e), ox = parseFloat(tok.style.left) / CELL, oy = parseFloat(tok.style.top) / CELL;
@@ -465,11 +416,12 @@ function bindBoard() {
       capture(tok, e);
       return;
     }
+    if (isMaster() && e.button === 0 && ['porta', 'luz', 'marcador'].includes(R.tool)) { placeAt(boardPos(e)); return; }
     if (isMaster() && ['pincel', 'revelar', 'esconder', 'armadilha'].includes(R.tool) && e.button === 0) {
       paint = { cells: new Map(), traps: [], reveal: new Set(), hide: new Set() };
       paintAt(e, paint); capture(view, e); return;
     }
-    pan = { x: e.clientX, y: e.clientY, sl: view.scrollLeft, st: view.scrollTop }; capture(view, e); view.classList.add('panning');
+    pan = { x: e.clientX, y: e.clientY, sl: view.scrollLeft, st: view.scrollTop, e }; capture(view, e); view.classList.add('panning');
   });
   view.addEventListener('pointermove', e => {
     const d = R.drag;
@@ -480,11 +432,11 @@ function bindBoard() {
       if (!d.can) return;
       d.moved = true; d.x = nx; d.y = ny;
       d.el.classList.add('dragging'); d.el.style.left = nx * CELL + 'px'; d.el.style.top = ny * CELL + 'px';
-      const snap = R.st.camp.rules.grid ? { x: Math.round(nx), y: Math.round(ny) } : { x: nx, y: ny };
-      ruler({ x: d.ox, y: d.oy }, snap);
+      ruler({ x: d.ox, y: d.oy }, R.st.camp.rules.grid ? { x: Math.round(nx), y: Math.round(ny) } : { x: nx, y: ny });
       const t0 = performance.now(); if (t0 - d.last > 60) { d.last = t0; H.socket && H.socket.emit('rpg:drag', { cid: R.st.camp.id, k: d.k, id: d.id, x: nx, y: ny }); }
       return;
     }
+    if (hd) { const p = boardPos(e), m = curMap(); const nx = Math.max(0, Math.min(m.w - 1, p.x - hd.dx)), ny = Math.max(0, Math.min(m.h - 1, p.y - hd.dy)); if (!hd.moved && Math.hypot(nx - hd.ox, ny - hd.oy) < .2) return; hd.moved = true; hd.x = nx; hd.y = ny; hd.el.style.left = (hd.kind === 'luz' ? Math.round(nx) : nx) * CELL + 'px'; hd.el.style.top = (hd.kind === 'luz' ? Math.round(ny) : ny) * CELL + 'px'; return; }
     if (meas) { const p = boardPos(e); ruler(meas.a, { x: Math.floor(p.x), y: Math.floor(p.y) }); return; }
     if (paint) { paintAt(e, paint); return; }
     if (pan) { view.scrollLeft = pan.sl - (e.clientX - pan.x); view.scrollTop = pan.st - (e.clientY - pan.y); }
@@ -496,56 +448,87 @@ function bindBoard() {
       if (!d.moved) { select(d.k, d.id); return; }
       const r = await H.emit('rpg:move', { cid: R.st.camp.id, k: d.k, id: d.id, x: d.x, y: d.y });
       if (!r.ok) { toast(r.erro || 'Não deu para mover.', true); d.el.style.left = d.ox * CELL + 'px'; d.el.style.top = d.oy * CELL + 'px'; }
-      else applyMove({ k: d.k, id: d.id, x: r.x, y: r.y, mapId: curMap() && curMap().id });
+      else applyMove({ k: d.k, id: d.id, x: r.x, y: r.y, dir: r.dir, mapId: curMap() && curMap().id });
+      return;
+    }
+    if (hd) {
+      const h = hd, m = curMap(); hd = null;
+      if (!h.moved) { if (h.kind === 'luz') lightModal((m.lights || []).find(x => x.id === h.id)); else markModal((m.marks || []).find(x => x.id === h.id)); return; }
+      if (h.kind === 'luz') call('rpg:light:save', { cid: R.st.camp.id, mapId: m.id, light: { id: h.id, x: Math.round(h.x), y: Math.round(h.y) } });
+      else call('rpg:mark:save', { cid: R.st.camp.id, mapId: m.id, mark: { id: h.id, x: Math.round(h.x * 4) / 4, y: Math.round(h.y * 4) / 4 } });
       return;
     }
     if (meas) { meas = null; setTimeout(() => ruler(null), 1200); return; }
     if (paint) { const p = paint; paint = null; flushPaint(p); return; }
-    if (pan) { const moved = Math.abs(e.clientX - pan.x) + Math.abs(e.clientY - pan.y) > 4; pan = null; view.classList.remove('panning'); if (!moved && !e.target.closest('.rpg-tok')) select(null); }
+    if (pan) {
+      const moved = Math.abs(e.clientX - pan.x) + Math.abs(e.clientY - pan.y) > 4, start = pan.e; pan = null; view.classList.remove('panning');
+      if (moved || e.target.closest('.rpg-tok')) return;
+      // clique simples: numa porta abre/fecha; fora, tira a seleção
+      const m = curMap(), p = boardPos(start), x = Math.floor(p.x), y = Math.floor(p.y);
+      const d0 = m && x >= 0 && y >= 0 && x < m.w && y < m.h && doorAt(m, y * m.w + x);
+      if (d0 && R.tool === 'mover' && isPlayer()) return toggleDoor(d0);
+      select(null);
+    }
   };
   view.addEventListener('pointerup', end);
   view.addEventListener('pointercancel', end);
   window.addEventListener('resize', onResize);
-  // botão direito: menu da miniatura ou do mapa (o menu do app para pessoas não abre aqui dentro)
+  // botão direito: menu da miniatura, porta, luz, marcador ou do mapa
   R.el.addEventListener('contextmenu', e => {
     if (e.target.closest('input, textarea, select')) { e.stopPropagation(); return; }
-    e.stopPropagation();
+    e.stopPropagation(); e.preventDefault();
     const tok = e.target.closest('.rpg-tok'), pp = e.target.closest('[data-pp]'), party = e.target.closest('.rpg-party-it[data-id]');
-    if (tok) { e.preventDefault(); return tokenMenu(tok.dataset.k, tok.dataset.id, e.clientX, e.clientY); }
-    if (pp || party) { e.preventDefault(); return tokenMenu('c', (pp || party).dataset.pp || party.dataset.id, e.clientX, e.clientY); }
-    if (e.target.closest('.rpg-view') && curMap()) { e.preventDefault(); const p = boardPos(e); return mapMenu(Math.floor(p.x), Math.floor(p.y), e.clientX, e.clientY); }
-    e.preventDefault();
+    const lamp = e.target.closest('.rpg-lamp'), mk = e.target.closest('.rpg-mk');
+    if (tok) return tokenMenu(tok.dataset.k, tok.dataset.id, e.clientX, e.clientY);
+    if (pp || party) return tokenMenu('c', (pp || party).dataset.pp || party.dataset.id, e.clientX, e.clientY);
+    if (lamp && isMaster()) return lampMenu(lamp.dataset.lamp, e.clientX, e.clientY);
+    if (mk && isMaster()) return markMenu(mk.dataset.mk, e.clientX, e.clientY);
+    if (e.target.closest('.rpg-view') && curMap()) { const p = boardPos(e); return mapMenu(Math.floor(p.x), Math.floor(p.y), e.clientX, e.clientY); }
   });
-  // retratos do grupo: clique seleciona e centraliza, duplo clique abre a ficha
   $r('.rpg-party').addEventListener('click', e => { const b = e.target.closest('[data-pp]'); if (!b) return; const ch = charOf(b.dataset.pp), m = curMap(); if (!ch) return; if (m && ch.pos && ch.pos[m.id]) { select('c', ch.id); centerOn(ch.pos[m.id][0], ch.pos[m.id][1]); } else sheetModal(ch); });
   $r('.rpg-party').addEventListener('dblclick', e => { const b = e.target.closest('[data-pp]'); if (b && charOf(b.dataset.pp)) sheetModal(charOf(b.dataset.pp)); });
   $r('.rpg-toks').addEventListener('dblclick', e => { const t = e.target.closest('.rpg-tok'); if (!t) return; if (t.dataset.k === 'c') sheetModal(charOf(t.dataset.id)); else if (isMaster()) entModal(entOf(t.dataset.id)); });
 }
 function onResize() { if (!R.el) { window.removeEventListener('resize', onResize); return; } setZoom(R.z); }
-function paintAt(e, p) {
-  const m = curMap(), pos = boardPos(e), x = Math.floor(pos.x), y = Math.floor(pos.y);
+// ferramentas de clique do Mestre: porta, lâmpada e marcador
+function placeAt(p) {
+  const m = curMap(), x = Math.floor(p.x), y = Math.floor(p.y), cid = R.st.camp.id;
   if (x < 0 || y < 0 || x >= m.w || y >= m.h) return;
   const i = y * m.w + x;
+  if (R.tool === 'porta') { const d = doorAt(m, i); if (d) return doorModal(d); return call('rpg:door:save', { cid, mapId: m.id, door: { i, look: R.doorDef.look, state: R.doorDef.state } }); }
+  if (R.tool === 'luz') return call('rpg:light:save', { cid, mapId: m.id, light: { x, y, ...R.lamp, on: true } });
+  if (R.tool === 'marcador') return call('rpg:mark:save', { cid, mapId: m.id, mark: { x: Math.round((p.x - .5) * 4) / 4, y: Math.round((p.y - .5) * 4) / 4, emoji: R.mark.e, size: R.mark.size, name: R.mark.name, vis: R.mark.vis } });
+}
+// pincel: pinta só na camada escolhida (o chão nunca é trocado por objeto, parede ou porta)
+function paintAt(e, p) {
+  const m = curMap(), pos = boardPos(e), x0 = Math.floor(pos.x), y0 = Math.floor(pos.y);
+  if (x0 < 0 || y0 < 0 || x0 >= m.w || y0 >= m.h) return;
   if (R.tool === 'pincel') {
-    if (m.bg || p.cells.get(i) === R.brush) return;
-    p.cells.set(i, R.brush); m.tiles = m.tiles.slice(0, i) + R.brush + m.tiles.slice(i + 1);
-    repaintSoon();
-  } else if (R.tool === 'revelar' || R.tool === 'esconder') {
-    const show = R.tool === 'revelar', ch = show ? '1' : '0';
-    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
-      const xx = x + a, yy = y + b; if (xx < 0 || yy < 0 || xx >= m.w || yy >= m.h) continue;
-      const k = yy * m.w + xx; (show ? p.reveal : p.hide).add(k); m.seen = m.seen.slice(0, k) + ch + m.seen.slice(k + 1);
+    const b = R.brush, sz = b.size || 1, off = Math.floor((sz - 1) / 2), cells = [];
+    for (let a = 0; a < sz; a++) for (let c = 0; c < sz; c++) {
+      const x = x0 - off + a, y = y0 - off + c; if (x < 0 || y < 0 || x >= m.w || y >= m.h) continue;
+      const i = y * m.w + x, id = b.erase ? null : b.id, k = i + ':' + b.L;
+      if (b.erase && b.L === 'chao') continue;
+      if (p.cells.get(k) === id) continue;
+      p.cells.set(k, id); cells.push([i, b.L, id]);
     }
-    drawFog();
+    if (cells.length) { C.setCells(m, cells); repaintSoon(); }
+  } else if (R.tool === 'revelar' || R.tool === 'esconder') {
+    const show = R.tool === 'revelar', n = m.w * m.h, s = C.bitsDec(m.seen, n);
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+      const xx = x0 + a, yy = y0 + b; if (xx < 0 || yy < 0 || xx >= m.w || yy >= m.h) continue;
+      const k = yy * m.w + xx; (show ? p.reveal : p.hide).add(k); s[k] = show ? 1 : 0;
+    }
+    m.seen = C.bitsEnc(s); drawFog();
   } else if (R.tool === 'armadilha' && !p.traps.length) {
-    const t = (m.traps || []).find(x => x.i === i);
+    const i = y0 * m.w + x0, t = (m.traps || []).find(x => x.i === i);
     p.traps.push(!t ? [i, false, false] : !t.on ? [i, true, false] : [i, false, true]);
   }
 }
 async function flushPaint(p) {
   const m = curMap(); if (!m) return;
   const d = { cid: R.st.camp.id, mapId: m.id };
-  if (p.cells.size) d.cells = [...p.cells.entries()];
+  if (p.cells.size) d.cells = [...p.cells.entries()].map(([k, id]) => { const [i, L] = k.split(':'); return [+i, L, id]; });
   if (p.reveal.size) d.reveal = [...p.reveal];
   if (p.hide.size) d.hide = [...p.hide];
   if (p.traps.length) d.traps = p.traps;
@@ -553,33 +536,62 @@ async function flushPaint(p) {
 }
 function applyMove(mv) {
   const m = curMap(); if (!m || (mv.mapId && mv.mapId !== m.id)) return;
-  if (mv.k === 'c') { const ch = charOf(mv.id); if (ch) { ch.pos = ch.pos || {}; ch.pos[m.id] = [mv.x, mv.y]; } }
+  if (mv.k === 'c') { const ch = charOf(mv.id); if (ch) { ch.pos = ch.pos || {}; ch.pos[m.id] = [mv.x, mv.y]; if (mv.dir !== undefined) ch.dir = mv.dir; } }
   else { const e = entOf(mv.id); if (e) { e.x = mv.x; e.y = mv.y; } }
   const el = $r(`.rpg-tok[data-k="${mv.k}"][data-id="${mv.id}"]`);
-  if (el && !(R.drag && R.drag.id === mv.id)) {
-    el.style.left = mv.x * CELL + 'px'; el.style.top = mv.y * CELL + 'px';
-    const t = mv.k === 'c' ? charOf(mv.id) : entOf(mv.id);
-    el.hidden = !!(fogged(m, mv.x, mv.y) && !(mv.k === 'c' && t && t.ownerId === me()));
-  }
+  if (el && !(R.drag && R.drag.id === mv.id)) { el.style.left = mv.x * CELL + 'px'; el.style.top = mv.y * CELL + 'px'; if (mv.dir !== undefined) el.style.setProperty('--dir', mv.dir + 'deg'); }
+  if (mv.k === 'c') { drawLight(); if (isMaster() && m.fog) drawFog(); }
 }
 
-/* ---------- barra de ferramentas (vertical, à esquerda) ---------- */
+/* ---------- barra de ferramentas ---------- */
 const TOOLS = [
-  ['mover', '✋', 'Mover e selecionar (V)', false], ['regua', '📏', 'Régua: arraste para medir (R)', false], ['ping', '📍', 'Ping: mostre um ponto para todos (P ou Alt+clique)', false],
-  ['pincel', '🖌️', 'Pincel: pintar o terreno (B)', true], ['revelar', '🔦', 'Revelar névoa', true], ['esconder', '🌫️', 'Cobrir com névoa', true], ['armadilha', '🪤', 'Armadilha: clique para criar, revelar e apagar', true]
+  ['mover', '✋', 'Mover e selecionar (V). Clique numa porta para abrir/fechar', false], ['regua', '📏', 'Régua: arraste para medir (R)', false], ['ping', '📍', 'Ping: mostre um ponto para todos (P ou Alt+clique)', false],
+  ['pincel', '🖌️', 'Pincel de materiais, por camada (B)', true], ['porta', '🚪', 'Portas: clique numa casa para criar ou editar (D)', true], ['luz', '💡', 'Lâmpada: clique para iluminar (L)', true],
+  ['marcador', '🏷️', 'Marcadores: emojis com nome (M)', true], ['revelar', '🔦', 'Revelar névoa à mão', true], ['esconder', '🌫️', 'Cobrir com névoa à mão', true], ['armadilha', '🪤', 'Armadilha: cria → revela → apaga', true]
 ];
-const TOOL_HINT = { mover: '', regua: 'Arraste no mapa para medir a distância.', ping: 'Clique no mapa para mostrar um ponto para todo mundo.', pincel: 'Escolha o terreno e pinte no mapa.', revelar: 'Pinte para revelar o que os jogadores veem.', esconder: 'Pinte para esconder de novo com névoa.', armadilha: 'Clique numa casa: cria (escondida) → revela → apaga.' };
+const TOOL_HINT = { regua: 'Arraste no mapa para medir a distância.', ping: 'Clique no mapa para mostrar um ponto para todo mundo.', pincel: 'Escolha a camada e o material. Cada camada é independente: pôr um objeto não troca o chão.', porta: 'Clique numa casa para criar uma porta (ela ocupa a abertura da parede). Clique numa porta para editar.', luz: 'Clique no mapa para pôr uma lâmpada. Arraste as 💡 com ✋ para mover; botão direito para editar.', marcador: 'Escolha o emoji, o nome e quem vê. Clique no mapa para colocar.', revelar: 'Pinte para revelar o que os jogadores veem.', esconder: 'Pinte para esconder de novo com névoa.', armadilha: 'Clique numa casa: cria (escondida) → revela → apaga.' };
+function matPreview(cv, mt) {
+  const g = cv.getContext('2d'), s = cv.width; g.clearRect(0, 0, s, s);
+  if (mt.L === 'objeto') { g.fillStyle = '#3a342d'; g.beginPath(); g.arc(s / 2, s / 2, s / 2 - 1, 0, 7); g.fill(); if (mt.img) g.drawImage(D.texCanvas(mt), 3, 3, s - 6, s - 6); else (D.OBJ[mt.st] || D.OBJ.emoji)(g, s / 2, s / 2, s * .95, mt.c, 3, mt); return; }
+  g.fillStyle = g.createPattern(D.texCanvas(mt), 'repeat'); g.beginPath(); g.arc(s / 2, s / 2, s / 2 - 1, 0, 7); g.fill();
+}
 function renderTools() {
   const t = $r('.rpg-toolbar'); if (!t) return;
   const m = curMap(), master = isMaster() && m;
-  t.innerHTML = `${TOOLS.filter(x => !x[3] || master).filter(x => !(x[0] === 'pincel' && m && m.bg)).map(([k, i, l]) => `<button data-t="tool" data-v="${k}" class="${R.tool === k ? 'on' : ''}" data-tip="${l}" aria-label="${l}">${i}</button>`).join('')}
+  t.innerHTML = `${TOOLS.filter(x => !x[3] || master).map(([k, i, l]) => `<button data-t="tool" data-v="${k}" class="${R.tool === k ? 'on' : ''}" data-tip="${l}" aria-label="${l}">${i}</button>`).join('')}
     <hr><button data-t="in" aria-label="Aumentar zoom" data-tip="Aumentar (+)">＋</button><button data-t="zoom" class="z" data-tip="Ajustar à tela">${Math.round(R.z * 100)}%</button><button data-t="out" aria-label="Diminuir zoom" data-tip="Diminuir (−)">－</button>`;
   const fly = $r('.rpg-brush');
-  if (master && R.tool === 'pincel') {
-    fly.hidden = false;
-    fly.innerHTML = Object.entries(TILE_NAMES).map(([c, n]) => `<button data-t="brush" data-v="${esc(c)}" class="${R.brush === c ? 'on' : ''}" data-tip="${n}" aria-label="${n}"><canvas width="26" height="26" data-tile="${esc(c)}"></canvas><span>${n}</span></button>`).join('');
-    fly.querySelectorAll('canvas[data-tile]').forEach(cv => { const g = cv.getContext('2d'), ch = cv.dataset.tile, gr = GROUND[ch] || '.'; g.fillStyle = g.createPattern(texCanvas(gr), 'repeat'); g.beginPath(); g.arc(13, 13, 12, 0, 7); g.fill(); const ic = { T: '🌳', D: '🚪', P: '🏛️', A: '🕯️', B: '🚧', b: '🌉' }[ch]; if (ic) { g.font = '13px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(ic, 13, 14); } });
-  } else fly.hidden = true;
+  fly.hidden = !(master && ['pincel', 'marcador', 'luz', 'porta'].includes(R.tool));
+  fly.className = 'rpg-brush ' + (fly.hidden ? '' : 'tool-' + R.tool);
+  if (!fly.hidden && R.tool === 'pincel') {
+    const b = R.brush, all = [...Object.values(C.MATS), ...mats().map(x => C.mat(x.id, mats()))].filter(x => x.L === b.L);
+    const cats = {}; for (const x of all) (cats[x.cat] = cats[x.cat] || []).push(x);
+    fly.innerHTML = `<div class="rpg-br-tabs">${C.LAYERS.map(L => `<button data-t="layer" data-v="${L}" class="${b.L === L ? 'on' : ''}">${{ chao: '🟫 Chão', terreno: '💧 Terreno', parede: '🧱 Paredes', objeto: '🪑 Objetos' }[L]}</button>`).join('')}</div>
+      <div class="rpg-br-opts"><span class="muted small">Tamanho</span>${[1, 2, 3].map(n => `<button data-t="size" data-v="${n}" class="${b.size === n ? 'on' : ''}">${n}×${n}</button>`).join('')}
+        ${b.L !== 'chao' ? `<button data-t="erase" class="${b.erase ? 'on' : ''}" data-tip="Apaga só esta camada">🧽 Borracha</button>` : ''}<button data-t="newmat" data-tip="Criar material personalizado">＋ Material</button></div>
+      <div class="rpg-br-list">${Object.entries(cats).sort((a, c) => Object.keys(C.CATS).indexOf(a[0]) - Object.keys(C.CATS).indexOf(c[0])).map(([cat, list]) => `<h5>${esc(C.CATS[cat] || cat)}</h5><div class="rpg-br-grid">${list.map(x => `<button data-t="brush" data-v="${esc(x.id)}" class="${!b.erase && b.id === x.id ? 'on' : ''}" title="${esc(x.n)}${x.w ? '' : ' · bloqueia passagem'}${x.s ? ' · bloqueia visão' : ''}${x.l ? ' · bloqueia luz' : ''}"><canvas width="26" height="26" data-mat="${esc(x.id)}"></canvas><span>${esc(x.n)}</span></button>`).join('')}</div>`).join('')}</div>`;
+    fly.querySelectorAll('canvas[data-mat]').forEach(cv => matPreview(cv, MAT(cv.dataset.mat)));
+  } else if (!fly.hidden && R.tool === 'marcador') {
+    const k = R.mark;
+    fly.innerHTML = `<div class="rpg-br-emo">${MARK_EMOJIS.map(x => `<button data-t="emo" data-v="${x}" class="${k.e === x ? 'on' : ''}">${x}</button>`).join('')}</div>
+      <label class="rpg-br-f">Outro emoji<input data-f="e" maxlength="8" value="${esc(k.e)}"></label>
+      <label class="rpg-br-f">Nome (aparece ao passar o mouse)<input data-f="name" maxlength="40" value="${esc(k.name)}" placeholder="Chave misteriosa"></label>
+      <label class="rpg-br-f">Tamanho <b>${k.size}×</b><input data-f="size" type="range" min="0.5" max="3" step="0.25" value="${k.size}"></label>
+      <label class="rpg-br-f">Quem vê<select data-f="vis"><option value="todos" ${k.vis === 'todos' ? 'selected' : ''}>Todos</option><option value="mestre" ${k.vis === 'mestre' ? 'selected' : ''}>Só eu (Mestre)</option></select></label>
+      <p class="muted small">Clique no mapa para colocar. Para escolher jogadores específicos, clique no marcador depois.</p>`;
+  } else if (!fly.hidden && R.tool === 'luz') {
+    const k = R.lamp;
+    fly.innerHTML = `<label class="rpg-br-f">Alcance <b>${k.r} casas</b><input data-f="r" type="range" min="1" max="20" value="${k.r}"></label>
+      <label class="rpg-br-f">Intensidade <b>${k.intensity}%</b><input data-f="intensity" type="range" min="10" max="100" value="${k.intensity}"></label>
+      <label class="rpg-br-f">Cor<input data-f="color" type="color" value="${esc(k.color)}"></label>
+      <label class="rpg-br-f">Formato<select data-f="shape">${[['circulo', 'Círculo'], ['quadrado', 'Quadrado'], ['cone', 'Cone']].map(([v, l]) => `<option value="${v}" ${k.shape === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <p class="muted small">Clique no mapa para pôr a lâmpada. A luz não atravessa paredes nem portas fechadas.</p>`;
+  } else if (!fly.hidden && R.tool === 'porta') {
+    const k = R.doorDef;
+    fly.innerHTML = `<label class="rpg-br-f">Aparência das novas portas<select data-f="look">${Object.entries(C.DOOR_LOOKS).map(([v, x]) => `<option value="${v}" ${k.look === v ? 'selected' : ''}>${esc(x.n)}</option>`).join('')}</select></label>
+      <label class="rpg-br-f">Começa<select data-f="state">${[['fechada', 'Fechada'], ['aberta', 'Aberta'], ['trancada', 'Trancada']].map(([v, l]) => `<option value="${v}" ${k.state === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <p class="muted small">Clique numa casa (de preferência numa abertura da parede). Clique numa porta para editar chave, teste e mensagem.</p>`;
+  }
   const hint = $r('.rpg-hint'); if (hint) { hint.textContent = TOOL_HINT[R.tool] || ''; hint.hidden = !TOOL_HINT[R.tool]; }
   $r('.rpg-view').dataset.tool = R.tool;
   const onClick = e => {
@@ -587,20 +599,30 @@ function renderTools() {
     const a = b.dataset.t;
     if (a === 'in') setZoom(R.z * 1.2); if (a === 'out') setZoom(R.z / 1.2); if (a === 'zoom') fitZoom();
     if (a === 'tool') setTool(b.dataset.v);
-    if (a === 'brush') { R.brush = b.dataset.v; renderTools(); }
+    if (a === 'layer') { R.brush.L = b.dataset.v; R.brush.erase = false; const first = [...Object.values(C.MATS)].find(x => x.L === R.brush.L); if (!MAT(R.brush.id) || MAT(R.brush.id).L !== R.brush.L) R.brush.id = first.id; renderTools(); }
+    if (a === 'size') { R.brush.size = +b.dataset.v; renderTools(); }
+    if (a === 'erase') { R.brush.erase = !R.brush.erase; renderTools(); }
+    if (a === 'brush') { R.brush.id = b.dataset.v; R.brush.erase = false; renderTools(); }
+    if (a === 'newmat') matModal(null, R.brush.L);
+    if (a === 'emo') { R.mark.e = b.dataset.v; renderTools(); }
   };
   t.onclick = onClick; fly.onclick = onClick;
+  fly.oninput = e => {
+    const f = e.target.dataset.f; if (!f) return;
+    const obj = R.tool === 'marcador' ? R.mark : R.tool === 'luz' ? R.lamp : R.doorDef, v = e.target.value;
+    obj[f === 'e' ? 'e' : f] = ['size', 'r', 'intensity'].includes(f) ? +v : v;
+    const lbl = e.target.closest('label').querySelector('b'); if (lbl) lbl.textContent = f === 'size' ? v + '×' : f === 'r' ? v + ' casas' : v + '%';
+  };
 }
 function setTool(v) {
   R.tool = v; if (v !== 'mover') select(null);
-  if ((v === 'revelar' || v === 'esconder') && curMap() && !curMap().fog) toast('A névoa está desligada. Ligue em Mestre → Mapa para os jogadores verem a diferença.');
+  if ((v === 'revelar' || v === 'esconder') && curMap() && !curMap().fog) toast('A névoa está desligada. Ligue em Mestre → Luz e névoa para os jogadores verem a diferença.');
   renderTools();
 }
 
 /* ---------- menu do botão direito ---------- */
 let ctxEl = null;
 function closeCtx() { if (ctxEl) { ctxEl.remove(); ctxEl = null; } }
-// itens: { ic, label, act, danger, keep } | { sep: true } | { html, bind(el) }
 function ctxMenu(x, y, title, items) {
   closeCtx();
   const el = document.createElement('div'); el.className = 'rpg-ctx'; el.setAttribute('role', 'menu');
@@ -617,7 +639,6 @@ function ctxMenu(x, y, title, items) {
     document.addEventListener('mousedown', off, true);
   });
 }
-// vida rápida dentro do menu: número + Dano / Cura (e Mana nos personagens)
 function hpBlock(k, t) {
   return {
     html: `<div class="rpg-ctx-hp"><input type="number" min="1" max="9999" value="5" aria-label="Quantidade"><button data-h="dmg" class="dmg">💥 Dano</button><button data-h="heal" class="heal">💚 Cura</button>${k === 'c' && t.mpMax ? '<button data-h="mp" class="mp">🔷 −Mana</button>' : ''}</div>`,
@@ -639,6 +660,13 @@ function condBlock(k, t) {
     })
   };
 }
+// virar o personagem (a lanterna aponta para onde ele olha)
+function faceBlock(t) {
+  return {
+    html: `<div class="rpg-ctx-dir"><span>Olhar para</span>${DIRS.map(([d, ic]) => `<button data-d="${d}" class="${(t.dir || 0) === d ? 'on' : ''}" title="${d}°">${ic}</button>`).join('')}</div>`,
+    bind: (el, close) => el.addEventListener('click', e => { const b = e.target.closest('[data-d]'); if (b) { call('rpg:face', { cid: R.st.camp.id, id: t.id, dir: +b.dataset.d }); close(); } })
+  };
+}
 function tokenMenu(k, id, x, y) {
   const t = k === 'c' ? charOf(id) : entOf(id); if (!t) return;
   const master = isMaster(), own = k === 'c' && t.ownerId === me(), cid = R.st.camp.id, m = curMap();
@@ -649,15 +677,23 @@ function tokenMenu(k, id, x, y) {
     items.push({ ic: '📜', label: canEdit ? 'Editar ficha' : 'Ver ficha', act: () => sheetModal(t) });
     if (canEdit) items.push({ sep: true }, hpBlock(k, t));
     if (master) items.push({ sep: true }, condBlock(k, t));
+    if (pos && (master || (own && canMove('c', t)))) items.push({ sep: true }, faceBlock(t));
+    if (own && t.lantern && t.lantern.toggle && !t.lantern.req) items.push({ ic: t.lantern.on ? '🌑' : '🔦', label: t.lantern.on ? 'Desligar a luz' : 'Ligar a luz', act: () => call('rpg:lantern', { cid, id, on: !t.lantern.on }) });
     items.push({ sep: true });
     if (pos) items.push({ ic: '🎯', label: 'Centralizar no mapa', act: () => { select('c', id); centerOn(pos[0], pos[1]); } });
-    if (master) items.push({ ic: '🧭', label: 'Passar para outro jogador', act: () => ownerModal(t) });
+    if (master) {
+      items.push({ ic: '🎭', label: 'Criar evento', hint: 'cena privada', act: () => eventModal(R.st.camp.players.includes(t.ownerId) ? [t.ownerId] : [], [t.id]) });
+      items.push({ ic: '🚚', label: 'Levar para outra cena…', act: () => sceneMoveModal(t) });
+      items.push({ ic: '🔦', label: t.lantern ? 'Lanterna…' : 'Dar lanterna…', act: () => lanternModal(t) });
+      if (m && m.fog) items.push({ ic: '👁️', label: R.preview === t.id ? 'Parar de ver como ele' : 'Ver o mapa como este personagem', act: () => { R.preview = R.preview === t.id ? '' : t.id; drawFog(); toast(R.preview ? `Mostrando a névoa como ${t.name} vê.` : 'Visão do Mestre.'); } });
+      items.push({ ic: '🧭', label: 'Passar para outro jogador', act: () => ownerModal(t) });
+    }
     if (master || own) items.push({ ic: '🗑️', label: 'Apagar personagem', danger: true, act: async () => { if (await H.confirmBox('Apagar personagem', `Apagar ${t.name}? Não dá para desfazer.`, 'Apagar')) call('rpg:char:del', { cid, id }); } });
   } else {
     if (master) {
       items.push({ ic: '✏️', label: 'Editar', act: () => entModal(t) }, { sep: true }, hpBlock(k, t), { sep: true }, condBlock(k, t), { sep: true },
         { ic: t.hidden ? '👁️' : '🙈', label: t.hidden ? 'Mostrar para os jogadores' : 'Esconder dos jogadores', act: () => call('rpg:ent:save', { cid, ent: { id, hidden: !t.hidden } }) },
-        { ic: '⧉', label: 'Duplicar', act: () => { const { id: _, ...copy } = t; call('rpg:ent:save', { cid, ent: { ...copy, x: Math.min(m.w - 1, t.x + t.size), y: t.y } }); } },
+        { ic: '⧉', label: 'Duplicar', act: () => { const { id: _, ...copy } = t; call('rpg:ent:save', { cid, ent: { ...copy, mapId: m.id, x: Math.min(m.w - 1, t.x + t.size), y: t.y } }); } },
         { ic: '➕', label: 'Aumentar', hint: `${t.size}×${t.size}`, disabled: t.size >= 6, act: () => call('rpg:ent:save', { cid, ent: { id, size: t.size + 1 } }) },
         { ic: '➖', label: 'Diminuir', disabled: t.size <= 1, act: () => call('rpg:ent:save', { cid, ent: { id, size: t.size - 1 } }) },
         { sep: true }, { ic: '🗑️', label: 'Apagar', danger: true, act: () => call('rpg:ent:del', { cid, id }).then(r => r.ok && R.sel && R.sel.id === id && select(null)) });
@@ -667,27 +703,58 @@ function tokenMenu(k, id, x, y) {
   const sub = k === 'c' ? (R.st.camp.classes.find(c => c.id === t.classId)?.name || 'Personagem') + ' · ' + esc(H.nameOf(t.ownerId)) : (ENT_KIND[t.kind] || '');
   ctxMenu(x, y, `<b>${esc(t.name)}</b><span>${sub}${t.hpMax !== undefined && (k === 'c' || master || t.hp !== undefined) ? ` · ❤️ ${t.hp}/${t.hpMax}` : ''}</span>`, items);
 }
+function doorItems(d) {
+  const m = curMap(), cid = R.st.camp.id, master = isMaster();
+  const act = a => call('rpg:door', { cid, mapId: m.id, id: d.id, action: a });
+  const st = { aberta: 'aberta', fechada: 'fechada', trancada: 'trancada' }[d.state];
+  if (!master) return isPlayer() ? [d.state === 'aberta' ? { ic: '🚪', label: 'Fechar a porta', act: () => act('fechar') } : { ic: '🚪', label: 'Abrir a porta', act: () => act('abrir') }] : [];
+  return [
+    { html: `<div class="rpg-ctx-sub">🚪 Porta ${d.name ? '"' + esc(d.name) + '"' : ''} · <b>${st}</b></div>` },
+    ...(d.state !== 'aberta' ? [{ ic: '🔓', label: 'Abrir', act: () => act('abrir') }] : [{ ic: '🚪', label: 'Fechar', act: () => act('fechar') }]),
+    ...(d.state !== 'trancada' ? [{ ic: '🔒', label: 'Trancar', act: () => act('trancar') }] : [{ ic: '🗝️', label: 'Destrancar', act: () => act('destrancar') }]),
+    { ic: '✏️', label: 'Editar porta…', act: () => doorModal(d) },
+    { ic: '🗑️', label: 'Tirar a porta', danger: true, act: () => call('rpg:door:del', { cid, mapId: m.id, id: d.id }) }
+  ];
+}
 function mapMenu(cx, cy, x, y) {
   const m = curMap(), cid = R.st.camp.id, master = isMaster(); if (!m) return;
   cx = Math.max(0, Math.min(m.w - 1, cx)); cy = Math.max(0, Math.min(m.h - 1, cy));
-  const items = [];
+  const i = cy * m.w + cx, d = doorAt(m, i), items = [];
+  if (d) items.push(...doorItems(d), { sep: true });
   if (isPlayer()) items.push({ ic: '📍', label: 'Ping aqui', act: () => call('rpg:ping', { cid, x: cx, y: cy }) });
   items.push({ ic: '📏', label: 'Medir daqui', act: () => setTool('regua') });
   if (master) {
     items.push({ sep: true },
       { ic: '👾', label: 'Criar criatura aqui', act: () => entModal(null, { x: cx, y: cy }) },
-      ...PRESETS.slice(0, 6).map(([name, kind, emoji, hp, def, atk, level]) => ({ ic: emoji, label: name, hint: ENT_KIND[kind], act: () => call('rpg:ent:save', { cid, ent: { name, kind, emoji, hpMax: hp, hp, def, atk, level, x: cx, y: cy } }) })),
+      ...PRESETS.slice(0, 5).map(([name, kind, emoji, hp, def, atk, level]) => ({ ic: emoji, label: name, hint: ENT_KIND[kind], act: () => call('rpg:ent:save', { cid, ent: { name, kind, emoji, hpMax: hp, hp, def, atk, level, x: cx, y: cy, mapId: m.id } }) })),
       { sep: true },
+      ...(d ? [] : [{ ic: '🚪', label: 'Pôr porta aqui', act: () => call('rpg:door:save', { cid, mapId: m.id, door: { i, look: R.doorDef.look, state: R.doorDef.state } }) }]),
+      { ic: '💡', label: 'Pôr lâmpada aqui', act: () => call('rpg:light:save', { cid, mapId: m.id, light: { x: cx, y: cy, ...R.lamp, on: true } }) },
+      { ic: '🏷️', label: 'Pôr marcador aqui…', act: () => markModal(null, { x: cx, y: cy }) },
       { ic: '🧙', label: 'Trazer o grupo para cá', act: () => gatherParty(cx, cy) });
     if (m.fog) items.push({ ic: '🔦', label: 'Revelar em volta', act: () => { const reveal = []; for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) { const xx = cx + a, yy = cy + b; if (xx >= 0 && yy >= 0 && xx < m.w && yy < m.h && a * a + b * b <= 10) reveal.push(yy * m.w + xx); } call('rpg:map:edit', { cid, mapId: m.id, reveal }); } });
   }
-  ctxMenu(x, y, `<b>${esc(m.name)}</b><span>casa ${cx + 1}, ${cy + 1}${!m.bg ? ' · ' + esc(TILE_NAMES[m.tiles[cy * m.w + cx]] || '') : ''}</span>`, items);
+  const parts = !m.bg || master ? C.LAYERS.map(L => C.cellId(m, L, i)).filter(Boolean).map(id => (MAT(id) || {}).n).filter(Boolean) : [];
+  ctxMenu(x, y, `<b>${esc(m.name)}</b><span>casa ${cx + 1}, ${cy + 1}${parts.length ? ' · ' + esc(parts.join(' + ')) : ''}</span>`, items);
 }
-// o Mestre traz todos os personagens para perto de um ponto (em volta, sem empilhar)
+function lampMenu(id, x, y) {
+  const m = curMap(), L = (m.lights || []).find(q => q.id === id); if (!L) return;
+  const cid = R.st.camp.id;
+  ctxMenu(x, y, `<b>💡 ${esc(L.name || 'Lâmpada')}</b><span>${L.r} casas · ${L.on ? 'acesa' : 'apagada'}</span>`, [
+    { ic: L.on ? '🌑' : '💡', label: L.on ? 'Apagar' : 'Acender', act: () => call('rpg:light:save', { cid, mapId: m.id, light: { id, on: !L.on } }) },
+    { ic: '✏️', label: 'Editar…', act: () => lightModal(L) },
+    { ic: '🗑️', label: 'Tirar', danger: true, act: () => call('rpg:light:del', { cid, mapId: m.id, id }) }]);
+}
+function markMenu(id, x, y) {
+  const m = curMap(), k = (m.marks || []).find(q => q.id === id); if (!k) return;
+  ctxMenu(x, y, `<b>${esc(k.emoji)} ${esc(k.name || 'Marcador')}</b><span>${{ todos: 'todos veem', mestre: 'só o Mestre vê', alguns: 'alguns jogadores veem' }[k.vis]}</span>`, [
+    { ic: '✏️', label: 'Editar…', act: () => markModal(k) },
+    { ic: '🗑️', label: 'Apagar', danger: true, act: () => call('rpg:mark:del', { cid: R.st.camp.id, mapId: m.id, id }) }]);
+}
 async function gatherParty(cx, cy) {
   const m = curMap(), ring = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1], [2, 0], [-2, 0], [0, 2], [0, -2], [2, 1], [-2, 1], [2, -1], [-2, -1]];
   let k = 0;
-  for (const ch of R.st.chars) { const [a, b] = ring[k++ % ring.length]; await H.emit('rpg:move', { cid: R.st.camp.id, k: 'c', id: ch.id, x: Math.max(0, Math.min(m.w - 1, cx + a)), y: Math.max(0, Math.min(m.h - 1, cy + b)) }); }
+  for (const ch of R.st.chars.filter(c => c.pos && c.pos[m.id])) { const [a, b] = ring[k++ % ring.length]; await H.emit('rpg:move', { cid: R.st.camp.id, k: 'c', id: ch.id, x: Math.max(0, Math.min(m.w - 1, cx + a)), y: Math.max(0, Math.min(m.h - 1, cy + b)) }); }
   toast('O grupo foi trazido para cá.');
 }
 function ownerModal(ch) {
@@ -714,6 +781,19 @@ function renderCombat() {
   box.onclick = e => { const b = e.target.closest('[data-c]'); if (b) call('rpg:combat', { cid: R.st.camp.id, action: b.dataset.c }); };
 }
 
+/* ---------- status personalizados (ficha, painel rápido) ---------- */
+const statDefs = () => (R.st.camp.statCats || []).flatMap(k => k.stats.map(s => ({ ...s, cat: k })));
+const statOf = (ch, s) => { const x = ch.stats && ch.stats[s.id]; return { v: x ? x.v : s.start, max: x && Number.isFinite(x.max) ? x.max : s.max }; };
+function statWidget(s, val, edit, master) {
+  const p = pct(val.v - s.min, val.max - s.min);
+  const ctl = !edit ? `<b class="rpg-stv">${val.v}<small>/${val.max}</small></b>`
+    : `<input type="number" data-sv="${s.id}" value="${val.v}" min="${s.min}" max="${val.max}" aria-label="${esc(s.name)}">${master ? `<input type="number" class="rpg-stmax" data-sm="${s.id}" value="${val.max}" min="${s.min}" title="Máximo deste personagem" aria-label="Máximo de ${esc(s.name)}">` : `<small>/${val.max}</small>`}`;
+  const vis = s.show === 'pontos' && val.max - s.min <= 12
+    ? `<span class="rpg-pips">${Array.from({ length: val.max - s.min }, (_, k) => `<i class="${k < val.v - s.min ? 'on' : ''}" ${edit ? `data-pip="${s.id}" data-n="${s.min + k + 1}"` : ''}></i>`).join('')}</span>`
+    : s.show === 'numero' ? '' : `<span class="rpg-stbar"><i style="width:${p}%"></i></span>`;
+  return `<div class="rpg-st" style="--sc:${esc(s.color)}" title="${esc(s.desc || s.name)}${s.regen.on !== 'nunca' && s.regen.n ? ` · recupera ${sgn(s.regen.n)} por ${s.regen.on}` : ''}${(s.mods || []).length ? ' · ' + s.mods.map(md => `${md.attr} ${sgn(md.v)} se ${md.op} ${md.at}`).join(', ') : ''}"><span class="rpg-st-n">${esc(s.icon || '')} ${esc(s.name)}</span>${vis}<span class="rpg-st-c">${ctl}</span></div>`;
+}
+
 /* ---------- seleção (painel rápido da miniatura) ---------- */
 function select(k, id) {
   R.sel = k ? { k, id } : null;
@@ -731,16 +811,19 @@ function renderSel() {
   const sub = s.k === 'c' ? `${cls ? esc(cls.icon + ' ' + cls.name) : 'Sem classe'} · nível ${t.level} · ${esc(H.nameOf(t.ownerId))}` : `${ENT_KIND[t.kind] || ''}${t.level ? ' · nível ' + t.level : ''}${t.hidden ? ' · escondido dos jogadores' : ''}`;
   const hpTxt = t.hpMax !== undefined && (s.k === 'c' || master || t.hp !== undefined) ? `<div class="rpg-bar hp"><i style="width:${pct(t.hp, t.hpMax)}%"></i><span>❤️ ${t.hp}/${t.hpMax}</span></div>` : '';
   const mpTxt = s.k === 'c' && t.mpMax ? `<div class="rpg-bar mp"><i style="width:${pct(t.mp, t.mpMax)}%"></i><span>🔷 ${t.mp}/${t.mpMax}</span></div>` : '';
-  const stats = master && s.k === 'e' ? `<div class="rpg-sel-stats"><span>🛡️ ${t.def}</span><span>⚔️ ${t.atk >= 0 ? '+' : ''}${t.atk}</span><span>⚡ ${t.init >= 0 ? '+' : ''}${t.init}</span></div>` : s.k === 'c' ? `<div class="rpg-sel-stats"><span>🛡️ ${t.def}</span>${R.st.camp.attrs.slice(0, 6).map(a => `<span>${esc(a)} ${t.attrs[a] ?? 10} (${mod(t.attrs[a])})</span>`).join('')}</div>` : '';
+  const stats = master && s.k === 'e' ? `<div class="rpg-sel-stats"><span>🛡️ ${t.def}</span><span>⚔️ ${sgn(t.atk)}</span><span>⚡ ${sgn(t.init)}</span></div>` : s.k === 'c' ? `<div class="rpg-sel-stats"><span>🛡️ ${t.def}</span>${R.st.camp.attrs.map(a => `<span title="${esc(attrName(a))}">${esc(a)} ${t.attrs[a] ?? 10} (${sgn(bonus(t, a))})</span>`).join('')}</div>` : '';
+  const sts = s.k === 'c' && statDefs().length ? `<div class="rpg-sel-sts">${statDefs().map(st => { const v = statOf(t, st); return `<span style="--sc:${esc(st.color)}" title="${esc(st.cat.name)} · ${esc(st.name)}">${esc(st.icon || '•')} ${v.v}/${v.max}</span>`; }).join('')}</div>` : '';
+  const lt = s.k === 'c' && t.lantern;
   box.hidden = false;
   box.innerHTML = `<button class="rpg-sel-x" data-s="x" aria-label="Fechar">${H.ic('x')}</button>
-    <div class="rpg-sel-h"><div class="rpg-sel-av" style="--tc:${esc(t.color || '#6c7cff')}">${(s.k === 'c' ? (t.img || avatarUrl(t.ownerId)) : t.img) ? `<img src="${esc(s.k === 'c' ? (t.img || avatarUrl(t.ownerId)) : t.img)}" alt="">` : `<span>${s.k === 'e' && t.emoji ? esc(t.emoji) : initial(t.name)}</span>`}</div><div><b>${esc(t.name)}</b><span class="muted small">${sub}</span></div></div>
-    ${hpTxt}${mpTxt}${stats}
+    <div class="rpg-sel-h"><div class="rpg-sel-av" style="--tc:${esc(t.color || '#6c7cff')}">${tokImg({ k: s.k, t }) ? `<img src="${esc(tokImg({ k: s.k, t }))}" alt="">` : `<span>${s.k === 'e' && t.emoji ? esc(t.emoji) : initial(t.name)}</span>`}</div><div><b>${esc(t.name)}</b><span class="muted small">${sub}</span></div></div>
+    ${hpTxt}${mpTxt}${stats}${sts}
+    ${lt ? `<div class="rpg-sel-lt">🔦 ${esc((C.LANTERN_KINDS[lt.kind] || {}).n || 'Luz')} · ${lt.range} casas · ${lt.on ? 'ligada' : 'desligada'}${(own || master) && (master || (lt.toggle && !lt.req)) ? ` <button class="btn sm ghost" data-s="lt">${lt.on ? 'Desligar' : 'Ligar'}</button>` : ''}</div>` : ''}
     ${(t.conds || []).length ? `<div class="rpg-conds">${t.conds.map(c => `<span>${COND_IC[c] || '•'} ${esc(c)}</span>`).join('')}</div>` : ''}
     ${canHp && t.hpMax !== undefined ? `<div class="rpg-hpctl"><input type="number" min="1" max="9999" value="5" aria-label="Quantidade" data-s="amt"><button class="btn sm danger" data-s="dmg">💥 Dano</button><button class="btn sm" data-s="heal">💚 Cura</button>${s.k === 'c' && t.mpMax ? '<button class="btn sm ghost" data-s="mp">−🔷 Mana</button>' : ''}</div>` : ''}
     ${master ? `<div class="rpg-condpick">${CONDS.map(c => `<button data-s="cond" data-v="${esc(c)}" class="${(t.conds || []).includes(c) ? 'on' : ''}" data-tip="${esc(c)}" aria-label="${esc(c)}">${COND_IC[c]}</button>`).join('')}</div>` : ''}
     <div class="rpg-sel-acts">
-      ${s.k === 'c' ? `<button class="btn sm" data-s="sheet">📜 Ficha</button>` : ''}
+      ${s.k === 'c' ? `<button class="btn sm" data-s="sheet">📜 Ficha</button>` : ''}${s.k === 'c' && (master || (own && canMove('c', t))) ? '<button class="btn sm ghost" data-s="rotl" data-tip="Virar à esquerda (Q)">↺</button><button class="btn sm ghost" data-s="rotr" data-tip="Virar à direita (E)">↻</button>' : ''}
       ${master && s.k === 'e' ? `<button class="btn sm" data-s="edit">✏️ Editar</button><button class="btn sm ghost" data-s="hide">${t.hidden ? '👁️ Mostrar' : '🙈 Esconder'}</button><button class="btn sm ghost" data-s="dup">⧉ Copiar</button><button class="icon-btn" data-s="del" aria-label="Apagar">${H.ic('trash')}</button>` : ''}
       ${s.k === 'e' && master && t.notes ? `<p class="rpg-notes">📝 ${esc(t.notes)}</p>` : ''}
     </div>`;
@@ -752,12 +835,15 @@ function renderSel() {
     if (a === 'mp') { if (!amt) return; call('rpg:hp', { cid, k: s.k, id: s.id, dmg: amt, field: 'mp' }); }
     if (a === 'cond') { const v = b.dataset.v, conds = (t.conds || []).includes(v) ? t.conds.filter(x => x !== v) : [...(t.conds || []), v]; call('rpg:cond', { cid, k: s.k, id: s.id, conds }); }
     if (a === 'sheet') sheetModal(t);
+    if (a === 'lt') call('rpg:lantern', master ? { cid, id: t.id, lantern: { on: !t.lantern.on } } : { cid, id: t.id, on: !t.lantern.on });
+    if (a === 'rotl' || a === 'rotr') rotate(t, a === 'rotl' ? -45 : 45);
     if (a === 'edit') entModal(t);
     if (a === 'hide') call('rpg:ent:save', { cid, ent: { id: t.id, hidden: !t.hidden } });
-    if (a === 'dup') { const { id, ...copy } = t; call('rpg:ent:save', { cid, ent: { ...copy, x: Math.min(curMap().w - 1, t.x + 1), y: t.y, name: t.name } }); }
+    if (a === 'dup') { const { id, ...copy } = t; call('rpg:ent:save', { cid, ent: { ...copy, mapId: curMap().id, x: Math.min(curMap().w - 1, t.x + 1), y: t.y, name: t.name } }); }
     if (a === 'del' && await H.confirmBox('Apagar', `Tirar ${t.name} do mapa?`, 'Apagar')) { const r = await call('rpg:ent:del', { cid, id: t.id }); if (r.ok) select(null); }
   };
 }
+const rotate = (t, by) => call('rpg:face', { cid: R.st.camp.id, id: t.id, dir: ((t.dir || 0) + by + 360) % 360 });
 
 /* ---------- painel lateral ---------- */
 function renderTabs() {
@@ -769,18 +855,18 @@ function renderTabs() {
 }
 function renderPane() {
   const p = $r('.rpg-pane'); if (!p) return;
-  p.onclick = null; p.onchange = null; p.onsubmit = null;
+  p.onclick = null; p.onchange = null; p.onsubmit = null; p.oninput = null;
   ({ grupo: paneGrupo, dados: paneDados, hist: paneHist, mestre: paneMestre })[R.tab](p);
 }
 function paneGrupo(p) {
   const c = R.st.camp, mine = myChar();
-  const chars = R.st.chars.slice().sort((a, b) => (b.ownerId === me()) - (a.ownerId === me()) || a.name.localeCompare(b.name)); // o seu primeiro
+  const chars = R.st.chars.slice().sort((a, b) => (b.ownerId === me()) - (a.ownerId === me()) || a.name.localeCompare(b.name));
   const row = ch => { const cls = c.classes.find(k => k.id === ch.classId); const img = ch.img || avatarUrl(ch.ownerId);
-    return `<button class="rpg-party-it ${ch.hp <= 0 ? 'down' : ''}" data-g="char" data-id="${ch.id}"><div class="rpg-sel-av" style="--tc:${esc(ch.color)}">${img ? `<img src="${esc(img)}" alt="">` : `<span>${initial(ch.name)}</span>`}</div>
-      <div class="rpg-party-in"><b>${esc(ch.name)}</b><span class="muted small">${cls ? esc(cls.icon + ' ' + cls.name) : 'Sem classe'} · nv ${ch.level} · ${esc(H.nameOf(ch.ownerId))}</span>
+    return `<button class="rpg-party-it ${ch.hp <= 0 ? 'down' : ''} ${ch.away ? 'away' : ''}" data-g="char" data-id="${ch.id}"><div class="rpg-sel-av" style="--tc:${esc(ch.color)}">${img ? `<img src="${esc(img)}" alt="">` : `<span>${initial(ch.name)}</span>`}</div>
+      <div class="rpg-party-in"><b>${esc(ch.name)}</b><span class="muted small">${cls ? esc(cls.icon + ' ' + cls.name) : 'Sem classe'} · nv ${ch.level} · ${esc(H.nameOf(ch.ownerId))}${ch.away ? ' · 🎭 em outra cena' : ''}</span>
       <div class="rpg-bar hp sm"><i style="width:${pct(ch.hp, ch.hpMax)}%"></i><span>${ch.hp}/${ch.hpMax}</span></div>${ch.mpMax ? `<div class="rpg-bar mp sm"><i style="width:${pct(ch.mp, ch.mpMax)}%"></i><span>${ch.mp}/${ch.mpMax}</span></div>` : ''}
       ${(ch.conds || []).length ? `<div class="rpg-conds sm">${ch.conds.map(x => `<span>${COND_IC[x] || '•'} ${esc(x)}</span>`).join('')}</div>` : ''}</div></button>`; };
-  const people = (ids, lbl) => ids.length ? `<div class="rpg-people"><h4>${lbl}</h4>${ids.map(u => `<div class="rpg-person">${H.av(u, 24, true)}<span>${esc(H.nameOf(u))}</span>${isMaster() && u !== c.masterId ? `<button class="icon-btn" data-g="kick" data-id="${u}" data-tip="Tirar da campanha" aria-label="Tirar da campanha">${H.ic('x')}</button>` : ''}</div>`).join('')}</div>` : '';
+  const people = (ids, lbl) => ids.length ? `<div class="rpg-people"><h4>${lbl}</h4>${ids.map(u => `<div class="rpg-person">${H.av(u, 24, true)}<span>${esc(H.nameOf(u))}</span>${isMaster() && u !== c.masterId ? `<button class="icon-btn" data-g="event" data-id="${u}" data-tip="Criar evento para esta pessoa" aria-label="Criar evento">🎭</button><button class="icon-btn" data-g="kick" data-id="${u}" data-tip="Tirar da campanha" aria-label="Tirar da campanha">${H.ic('x')}</button>` : ''}</div>`).join('')}</div>` : '';
   p.innerHTML = `${isPlayer() && !mine && role() === 'jogador' ? `<div class="rpg-cta">🎭<div><b>Crie seu personagem</b><span class="muted small">Escolha nome, classe e atributos.</span></div><button class="btn primary sm" data-g="new">Criar</button></div>` : ''}
     ${role() === 'convidado' ? `<div class="rpg-cta">✉️<div><b>Você foi convidado</b><span class="muted small">Aceite para criar seu personagem e jogar.</span></div><button class="btn primary sm" data-g="join">Aceitar</button></div>` : ''}
     <h4 class="rpg-h">Personagens <span class="muted">${chars.length}</span>${isMaster() ? '<button class="btn sm ghost" data-g="newfor">+ Para jogador</button>' : ''}</h4>
@@ -796,6 +882,7 @@ function paneGrupo(p) {
     if (a === 'newfor') pickPlayerFor();
     if (a === 'join') { const q = await call('rpg:join', { cid }, 'Você entrou na campanha!'); if (q.ok) setTimeout(() => sheetModal(null), 300); }
     if (a === 'invite') inviteModal();
+    if (a === 'event') eventModal(c.players.includes(b.dataset.id) ? [b.dataset.id] : []);
     if (a === 'kick' && await H.confirmBox('Tirar da campanha', `Tirar ${H.nameOf(b.dataset.id)} da campanha? O personagem continua na mesa.`, 'Tirar')) call('rpg:kick', { cid, uid: b.dataset.id });
     if (a === 'leave' && await H.confirmBox('Sair da campanha', 'Você deixa de ser jogador. Seu personagem continua na mesa com o Mestre.', 'Sair')) call('rpg:leave', { cid });
   };
@@ -803,7 +890,7 @@ function paneGrupo(p) {
 function centerOn(x, y) { const v = $r('.rpg-view'); if (!v) return; v.scrollTo({ left: (x + .5) * CELL * R.z - v.clientWidth / 2, top: (y + .5) * CELL * R.z - v.clientHeight / 2, behavior: 'smooth' }); }
 
 function paneDados(p) {
-  const can = isPlayer();
+  const can = isPlayer(), ch = myChar();
   const rolls = R.st.events.filter(e => e.type === 'roll').slice(-25).reverse();
   p.innerHTML = can ? `<div class="rpg-dice">${DICE.map(d => `<button data-d="${d}" class="rpg-die d${d}" data-tip="Clique: rolar 1d${d} · Shift+clique: somar na fórmula"><span>d${d}</span></button>`).join('')}</div>
     <form class="rpg-rollf" id="rpgRollF"><input id="rpgExpr" placeholder="Fórmula: 2d20+5, 4d6kh3, d100" maxlength="60" autocomplete="off" aria-label="Fórmula de dados">
@@ -811,7 +898,7 @@ function paneDados(p) {
       <label class="rpg-check"><input type="checkbox" id="rpgPriv"> Secreta (só eu e o Mestre vemos)</label>
       <button class="btn primary">🎲 Rolar</button></form>
     <p class="muted small rpg-tip">kh3 = fica com os 3 maiores (vantagem: 2d20kh1). kl1 = fica com o menor (desvantagem).</p>
-    ${myChar() ? `<h4 class="rpg-h">Testes do seu personagem</h4><div class="rpg-quick">${R.st.camp.attrs.map(a => `<button data-q="${esc(a)}">${esc(a)} ${mod(myChar().attrs[a])}</button>`).join('')}</div>` : ''}`
+    ${ch ? `<h4 class="rpg-h">Testes do seu personagem</h4><div class="rpg-quick">${R.st.camp.attrs.map(a => `<button data-q="${esc(a)}" title="1d20 ${sgn(bonus(ch, a))}${bonus(ch, a) !== Math.floor(((ch.attrs[a] ?? 10) - 10) / 2) ? ' (com status)' : ''}">${esc(attrName(a))} ${sgn(bonus(ch, a))}</button>`).join('')}</div>` : ''}`
     : `<div class="rpg-empty sm">🎲<b>Só quem joga rola dados</b><span>${role() === 'convidado' ? 'Aceite o convite para jogar.' : 'Você está assistindo esta campanha.'}</span></div>`;
   p.innerHTML += `<h4 class="rpg-h">Últimas rolagens</h4><div class="rpg-feed">${rolls.length ? rolls.map(evHtml).join('') : '<p class="muted small">Nenhuma rolagem ainda.</p>'}</div>`;
   if (!can) return;
@@ -821,7 +908,7 @@ function paneDados(p) {
     const d = e.target.closest('[data-d]');
     if (d) { if (e.shiftKey) { expr.value = addDie(expr.value, +d.dataset.d); expr.focus(); } else roll('1d' + d.dataset.d); return; }
     const q = e.target.closest('[data-q]');
-    if (q) { const m = mod(myChar().attrs[q.dataset.q]); roll('1d20' + (m === '+0' ? '' : m), 'Teste de ' + q.dataset.q); }
+    if (q) { const b = bonus(myChar(), q.dataset.q); roll('1d20' + (b ? sgn(b) : ''), 'Teste de ' + attrName(q.dataset.q)); }
   };
   p.querySelector('#rpgRollF').onsubmit = async e => { e.preventDefault(); if (!expr.value.trim()) return expr.focus(); if (await roll(expr.value)) { expr.value = ''; p.querySelector('#rpgLabel').value = ''; } };
 }
@@ -845,25 +932,27 @@ function paneHist(p) {
 }
 function evHtml(e) {
   const t = new Date(e.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const sc = e.sc ? ` <span class="rpg-pv sc">🎭 ${esc(sceneName(e.sc))}</span>` : '';
   if (e.type === 'roll') {
     const r = e.roll;
     const parts = r.parts.map(p => p.rolls ? `<span class="rpg-dset">${esc(p.t)}: ${p.rolls.map((v, i) => `<i class="${p.kept.includes(i) ? '' : 'drop'} ${v === p.sides ? 'max' : v === 1 ? 'min' : ''}">${v}</i>`).join('')}</span>` : `<span class="rpg-dset">${p.mod > 0 ? '+' : ''}${p.mod}</span>`).join('');
-    return `<div class="rpg-ev roll ${e.priv ? 'priv' : ''} ${r.crit ? 'crit' : ''} ${r.fail ? 'fail' : ''}">${H.av(e.uid, 24, false)}<div><div class="rpg-ev-h"><b>${esc(H.nameOf(e.uid))}</b>${e.text ? ` · ${esc(e.text)}` : ''}${e.priv ? ' <span class="rpg-pv">secreta</span>' : ''}<time>${t}</time></div>
+    return `<div class="rpg-ev roll ${e.priv ? 'priv' : ''} ${r.crit ? 'crit' : ''} ${r.fail ? 'fail' : ''}">${H.av(e.uid, 24, false)}<div><div class="rpg-ev-h"><b>${esc(H.nameOf(e.uid))}</b>${e.text ? ` · ${esc(e.text)}` : ''}${e.priv ? ' <span class="rpg-pv">secreta</span>' : ''}${sc}<time>${t}</time></div>
       <div class="rpg-ev-roll"><code>${esc(r.expr)}</code> = <b class="rpg-total">${r.total}</b>${r.crit ? ' <span class="rpg-crit">CRÍTICO!</span>' : r.fail ? ' <span class="rpg-fail">falha crítica</span>' : ''}</div><div class="rpg-dsets">${parts}</div></div></div>`;
   }
   const ic = { sys: '📌', narr: '📖', act: '🗡️', dmg: '💥', heal: '💚', combat: '⚔️', turn: '⏳', log: '•' }[e.type] || '•';
-  return `<div class="rpg-ev ${esc(e.type)} ${e.priv ? 'priv' : ''}">${e.uid && (e.type === 'narr' || e.type === 'act') ? H.av(e.uid, 24, false) : `<span class="rpg-ev-ic">${ic}</span>`}<div>${e.uid && (e.type === 'narr' || e.type === 'act') ? `<div class="rpg-ev-h"><b>${esc(H.nameOf(e.uid))}</b>${e.type === 'narr' ? ' · Mestre' : ''}${e.priv ? ' <span class="rpg-pv">anotação</span>' : ''}<time>${t}</time></div>` : ''}<p>${esc(e.text)}</p>${!(e.uid && (e.type === 'narr' || e.type === 'act')) ? `<time>${t}</time>` : ''}</div></div>`;
+  const who = e.uid && (e.type === 'narr' || e.type === 'act');
+  return `<div class="rpg-ev ${esc(e.type)} ${e.priv ? 'priv' : ''}">${who ? H.av(e.uid, 24, false) : `<span class="rpg-ev-ic">${ic}</span>`}<div>${who ? `<div class="rpg-ev-h"><b>${esc(H.nameOf(e.uid))}</b>${e.type === 'narr' ? ' · Mestre' : ''}${e.priv ? ' <span class="rpg-pv">anotação</span>' : ''}${sc}<time>${t}</time></div>` : ''}<p>${esc(e.text)}${!who ? sc : ''}</p>${!who ? `<time>${t}</time>` : ''}</div></div>`;
 }
 
-/* ---------- aba do Mestre ---------- */
+/* ---------- aba do Mestre (sub-abas: nada de tudo numa tela só) ---------- */
 let mTab = 'mapa';
 function paneMestre(p) {
   const c = R.st.camp, m = curMap();
-  const sub = [['mapa', '🗺️ Mapa'], ['criaturas', '👾 Criaturas'], ['combate', '⚔️ Combate'], ['sessoes', '💾 Sessões']];
+  const sub = [['mapa', '🗺️ Mapa'], ['visao', '💡 Luz e névoa'], ['cenas', '🎭 Cenas'], ['criaturas', '👾 Criaturas'], ['combate', '⚔️ Combate'], ['fichas', '📊 Fichas'], ['sessoes', '💾 Sessões']];
   let html = `<nav class="rpg-sub">${sub.map(([k, l]) => `<button data-m="sub" data-v="${k}" class="${mTab === k ? 'on' : ''}">${l}</button>`).join('')}</nav>`;
   if (mTab === 'mapa') {
-    html += `<h4 class="rpg-h">Mapas da campanha</h4><div class="rpg-maps">${R.st.maps.map(x => `<div class="rpg-map-it ${m && x.id === m.id ? 'on' : ''}"><span>${x.bg ? '🖼️' : '🗺️'} <b>${esc(x.name)}</b> <span class="muted small">${x.w}×${x.h}</span></span>
-        ${m && x.id === m.id ? '<i class="muted small">no mapa agora</i>' : `<button class="btn sm" data-m="go" data-id="${x.id}">Ir para</button>`}<button class="icon-btn" data-m="ren" data-id="${x.id}" aria-label="Renomear">${H.ic('edit')}</button><button class="icon-btn" data-m="mdel" data-id="${x.id}" aria-label="Apagar mapa">${H.ic('trash')}</button></div>`).join('') || '<p class="muted small">Nenhum mapa.</p>'}</div>
+    html += `<h4 class="rpg-h">Mapas da campanha</h4><div class="rpg-maps">${R.st.maps.map(x => `<div class="rpg-map-it ${m && x.id === m.id ? 'on' : ''}"><span>${x.bg ? '🖼️' : '🗺️'} <b>${esc(x.name)}</b> <span class="muted small">${x.w}×${x.h}${x.scene === 'cena' ? ' · 🎭 numa cena' : x.scene === 'principal' ? ' · principal' : ''}</span></span>
+        ${m && x.id === m.id ? '<i class="muted small">vendo agora</i>' : x.scene === 'cena' ? '' : `<button class="btn sm" data-m="go" data-id="${x.id}">Levar o grupo</button>`}<button class="icon-btn" data-m="ren" data-id="${x.id}" aria-label="Renomear">${H.ic('edit')}</button><button class="icon-btn" data-m="mdel" data-id="${x.id}" aria-label="Apagar mapa">${H.ic('trash')}</button></div>`).join('') || '<p class="muted small">Nenhum mapa.</p>'}</div>
       <h4 class="rpg-h">Gerar mapa</h4>
       <form class="rpg-gen" id="rpgGen">
         <label class="field">Tipo<select id="gKind">${Object.entries(MAP_KINDS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
@@ -877,11 +966,38 @@ function paneMestre(p) {
       </form>
       <h4 class="rpg-h">Importar mapa (PNG, JPG ou WEBP)</h4>
       <div class="rpg-row"><label class="field">Largura em casas<input id="iW" type="number" min="4" max="80" value="30"></label><button class="btn sm" data-m="import">📁 Escolher imagem</button></div>
-      ${m ? `<h4 class="rpg-h">Névoa de guerra</h4>
-      <div class="rpg-row"><label class="rpg-check"><input type="checkbox" id="mFog" ${m.fog ? 'checked' : ''}> Ligada (os jogadores só veem o que você revelar)</label></div>
-      <div class="rpg-row"><button class="btn sm" data-m="fogshow">Revelar tudo</button><button class="btn sm" data-m="foghide">Esconder tudo</button></div>
-      <p class="muted small">Use 🔦 e 🌫️ nas ferramentas do mapa para revelar ou esconder com o pincel. 🪤 cria armadilhas (só você vê até revelar).</p>
-      <label class="field">Anotações do mapa (só você vê)<textarea id="mNotes" rows="3" maxlength="2000">${esc(m.notes || '')}</textarea></label>` : ''}`;
+      <p class="muted small">No mapa importado, pinte paredes e portas com 🖌️ e 🚪: elas ficam invisíveis para os jogadores, mas bloqueiam passagem, visão e luz.</p>
+      <h4 class="rpg-h">Materiais personalizados <button class="btn sm ghost" data-m="mats">Gerenciar</button></h4>
+      <p class="muted small">${mats().length ? mats().map(x => esc(x.n)).join(', ') : 'Nenhum ainda. Crie com textura, imagem e propriedades próprias.'}</p>
+      ${m ? `<label class="field">Anotações do mapa (só você vê)<textarea id="mNotes" rows="3" maxlength="2000">${esc(m.notes || '')}</textarea></label>` : ''}`;
+  } else if (mTab === 'visao') {
+    if (!m) html += '<p class="muted small">Crie um mapa primeiro.</p>';
+    else {
+      const lit = (m.lights || []);
+      html += `<h4 class="rpg-h">Névoa de guerra</h4>
+        <label class="rpg-check"><input type="checkbox" id="mFog" ${m.fog ? 'checked' : ''}> Ligada</label>
+        <label class="field">Modo<select id="mFogMode">${Object.entries(C.FOG_MODES).map(([k, l]) => `<option value="${k}" ${m.fogMode === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+        <p class="muted small">Nos modos automáticos, cada jogador vê só o que o próprio personagem enxerga: paredes e portas fechadas bloqueiam, e no escuro só aparece o que estiver iluminado. A exploração é guardada por personagem.</p>
+        <div class="rpg-row"><button class="btn sm" data-m="fogshow">Revelar tudo à mão</button><button class="btn sm" data-m="foghide">Tirar o revelado à mão</button><button class="btn sm ghost" data-m="fogreset">Zerar exploração</button></div>
+        <label class="field">Ver o mapa como<select id="mPrev"><option value="">O grupo todo (Mestre)</option>${R.st.chars.filter(ch => ch.pos && ch.pos[m.id]).map(ch => `<option value="${ch.id}" ${R.preview === ch.id ? 'selected' : ''}>${esc(ch.name)}</option>`).join('')}</select></label>
+        <h4 class="rpg-h">Luz do ambiente</h4>
+        <div class="rpg-row"><label class="field">Ambiente<select id="mAmb">${Object.entries(C.AMBIENTS).map(([k, l]) => `<option value="${k}" ${m.amb === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label><label class="field">Alcance da visão<input id="mSight" type="number" min="1" max="30" value="${m.sight || 12}"></label></div>
+        <h4 class="rpg-h">Lâmpadas <span class="muted">${lit.length}</span> <button class="btn sm ghost" data-m="tool-luz">💡 Pôr lâmpada</button></h4>
+        <div class="rpg-maps">${lit.map(L => `<div class="rpg-map-it"><span><span style="color:${esc(L.color)}">●</span> <b>${esc(L.name || 'Lâmpada')}</b> <span class="muted small">${L.r} casas · ${{ circulo: 'círculo', cone: 'cone', quadrado: 'quadrado' }[L.shape]}${L.on ? '' : ' · apagada'}</span></span><button class="icon-btn" data-m="lon" data-id="${L.id}" aria-label="Acender/apagar">${L.on ? '💡' : '🌑'}</button><button class="icon-btn" data-m="led" data-id="${L.id}" aria-label="Editar">${H.ic('edit')}</button><button class="icon-btn" data-m="ldel" data-id="${L.id}" aria-label="Tirar">${H.ic('trash')}</button></div>`).join('') || '<p class="muted small">Nenhuma lâmpada.</p>'}</div>
+        <h4 class="rpg-h">Lanternas dos personagens</h4>
+        <div class="rpg-maps">${R.st.chars.map(ch => `<div class="rpg-map-it"><span>${ch.lantern ? (ch.lantern.on ? '🔦' : '🌑') : '·'} <b>${esc(ch.name)}</b> <span class="muted small">${ch.lantern ? `${esc((C.LANTERN_KINDS[ch.lantern.kind] || {}).n || '')} · ${ch.lantern.range} casas · ${ch.lantern.angle}°` : 'sem luz'}</span></span><button class="btn sm ghost" data-m="lant" data-id="${ch.id}">${ch.lantern ? 'Ajustar' : 'Dar lanterna'}</button></div>`).join('') || '<p class="muted small">Nenhum personagem.</p>'}</div>
+        <h4 class="rpg-h">Portas <span class="muted">${(m.doors || []).length}</span> <button class="btn sm ghost" data-m="tool-porta">🚪 Pôr porta</button></h4>
+        <p class="muted small">Clique com o botão direito numa porta para abrir, fechar, trancar ou editar (chave, teste de atributo e mensagem).</p>`;
+    }
+  } else if (mTab === 'cenas') {
+    const sc = (c.scenes || []).filter(s => s.state === 'ativa'), old = (c.scenes || []).filter(s => s.state !== 'ativa');
+    html += `<div class="rpg-row"><button class="btn primary sm" data-m="newev">🎭 Criar evento</button><button class="btn sm ${c.view === '' ? 'on' : ''}" data-m="view" data-id="">🏰 Ver a cena principal</button></div>
+      <p class="muted small">Cada evento tem mapa, participantes, combate e histórico próprios. Quem não participa não recebe nada dele. Os jogadores que ficam de fora continuam na cena principal.</p>
+      ${sc.map(s => `<div class="rpg-scene ${c.view === s.id ? 'on' : ''}"><div class="rpg-scene-h"><b>${s.vis === 'compartilhada' ? '👁️' : '🎭'} ${esc(s.name)}</b><span class="muted small">${s.vis === 'compartilhada' ? 'compartilhada' : 'privada'}${s.perm.move === false ? ' · sem mover' : ''}${s.perm.roll === false ? ' · sem rolar' : ''}${s.perm.say === false ? ' · sem escrever' : ''}</span></div>
+        ${s.desc ? `<p class="small">${esc(s.desc)}</p>` : ''}
+        <div class="rpg-scene-p">${s.uids.map(u => `<span class="rpg-chip">${H.av(u, 18, false)} ${esc(H.nameOf(u))}<button data-m="srem" data-id="${s.id}" data-u="${u}" aria-label="Devolver à cena principal" title="Devolver à cena principal">×</button></span>`).join('') || '<span class="muted small">Só personagens/NPCs</span>'}</div>
+        <div class="rpg-row"><button class="btn sm" data-m="view" data-id="${s.id}">${c.view === s.id ? 'Vendo agora' : 'Ver esta cena'}</button><button class="btn sm ghost" data-m="sadd" data-id="${s.id}">+ Participante</button><button class="btn sm ghost" data-m="sedit" data-id="${s.id}">Permissões</button><button class="btn sm danger" data-m="send" data-id="${s.id}">Encerrar</button></div></div>`).join('') || '<p class="muted small">Nenhum evento acontecendo.</p>'}
+      ${old.length ? `<h4 class="rpg-h">Encerrados recentemente</h4>${old.map(s => `<p class="muted small">🎭 ${esc(s.name)} · ${s.uids.map(u => esc(H.nameOf(u))).join(', ')}</p>`).join('')}` : ''}`;
   } else if (mTab === 'criaturas') {
     const ents = R.st.ents.filter(e => m && e.mapId === m.id);
     html += `<div class="rpg-row"><button class="btn primary sm" data-m="newent">+ Nova criatura, chefe, NPC ou objeto</button></div>
@@ -892,14 +1008,22 @@ function paneMestre(p) {
   } else if (mTab === 'combate') {
     const cb = c.combat;
     const cand = [...R.st.chars.filter(ch => m && ch.pos && ch.pos[m.id]).map(ch => ({ k: 'c', id: ch.id, name: ch.name, on: true })), ...R.st.ents.filter(e => m && e.mapId === m.id && e.kind !== 'objeto').map(e => ({ k: 'e', id: e.id, name: e.name + (e.hidden ? ' (escondido)' : ''), on: !e.hidden }))];
-    html += cb.on ? `<p>⚔️ Combate em andamento · rodada <b>${cb.round}</b></p>
+    html += `${c.view ? `<p class="muted small">Combate do evento 🎭 ${esc(sceneName(c.view))}.</p>` : ''}` + (cb.on ? `<p>⚔️ Combate em andamento · rodada <b>${cb.round}</b></p>
       <ol class="rpg-init">${cb.order.map((f, i) => { const t = fighter(f); return `<li class="${i === cb.turn ? 'on' : ''}"><b>${f.init}</b> ${esc(t ? t.name : '???')}<span class="spacer"></span><button class="icon-btn" data-m="up" data-i="${i}" aria-label="Subir">${H.ic('up')}</button><button class="icon-btn" data-m="down" data-i="${i}" aria-label="Descer">${H.ic('down')}</button></li>`; }).join('')}</ol>
       <div class="rpg-row"><button class="btn sm" data-m="cprev">‹ Anterior</button><button class="btn primary sm" data-m="cnext">Próximo ›</button><button class="btn sm danger" data-m="cend">Encerrar combate</button></div>`
-      : `<p class="muted small">Escolha quem luta. A iniciativa é rolada sozinha (d20 + DES dos personagens, ou o bônus de iniciativa da criatura).</p>
+      : `<p class="muted small">Escolha quem luta. A iniciativa é rolada sozinha (d20 + Destreza com os modificadores de status, ou o bônus de iniciativa da criatura). Os status com recuperação "turno" e "rodada" se recuperam sozinhos.</p>
       <div class="rpg-pick">${cand.map(x => `<label class="rpg-check"><input type="checkbox" data-k="${x.k}" data-id="${x.id}" ${x.on ? 'checked' : ''}> ${esc(x.name)}</label>`).join('') || '<p class="muted small">Coloque personagens ou criaturas no mapa primeiro.</p>'}</div>
-      ${cand.length ? '<button class="btn primary sm" data-m="cstart">⚔️ Começar combate</button>' : ''}`;
+      ${cand.length ? '<button class="btn primary sm" data-m="cstart">⚔️ Começar combate</button>' : ''}`);
+  } else if (mTab === 'fichas') {
+    html += `<h4 class="rpg-h">Atributos</h4><p class="small">${c.attrs.map(a => `<b>${esc(a)}</b> ${esc(attrName(a))}`).join(' · ')}</p>
+      <div class="rpg-row"><button class="btn sm" data-m="settings">Editar atributos e classes</button></div>
+      <h4 class="rpg-h">Status personalizados</h4>
+      ${(c.statCats || []).map(k => `<p class="small"><b style="color:${esc(k.color)}">${esc(k.icon)} ${esc(k.name)}</b>: ${k.stats.map(s => esc(s.name)).join(', ') || '<span class="muted">vazia</span>'}</p>`).join('') || '<p class="muted small">Nenhuma categoria.</p>'}
+      <div class="rpg-row"><button class="btn primary sm" data-m="stats">📊 Editar categorias e status</button></div>
+      <h4 class="rpg-h">Descanso</h4><p class="muted small">Aplica a recuperação "descanso" dos status em quem está nesta cena.</p>
+      <div class="rpg-row"><button class="btn sm" data-m="rest">🏕️ Descanso curto</button><button class="btn sm" data-m="restfull">🛏️ Descanso longo (vida e mana cheias)</button></div>`;
   } else if (mTab === 'sessoes') {
-    html += `<p class="muted small">Salve o estado do jogo (mapas, criaturas, vida, posições e combate) para voltar depois.</p>
+    html += `<p class="muted small">Salve o estado do jogo (mapas, portas, luzes, criaturas, vida, status, posições, cenas e combate) para voltar depois.</p>
       <form class="rpg-row" id="rpgSnapF"><input id="snapName" maxlength="60" placeholder="Nome (ex.: Antes do chefe)" aria-label="Nome da sessão"><button class="btn primary sm">💾 Salvar</button></form>
       <div class="rpg-snaps">${R.st.snaps.map(s => `<div class="rpg-map-it"><span><b>${esc(s.name)}</b> <span class="muted small">${new Date(s.at).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></span><button class="btn sm" data-m="sload" data-id="${s.id}">Voltar para esta</button><button class="icon-btn" data-m="sdel" data-id="${s.id}" aria-label="Apagar">${H.ic('trash')}</button></div>`).join('') || '<p class="muted small">Nenhuma sessão salva.</p>'}</div>`;
   }
@@ -910,23 +1034,43 @@ function paneMestre(p) {
     const o = gen.querySelector('#gObst'); o.oninput = () => { gen.querySelector('#gObstO').textContent = o.value + '%'; };
     const data = () => ({ cid, kind: gen.querySelector('#gKind').value, w: +gen.querySelector('#gW').value, h: +gen.querySelector('#gH').value, rooms: +gen.querySelector('#gRooms').value, traps: +gen.querySelector('#gTraps').value, obst: +o.value, doors: gen.querySelector('#gDoors').checked, wide: gen.querySelector('#gWide').checked ? 2 : 1, seed: gen.querySelector('#gSeed').value.trim() === '' ? null : +gen.querySelector('#gSeed').value, name: gen.querySelector('#gName').value });
     gen.onsubmit = async e => { e.preventDefault(); const r = await call('rpg:map:gen', data()); if (r.ok) toast('Mapa gerado!'); };
-    const rg = gen.querySelector('[data-m="regen"]'); if (rg) rg.onclick = async () => { if (await H.confirmBox('Refazer mapa', 'O mapa atual será trocado por um novo com estas opções. As criaturas ficam onde estão.', 'Refazer', false)) call('rpg:map:gen', { ...data(), replace: m.id }); };
+    const rg = gen.querySelector('[data-m="regen"]'); if (rg) rg.onclick = async () => { if (await H.confirmBox('Refazer mapa', 'O mapa atual será trocado por um novo com estas opções. Portas, luzes e marcadores dele são apagados; as criaturas ficam.', 'Refazer', false)) call('rpg:map:gen', { ...data(), replace: m.id }); };
   }
-  const fog = p.querySelector('#mFog'); if (fog) fog.onchange = () => call('rpg:map:edit', { cid, mapId: m.id, fog: fog.checked });
-  const notes = p.querySelector('#mNotes'); if (notes) notes.onchange = () => call('rpg:map:edit', { cid, mapId: m.id, notes: notes.value });
-  const sf = p.querySelector('#rpgSnapF'); if (sf) sf.onsubmit = async e => { e.preventDefault(); const r = await call('rpg:snap:save', { cid, name: sf.querySelector('#snapName').value }, 'Sessão salva.'); if (r.ok) sf.reset(); };
+  const edit = d => call('rpg:map:edit', { cid, mapId: m.id, ...d });
+  const q = s => p.querySelector(s);
+  if (q('#mFog')) q('#mFog').onchange = () => edit({ fog: q('#mFog').checked });
+  if (q('#mFogMode')) q('#mFogMode').onchange = () => edit({ fogMode: q('#mFogMode').value });
+  if (q('#mAmb')) q('#mAmb').onchange = () => edit({ amb: q('#mAmb').value });
+  if (q('#mSight')) q('#mSight').onchange = () => edit({ sight: +q('#mSight').value });
+  if (q('#mPrev')) q('#mPrev').onchange = () => { R.preview = q('#mPrev').value; drawFog(); };
+  if (q('#mNotes')) q('#mNotes').onchange = () => edit({ notes: q('#mNotes').value });
+  const sf = q('#rpgSnapF'); if (sf) sf.onsubmit = async e => { e.preventDefault(); const r = await call('rpg:snap:save', { cid, name: sf.querySelector('#snapName').value }, 'Sessão salva.'); if (r.ok) sf.reset(); };
   p.onclick = async e => {
     const b = e.target.closest('[data-m]'); if (!b) return;
     const a = b.dataset.m, id = b.dataset.id;
     if (a === 'sub') { mTab = b.dataset.v; renderPane(); }
     if (a === 'go') call('rpg:map:set', { cid, mapId: id });
-    if (a === 'ren') { const x = R.st.maps.find(q => q.id === id); const n = await askText('Nome do mapa', x ? x.name : '', 40); if (n) { const r = await call('rpg:map:edit', { cid, mapId: id, name: n }); if (r.ok && x) { x.name = n.trim().slice(0, 40) || x.name; if (R.st.map && R.st.map.id === id) R.st.map.name = x.name; renderPane(); renderTop(); } } }
+    if (a === 'ren') { const x = R.st.maps.find(qq => qq.id === id); const n = await askText('Nome do mapa', x ? x.name : '', 40); if (n) call('rpg:map:edit', { cid, mapId: id, name: n }); }
     if (a === 'mdel' && await H.confirmBox('Apagar mapa', 'O mapa e as criaturas dele serão apagados.', 'Apagar')) call('rpg:map:del', { cid, mapId: id });
-    if (a === 'import') importMap(+p.querySelector('#iW').value || 30);
-    if (a === 'fogshow') call('rpg:map:edit', { cid, mapId: m.id, fogAll: 'show' });
-    if (a === 'foghide') call('rpg:map:edit', { cid, mapId: m.id, fogAll: 'hide' });
+    if (a === 'import') importMap(+q('#iW').value || 30);
+    if (a === 'mats') matsModal();
+    if (a === 'fogshow') edit({ fogAll: 'show' });
+    if (a === 'foghide') edit({ fogAll: 'hide' });
+    if (a === 'fogreset' && await H.confirmBox('Zerar exploração', 'Todos os personagens esquecem o que já exploraram neste mapa.', 'Zerar')) edit({ resetExplore: true });
+    if (a === 'tool-luz') setTool('luz');
+    if (a === 'tool-porta') setTool('porta');
+    if (a === 'lon') { const L = m.lights.find(x => x.id === id); call('rpg:light:save', { cid, mapId: m.id, light: { id, on: !L.on } }); }
+    if (a === 'led') lightModal(m.lights.find(x => x.id === id));
+    if (a === 'ldel') call('rpg:light:del', { cid, mapId: m.id, id });
+    if (a === 'lant') lanternModal(charOf(id));
+    if (a === 'newev') eventModal([]);
+    if (a === 'view') switchScene(id || '');
+    if (a === 'srem') call('rpg:scene:update', { cid, sid: id, remove: [b.dataset.u] });
+    if (a === 'sadd') sceneAddModal(id);
+    if (a === 'sedit') scenePermModal(id);
+    if (a === 'send') sceneEndModal(id);
     if (a === 'newent') entModal(null);
-    if (a === 'preset') { const [name, kind, emoji, hp, def, atk, level] = PRESETS[+b.dataset.i]; const pos = viewCenter(); call('rpg:ent:save', { cid, ent: { name, kind, emoji, hpMax: hp, hp, def, atk, level, x: pos.x, y: pos.y } }); }
+    if (a === 'preset') { const [name, kind, emoji, hp, def, atk, level] = PRESETS[+b.dataset.i]; const pos = viewCenter(); call('rpg:ent:save', { cid, ent: { name, kind, emoji, hpMax: hp, hp, def, atk, level, x: pos.x, y: pos.y, mapId: m && m.id } }); }
     if (a === 'selent') { const en = entOf(id); if (en) { select('e', id); centerOn(en.x, en.y); } }
     if (a === 'hide') { const en = entOf(id); if (en) call('rpg:ent:save', { cid, ent: { id, hidden: !en.hidden } }); }
     if (a === 'cstart') { const ids = [...p.querySelectorAll('.rpg-pick input:checked')].map(x => ({ k: x.dataset.k, id: x.dataset.id })); call('rpg:combat', { cid, action: 'start', ids }); }
@@ -934,11 +1078,14 @@ function paneMestre(p) {
     if (a === 'cprev') call('rpg:combat', { cid, action: 'prev' });
     if (a === 'cend' && await H.confirmBox('Encerrar combate', 'A ordem de iniciativa será apagada.', 'Encerrar')) call('rpg:combat', { cid, action: 'end' });
     if (a === 'up' || a === 'down') { const i = +b.dataset.i, j = a === 'up' ? i - 1 : i + 1, o = c.combat.order.slice(); if (j < 0 || j >= o.length) return; [o[i], o[j]] = [o[j], o[i]]; call('rpg:combat', { cid, action: 'set', order: o }); }
-    if (a === 'sload' && await H.confirmBox('Voltar para a sessão', 'Mapas, criaturas, vida e posições voltam a como estavam quando você salvou. O histórico continua.', 'Voltar', false)) call('rpg:snap:load', { cid, id });
+    if (a === 'settings') settingsModal();
+    if (a === 'stats') statsModal();
+    if (a === 'rest') call('rpg:rest', { cid }, 'Descanso aplicado.');
+    if (a === 'restfull') call('rpg:rest', { cid, full: true }, 'Descanso longo aplicado.');
+    if (a === 'sload' && await H.confirmBox('Voltar para a sessão', 'Mapas, criaturas, vida, status, posições e cenas voltam a como estavam quando você salvou. O histórico continua.', 'Voltar', false)) call('rpg:snap:load', { cid, id });
     if (a === 'sdel' && await H.confirmBox('Apagar sessão salva', 'Não dá para desfazer.', 'Apagar')) call('rpg:snap:del', { cid, id });
   };
 }
-// janela de texto (o app de computador não tem o prompt() do navegador)
 function askText(title, value, max) {
   return new Promise(res => {
     let done = false;
@@ -966,14 +1113,233 @@ async function importMap(cells) {
   if (r.ok) toast(`Mapa importado (${w}×${h} casas).`);
 }
 
+/* ---------- cenas e eventos privados ---------- */
+function eventModal(preUids, preChars = []) {
+  const c = R.st.camp, m = curMap();
+  const busy = new Set([c.mapId, ...(c.scenes || []).filter(s => s.state === 'ativa').map(s => s.mapId)]);
+  const freeMaps = R.st.maps.filter(x => !busy.has(x.id));
+  const npcs = R.st.ents.filter(e => e.kind !== 'objeto');
+  H.modal(`<div class="modal-h"><h2>🎭 Criar evento</h2><p>Uma cena separada, com mapa próprio. Quem não participa continua na cena principal e não recebe nada deste evento.</p></div>
+    <div class="modal-b rpg-form">
+      <label class="field">Nome do evento<input id="evName" maxlength="50" placeholder="O sonho na cripta"></label>
+      <label class="field">Descrição<textarea id="evDesc" rows="2" maxlength="600" placeholder="O que está acontecendo (os participantes veem)"></textarea></label>
+      <div class="field">Jogadores participantes<div class="rpg-pick">${c.players.map(u => `<label class="rpg-check"><input type="checkbox" data-u="${u}" ${preUids.includes(u) ? 'checked' : ''}> ${H.av(u, 20, false)} ${esc(H.nameOf(u))}</label>`).join('') || '<span class="muted small">Nenhum jogador ainda.</span>'}</div></div>
+      <div class="field">Personagens envolvidos <span class="muted small">(os dos participantes entram sozinhos)</span><div class="rpg-pick">${R.st.chars.map(ch => `<label class="rpg-check"><input type="checkbox" data-ch="${ch.id}" ${preChars.includes(ch.id) ? 'checked' : ''}> ${esc(ch.name)} <span class="muted small">${esc(H.nameOf(ch.ownerId))}</span></label>`).join('')}</div></div>
+      <div class="rpg-row"><label class="field">Cena<select id="evVis"><option value="privada">Privada (só participantes)</option><option value="compartilhada">Compartilhada (os outros podem assistir)</option></select></label>
+        <label class="field">Mapa<select id="evMap"><option value="copia">Cópia do mapa atual${m ? ' (' + esc(m.name) + ')' : ''}</option>${Object.entries(MAP_KINDS).map(([k, l]) => `<option value="novo:${k}">Novo: ${l}</option>`).join('')}${freeMaps.map(x => `<option value="ex:${x.id}">Mapa: ${esc(x.name)}</option>`).join('')}</select></label></div>
+      <label class="field">Localização inicial<select id="evStart"><option value="partida">Ponto de partida do mapa</option><option value="mesmo">Mesmo lugar de agora (só na cópia)</option></select></label>
+      ${npcs.length ? `<div class="field">NPCs e criaturas presentes <span class="muted small">(entram cópias no mapa do evento)</span><div class="rpg-pick">${npcs.map(e => `<label class="rpg-check"><input type="checkbox" data-npc="${e.id}"> ${esc(e.emoji || '👾')} ${esc(e.name)}</label>`).join('')}</div></div>` : ''}
+      <div class="field">Os participantes podem<div class="rpg-row"><label class="rpg-check"><input type="checkbox" id="evMove" checked> mover</label><label class="rpg-check"><input type="checkbox" id="evRoll" checked> rolar dados</label><label class="rpg-check"><input type="checkbox" id="evSay" checked> escrever</label></div></div>
+    </div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="evGo">Começar evento</button></div>`, (md, close) => {
+    const q = s => md.querySelector(s);
+    q('#evGo').onclick = async () => {
+      const mv = q('#evMap').value, map = mv === 'copia' ? { mode: 'copia' } : mv.startsWith('novo:') ? { mode: 'novo', kind: mv.slice(5) } : { mode: 'existente', mapId: mv.slice(3) };
+      const r = await call('rpg:scene:create', { cid: c.id, name: q('#evName').value, desc: q('#evDesc').value, vis: q('#evVis').value, map, start: q('#evStart').value,
+        uids: [...md.querySelectorAll('[data-u]:checked')].map(i => i.dataset.u), chars: [...md.querySelectorAll('[data-ch]:checked')].map(i => i.dataset.ch), npcs: [...md.querySelectorAll('[data-npc]:checked')].map(i => i.dataset.npc),
+        perm: { move: q('#evMove').checked, roll: q('#evRoll').checked, say: q('#evSay').checked } }, 'Evento começou. Você está vendo a cena dele.');
+      if (r.ok) close();
+    };
+  });
+}
+function sceneAddModal(sid) {
+  const c = R.st.camp, s = c.scenes.find(x => x.id === sid); if (!s) return;
+  const avail = c.players.filter(u => !s.uids.includes(u));
+  H.modal(`<div class="modal-h"><h2>+ Participante em "${esc(s.name)}"</h2><p>Quem entrar sai da cena em que está (e leva o personagem).</p></div>
+    <div class="modal-b"><div class="rpg-pick">${avail.map(u => `<label class="rpg-check"><input type="checkbox" value="${u}"> ${H.av(u, 20, false)} ${esc(H.nameOf(u))}</label>`).join('') || '<p class="muted">Todos os jogadores já estão nesta cena.</p>'}</div></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button>${avail.length ? '<button class="btn primary" id="saGo">Adicionar</button>' : ''}</div>`, (md, close) => {
+    const go = md.querySelector('#saGo'); if (go) go.onclick = async () => { const r = await call('rpg:scene:update', { cid: c.id, sid, add: [...md.querySelectorAll('input:checked')].map(i => i.value) }); if (r.ok) close(); };
+  });
+}
+function scenePermModal(sid) {
+  const c = R.st.camp, s = c.scenes.find(x => x.id === sid); if (!s) return;
+  H.modal(`<div class="modal-h"><h2>🎭 ${esc(s.name)}</h2></div>
+    <div class="modal-b rpg-form"><label class="field">Nome<input id="spName" maxlength="50" value="${esc(s.name)}"></label><label class="field">Descrição<textarea id="spDesc" rows="2" maxlength="600">${esc(s.desc || '')}</textarea></label>
+      <label class="field">Cena<select id="spVis"><option value="privada" ${s.vis === 'privada' ? 'selected' : ''}>Privada</option><option value="compartilhada" ${s.vis === 'compartilhada' ? 'selected' : ''}>Compartilhada</option></select></label>
+      <div class="rpg-row"><label class="rpg-check"><input type="checkbox" id="spMove" ${s.perm.move !== false ? 'checked' : ''}> mover</label><label class="rpg-check"><input type="checkbox" id="spRoll" ${s.perm.roll !== false ? 'checked' : ''}> rolar dados</label><label class="rpg-check"><input type="checkbox" id="spSay" ${s.perm.say !== false ? 'checked' : ''}> escrever</label></div></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="spGo">Salvar</button></div>`, (md, close) => {
+    const q = x => md.querySelector(x);
+    q('#spGo').onclick = async () => { const r = await call('rpg:scene:update', { cid: c.id, sid, name: q('#spName').value, desc: q('#spDesc').value, vis: q('#spVis').value, perm: { move: q('#spMove').checked, roll: q('#spRoll').checked, say: q('#spSay').checked } }); if (r.ok) close(); };
+  });
+}
+function sceneEndModal(sid) {
+  const c = R.st.camp, s = c.scenes.find(x => x.id === sid); if (!s) return;
+  H.modal(`<div class="modal-h"><h2>Encerrar "${esc(s.name)}"</h2><p>Os participantes voltam para a cena principal, no lugar onde estavam.</p></div>
+    <div class="modal-b"><label class="rpg-check"><input type="checkbox" id="seDrop"> Apagar o mapa do evento (e as criaturas dele)</label></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" id="seGo">Encerrar evento</button></div>`, (md, close) => {
+    md.querySelector('#seGo').onclick = async () => { const r = await call('rpg:scene:end', { cid: c.id, sid, dropMap: md.querySelector('#seDrop').checked }, 'Evento encerrado.'); if (r.ok) close(); };
+  });
+}
+function sceneMoveModal(ch) {
+  const c = R.st.camp, sc = (c.scenes || []).filter(s => s.state === 'ativa');
+  H.modal(`<div class="modal-h"><h2>🚚 Levar ${esc(ch.name)} para…</h2><p>O dono do personagem vai junto (se for jogador).</p></div>
+    <div class="modal-b"><div class="rpg-pick"><button class="btn ghost rpg-person" data-to="">🏰 Cena principal</button>${sc.map(s => `<button class="btn ghost rpg-person" data-to="${s.id}">🎭 ${esc(s.name)}</button>`).join('')}</div></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button></div>`, (md, close) => {
+    md.querySelector('.rpg-pick').onclick = async e => { const b = e.target.closest('[data-to]'); if (!b) return; const r = await call('rpg:scene:move', { cid: c.id, charId: ch.id, to: b.dataset.to }, `${ch.name} foi levado.`); if (r.ok) close(); };
+  });
+}
+
+/* ---------- portas, lâmpadas, marcadores e lanternas ---------- */
+function doorModal(d) {
+  const m = curMap(), c = R.st.camp;
+  H.modal(`<div class="modal-h"><h2>🚪 Porta</h2><p>Fechada e trancada bloqueiam passagem, visão e luz (menos grade e vidro). Trancada só abre com a chave, com o teste ou pelo Mestre.</p></div>
+    <div class="modal-b rpg-form">
+      <div class="rpg-row"><label class="field">Nome<input id="drName" maxlength="30" value="${esc(d.name || '')}" placeholder="Porta da cela"></label>
+      <label class="field">Estado<select id="drState">${[['aberta', 'Aberta'], ['fechada', 'Fechada'], ['trancada', 'Trancada']].map(([v, l]) => `<option value="${v}" ${d.state === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+      <label class="field">Aparência e material<select id="drLook">${Object.entries(C.DOOR_LOOKS).map(([v, x]) => `<option value="${v}" ${d.look === v ? 'selected' : ''}>${esc(x.n)}</option>`).join('')}</select></label>
+      <div class="rpg-row"><label class="rpg-check"><input type="checkbox" id="drOpen" ${d.open !== false ? 'checked' : ''}> Jogadores podem abrir</label><label class="rpg-check"><input type="checkbox" id="drClose" ${d.close !== false ? 'checked' : ''}> Jogadores podem fechar</label></div>
+      <label class="field">Chave necessária <span class="muted small">(nome do item no inventário; abre a trancada)</span><input id="drKey" maxlength="40" value="${esc(d.key || '')}" placeholder="Chave de ferro"></label>
+      <div class="rpg-row"><label class="field">Teste de atributo<select id="drAttr"><option value="">Nenhum</option>${c.attrs.map(a => `<option value="${esc(a)}" ${d.test && d.test.attr === a ? 'selected' : ''}>${esc(attrName(a))}</option>`).join('')}</select></label><label class="field">Dificuldade (CD)<input id="drDc" type="number" min="1" max="40" value="${d.test ? d.test.dc : 12}"></label></div>
+      <label class="field">Mensagem ao tentar abrir sem conseguir<input id="drMsg" maxlength="160" value="${esc(d.msg || '')}" placeholder="A fechadura está enferrujada."></label>
+    </div>
+    <div class="modal-f"><button class="btn ghost danger-t" id="drDel">Tirar porta</button><span class="spacer" style="flex:1"></span><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="drSave">Salvar</button></div>`, (md, close) => {
+    const q = s => md.querySelector(s);
+    q('#drSave').onclick = async () => { const attr = q('#drAttr').value; const r = await call('rpg:door:save', { cid: c.id, mapId: m.id, door: { id: d.id, name: q('#drName').value, state: q('#drState').value, look: q('#drLook').value, open: q('#drOpen').checked, close: q('#drClose').checked, key: q('#drKey').value, test: attr ? { attr, dc: +q('#drDc').value } : null, msg: q('#drMsg').value } }); if (r.ok) close(); };
+    q('#drDel').onclick = async () => { const r = await call('rpg:door:del', { cid: c.id, mapId: m.id, id: d.id }); if (r.ok) close(); };
+  });
+}
+function lightModal(L) {
+  if (!L) return;
+  const m = curMap(), c = R.st.camp;
+  const walls = [...Object.values(C.MATS), ...mats()].filter(x => (x.L === 'parede' || x.L === 'terreno') && C.mat(x.id, mats()).l);
+  H.modal(`<div class="modal-h"><h2>💡 ${esc(L.name || 'Lâmpada')}</h2><p>A luz é calculada na hora: paredes e portas fechadas bloqueiam, a névoa só sai de onde a luz chega.</p></div>
+    <div class="modal-b rpg-form">
+      <div class="rpg-row"><label class="field">Nome<input id="lgName" maxlength="30" value="${esc(L.name || '')}"></label><label class="rpg-check"><input type="checkbox" id="lgOn" ${L.on ? 'checked' : ''}> Acesa</label></div>
+      <div class="rpg-row"><label class="field">Alcance (casas)<input id="lgR" type="number" min="0" max="30" step="0.5" value="${L.r}"></label><label class="field">Intensidade (%)<input id="lgI" type="number" min="5" max="100" value="${L.intensity}"></label><label class="field">Cor<input id="lgC" type="color" value="${esc(L.color)}"></label></div>
+      <div class="rpg-row"><label class="field">Formato<select id="lgS">${[['circulo', 'Círculo'], ['quadrado', 'Quadrado'], ['cone', 'Cone']].map(([v, l]) => `<option value="${v}" ${L.shape === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label><label class="field">Direção do cone (°)<input id="lgD" type="number" min="0" max="359" value="${L.dir}"></label><label class="field">Abertura (°)<input id="lgA" type="number" min="10" max="360" value="${L.angle}"></label></div>
+      <div class="field">Atravessa estes materiais <span class="muted small">(o resto bloqueia)</span><div class="rpg-pick">${walls.map(x => `<label class="rpg-check"><input type="checkbox" data-thru="${esc(x.id)}" ${(L.thru || []).includes(x.id) ? 'checked' : ''}> ${esc(x.n)}</label>`).join('')}${Object.entries(C.DOOR_LOOKS).filter(([, x]) => x.l).map(([k, x]) => `<label class="rpg-check"><input type="checkbox" data-thru="porta:${k}" ${(L.thru || []).includes('porta:' + k) ? 'checked' : ''}> Porta de ${esc(x.n.toLowerCase())}</label>`).join('')}</div></div>
+    </div>
+    <div class="modal-f"><button class="btn ghost danger-t" id="lgDel">Tirar</button><span class="spacer" style="flex:1"></span><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="lgSave">Salvar</button></div>`, (md, close) => {
+    const q = s => md.querySelector(s);
+    q('#lgSave').onclick = async () => { const r = await call('rpg:light:save', { cid: c.id, mapId: m.id, light: { id: L.id, name: q('#lgName').value, on: q('#lgOn').checked, r: +q('#lgR').value, intensity: +q('#lgI').value, color: q('#lgC').value, shape: q('#lgS').value, dir: +q('#lgD').value, angle: +q('#lgA').value, thru: [...md.querySelectorAll('[data-thru]:checked')].map(i => i.dataset.thru) } }); if (r.ok) close(); };
+    q('#lgDel').onclick = async () => { const r = await call('rpg:light:del', { cid: c.id, mapId: m.id, id: L.id }); if (r.ok) close(); };
+  });
+}
+function markModal(k, at) {
+  const m = curMap(), c = R.st.camp, d = k || { emoji: R.mark.e, size: R.mark.size, name: R.mark.name, vis: R.mark.vis, uids: [], x: at.x, y: at.y };
+  H.modal(`<div class="modal-h"><h2>🏷️ Marcador</h2><p>O nome aparece quando alguém passa o mouse em cima.</p></div>
+    <div class="modal-b rpg-form">
+      <div class="rpg-br-emo">${MARK_EMOJIS.map(x => `<button type="button" data-e="${x}" class="${d.emoji === x ? 'on' : ''}">${x}</button>`).join('')}</div>
+      <div class="rpg-row"><label class="field">Emoji<input id="mkE" maxlength="8" value="${esc(d.emoji)}"></label><label class="field">Nome<input id="mkN" maxlength="40" value="${esc(d.name || '')}" placeholder="Chave misteriosa"></label><label class="field">Tamanho<input id="mkS" type="number" min="0.4" max="4" step="0.25" value="${d.size}"></label></div>
+      <label class="field">Quem vê<select id="mkV"><option value="todos" ${d.vis === 'todos' ? 'selected' : ''}>Todos</option><option value="mestre" ${d.vis === 'mestre' ? 'selected' : ''}>Só o Mestre</option><option value="alguns" ${d.vis === 'alguns' ? 'selected' : ''}>Só alguns jogadores</option></select></label>
+      <div class="rpg-pick" id="mkU" ${d.vis === 'alguns' ? '' : 'hidden'}>${c.players.map(u => `<label class="rpg-check"><input type="checkbox" value="${u}" ${(d.uids || []).includes(u) ? 'checked' : ''}> ${esc(H.nameOf(u))}</label>`).join('')}</div>
+    </div>
+    <div class="modal-f">${k ? '<button class="btn ghost danger-t" id="mkDel">Apagar</button><span class="spacer" style="flex:1"></span>' : ''}<button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="mkSave">${k ? 'Salvar' : 'Colocar'}</button></div>`, (md, close) => {
+    const q = s => md.querySelector(s);
+    md.querySelector('.rpg-br-emo').onclick = e => { const b = e.target.closest('[data-e]'); if (!b) return; q('#mkE').value = b.dataset.e; md.querySelectorAll('[data-e]').forEach(x => x.classList.toggle('on', x === b)); };
+    q('#mkV').onchange = () => { q('#mkU').hidden = q('#mkV').value !== 'alguns'; };
+    q('#mkSave').onclick = async () => { const r = await call('rpg:mark:save', { cid: c.id, mapId: m.id, mark: { id: k ? k.id : undefined, x: d.x, y: d.y, emoji: q('#mkE').value, name: q('#mkN').value, size: +q('#mkS').value, vis: q('#mkV').value, uids: [...md.querySelectorAll('#mkU input:checked')].map(i => i.value) } }); if (r.ok) close(); };
+    const del = q('#mkDel'); if (del) del.onclick = async () => { const r = await call('rpg:mark:del', { cid: c.id, mapId: m.id, id: k.id }); if (r.ok) close(); };
+  });
+}
+function lanternModal(ch) {
+  if (!ch) return;
+  const c = R.st.camp, lt = ch.lantern || { kind: 'lanterna', ...C.LANTERN_KINDS.lanterna, on: true, toggle: true, req: false };
+  H.modal(`<div class="modal-h"><h2>🔦 Luz de ${esc(ch.name)}</h2><p>A luz sai do personagem e aponta para onde ele olha (ele vira ao andar, ou com Q/E). Com névoa, o jogador só enxerga o que estiver iluminado.</p></div>
+    <div class="modal-b rpg-form">
+      <div class="rpg-row"><label class="field">Tipo<select id="ltK">${Object.entries(C.LANTERN_KINDS).map(([k, x]) => `<option value="${k}" ${lt.kind === k ? 'selected' : ''}>${esc(x.n)}</option>`).join('')}</select></label><label class="rpg-check"><input type="checkbox" id="ltOn" ${lt.on ? 'checked' : ''}> Ligada</label></div>
+      <div class="rpg-row"><label class="field">Alcance (casas)<input id="ltR" type="number" min="1" max="30" value="${lt.range}"></label><label class="field">Ângulo do cone (°, 360 = em volta)<input id="ltA" type="number" min="10" max="360" value="${lt.angle}"></label></div>
+      <div class="rpg-row"><label class="field">Intensidade (%)<input id="ltI" type="number" min="5" max="100" value="${lt.intensity}"></label><label class="field">Cor<input id="ltC" type="color" value="${esc(lt.color)}"></label></div>
+      <label class="rpg-check"><input type="checkbox" id="ltT" ${lt.toggle ? 'checked' : ''}> O jogador pode ligar e desligar</label>
+      <label class="rpg-check"><input type="checkbox" id="ltQ" ${lt.req ? 'checked' : ''}> Obrigatória (sempre ligada)</label>
+    </div>
+    <div class="modal-f">${ch.lantern ? '<button class="btn ghost danger-t" id="ltDel">Tirar a luz</button><span class="spacer" style="flex:1"></span>' : ''}<button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="ltSave">${ch.lantern ? 'Salvar' : 'Dar a luz'}</button></div>`, (md, close) => {
+    const q = s => md.querySelector(s);
+    q('#ltK').onchange = () => { const k = C.LANTERN_KINDS[q('#ltK').value]; q('#ltR').value = k.range; q('#ltA').value = k.angle; q('#ltI').value = k.intensity; q('#ltC').value = k.color; };
+    q('#ltSave').onclick = async () => { const r = await call('rpg:lantern', { cid: c.id, id: ch.id, lantern: { kind: q('#ltK').value, on: q('#ltOn').checked || q('#ltQ').checked, range: +q('#ltR').value, angle: +q('#ltA').value, intensity: +q('#ltI').value, color: q('#ltC').value, toggle: q('#ltT').checked, req: q('#ltQ').checked } }); if (r.ok) close(); };
+    const del = q('#ltDel'); if (del) del.onclick = async () => { const r = await call('rpg:lantern', { cid: c.id, id: ch.id, lantern: null }); if (r.ok) close(); };
+  });
+}
+
+/* ---------- materiais personalizados ---------- */
+function matsModal() {
+  const c = R.st.camp;
+  H.modal(`<div class="modal-h"><h2>🧱 Materiais personalizados</h2><p>Aparecem no pincel, na categoria escolhida. Bloquear passagem, visão e luz vale de verdade na mesa.</p></div>
+    <div class="modal-b"><div class="rpg-maps">${mats().map(x => `<div class="rpg-map-it"><span><canvas width="22" height="22" data-mat="${esc(x.id)}" class="rpg-matpv"></canvas> <b>${esc(x.n)}</b> <span class="muted small">${esc(C.LAYER_NAMES[x.L])} · ${esc(C.CATS[x.cat] || '')}</span></span><button class="icon-btn" data-ed="${x.id}" aria-label="Editar">${H.ic('edit')}</button><button class="icon-btn" data-del="${x.id}" aria-label="Apagar">${H.ic('trash')}</button></div>`).join('') || '<p class="muted small">Nenhum material personalizado.</p>'}</div></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Fechar</button><button class="btn primary" id="mtNew">+ Novo material</button></div>`, (md, close) => {
+    md.querySelectorAll('canvas[data-mat]').forEach(cv => matPreview(cv, MAT(cv.dataset.mat)));
+    md.querySelector('#mtNew').onclick = () => { close(); matModal(null, 'chao'); };
+    md.onclick = async e => {
+      const ed = e.target.closest('[data-ed]'), del = e.target.closest('[data-del]');
+      if (ed) { close(); matModal(mats().find(x => x.id === ed.dataset.ed)); }
+      if (del && await H.confirmBox('Apagar material', 'Ele sai de todos os mapas (no chão vira pedra).', 'Apagar')) { const r = await call('rpg:mat:del', { cid: c.id, id: del.dataset.del }); if (r.ok) close(); }
+    };
+  });
+}
+function matModal(x, layer) {
+  const c = R.st.camp, d = x ? { ...x } : { n: '', L: layer || 'chao', cat: 'custom', color: '#7a7a7a', st: C.STYLES[layer || 'chao'][0], img: null, emoji: '', w: layer !== 'parede' && layer !== 'objeto' ? 1 : 0, s: layer === 'parede' ? 1 : 0, l: layer === 'parede' ? 1 : 0, glow: null };
+  H.modal(`<div class="modal-h"><h2>${x ? '✏️ ' + esc(x.n) : '🧱 Novo material'}</h2></div>
+    <div class="modal-b rpg-form">
+      <div class="rpg-row"><label class="field">Nome<input id="mtN" maxlength="30" value="${esc(d.n)}" placeholder="Pedra lunar"></label><label class="field">Camada<select id="mtL" ${x ? 'disabled' : ''}>${C.LAYERS.map(L => `<option value="${L}" ${d.L === L ? 'selected' : ''}>${esc(C.LAYER_NAMES[L])}</option>`).join('')}</select></label></div>
+      <div class="rpg-row"><label class="field">Categoria<select id="mtC">${Object.entries(C.CATS).map(([k, l]) => `<option value="${k}" ${d.cat === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label><label class="field">Cor<input id="mtCol" type="color" value="${esc(d.color)}"></label><label class="field">Desenho<select id="mtS"></select></label></div>
+      <div class="rpg-row"><label class="field" id="mtEmoF">Emoji (objetos)<input id="mtE" maxlength="8" value="${esc(d.emoji || '')}"></label><div class="field">Textura/imagem<div class="rpg-row"><button type="button" class="btn sm" id="mtImg">${d.img ? '🖼️ Trocar imagem' : '📁 Enviar imagem'}</button>${d.img ? '<button type="button" class="btn sm ghost" id="mtImgX">Tirar</button>' : ''}</div></div><canvas width="48" height="48" id="mtPv" class="rpg-matpv big"></canvas></div>
+      <div class="rpg-row"><label class="rpg-check"><input type="checkbox" id="mtW" ${d.w ? 'checked' : ''}> Dá para andar em cima</label><label class="rpg-check"><input type="checkbox" id="mtSi" ${d.s ? 'checked' : ''}> Bloqueia a visão</label><label class="rpg-check"><input type="checkbox" id="mtLi" ${d.l ? 'checked' : ''}> Bloqueia a luz</label><label class="rpg-check"><input type="checkbox" id="mtG" ${d.glow ? 'checked' : ''}> Brilha</label></div>
+    </div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="mtSave">Salvar</button></div>`, (md, close) => {
+    const q = s => md.querySelector(s);
+    const styles = () => { const L = q('#mtL').value; q('#mtS').innerHTML = C.STYLES[L].map(s => `<option value="${s}" ${d.st === s ? 'selected' : ''}>${s}</option>`).join(''); q('#mtEmoF').hidden = L !== 'objeto'; };
+    const pv = () => { const col = q('#mtCol').value; matPreview(q('#mtPv'), { id: 'pv-' + Date.now(), L: q('#mtL').value, c: [col, col, col], st: q('#mtS').value, img: d.img, emoji: q('#mtE').value }); };
+    styles(); pv();
+    q('#mtL').onchange = () => { styles(); pv(); }; q('#mtS').onchange = pv; q('#mtCol').oninput = pv; q('#mtE').oninput = pv;
+    q('#mtImg').onclick = async () => { const f = await H.pickFile('image/png,image/webp,image/jpeg'); const up = await upImg(f, 256); if (up) { d.img = up.url; pv(); toast('Imagem pronta. Salve para usar.'); } };
+    const ix = q('#mtImgX'); if (ix) ix.onclick = () => { d.img = null; ix.remove(); pv(); };
+    q('#mtSave').onclick = async () => {
+      const r = await call('rpg:mat:save', { cid: c.id, mat: { id: x ? x.id : undefined, n: q('#mtN').value, L: q('#mtL').value, cat: q('#mtC').value, color: q('#mtCol').value, st: q('#mtS').value, img: d.img, emoji: q('#mtE').value, w: q('#mtW').checked, s: q('#mtSi').checked, l: q('#mtLi').checked, glow: q('#mtG').checked } }, 'Material salvo.');
+      if (r.ok) { close(); if (R.tool === 'pincel') { R.brush.L = q('#mtL').value; R.brush.id = r.id; } }
+    };
+  });
+}
+
+/* ---------- status: categorias e subcategorias ---------- */
+function statsModal() {
+  const c = R.st.camp, cats = JSON.parse(JSON.stringify(c.statCats || []));
+  const SHOW = { barra: 'Barra', numero: 'Número', pontos: 'Bolinhas' }, ON = { nunca: 'não recupera', turno: 'por turno', rodada: 'por rodada', descanso: 'no descanso' };
+  const modsTxt = s => (s.mods || []).map(md => `${md.attr}${sgn(md.v)}${md.op}${md.at}`).join(', ');
+  H.modal(`<div class="modal-h"><h2>📊 Status personalizados</h2><p>Crie categorias (Físicos, Mentais...) e os status de cada uma. Use ↑ ↓ para reorganizar. Modificador: <code>DES-2>=5</code> = Destreza −2 quando o status estiver em 5 ou mais.</p></div>
+    <div class="modal-b rpg-form rpg-statsed" id="stEd"></div>
+    <div class="modal-f"><button class="btn ghost" id="stSug">Usar sugestões</button><span class="spacer" style="flex:1"></span><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="stSave">Salvar</button></div>`, (md, close) => {
+    const box = md.querySelector('#stEd');
+    const draw = () => {
+      box.innerHTML = cats.map((k, ci) => `<fieldset class="rpg-stcat" style="--sc:${esc(k.color)}"><div class="rpg-row"><input class="rpg-cls-ic" data-ci="${ci}" data-f="icon" maxlength="8" value="${esc(k.icon || '')}" aria-label="Ícone"><input data-ci="${ci}" data-f="name" maxlength="30" value="${esc(k.name)}" aria-label="Nome da categoria"><input type="color" data-ci="${ci}" data-f="color" value="${esc(k.color)}" aria-label="Cor"><button type="button" class="icon-btn" data-up="${ci}" aria-label="Subir">↑</button><button type="button" class="icon-btn" data-down="${ci}" aria-label="Descer">↓</button><button type="button" class="icon-btn" data-delc="${ci}" aria-label="Apagar categoria">${H.ic('trash')}</button></div>
+        ${k.stats.map((s, si) => `<div class="rpg-strow"><div class="rpg-row"><input class="rpg-cls-ic" data-ci="${ci}" data-si="${si}" data-f="icon" maxlength="8" value="${esc(s.icon || '')}" aria-label="Ícone"><input data-ci="${ci}" data-si="${si}" data-f="name" maxlength="30" value="${esc(s.name)}" placeholder="Nome" aria-label="Nome"><label>mín<input type="number" data-ci="${ci}" data-si="${si}" data-f="min" value="${s.min}"></label><label>máx<input type="number" data-ci="${ci}" data-si="${si}" data-f="max" value="${s.max}"></label><label>começa<input type="number" data-ci="${ci}" data-si="${si}" data-f="start" value="${s.start}"></label>
+          <button type="button" class="icon-btn" data-sup="${ci}:${si}" aria-label="Subir">↑</button><button type="button" class="icon-btn" data-sdown="${ci}:${si}" aria-label="Descer">↓</button><button type="button" class="icon-btn" data-dels="${ci}:${si}" aria-label="Apagar">${H.ic('x')}</button></div>
+          <div class="rpg-row"><select data-ci="${ci}" data-si="${si}" data-f="show" aria-label="Apresentação">${Object.entries(SHOW).map(([v, l]) => `<option value="${v}" ${s.show === v ? 'selected' : ''}>${l}</option>`).join('')}</select><input type="color" data-ci="${ci}" data-si="${si}" data-f="color" value="${esc(s.color || k.color)}" aria-label="Cor">
+          <label>recupera<input type="number" data-ci="${ci}" data-si="${si}" data-f="rn" value="${s.regen ? s.regen.n : 0}"></label><select data-ci="${ci}" data-si="${si}" data-f="ron" aria-label="Quando recupera">${Object.entries(ON).map(([v, l]) => `<option value="${v}" ${(s.regen ? s.regen.on : 'nunca') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          <input data-ci="${ci}" data-si="${si}" data-f="mods" value="${esc(modsTxt(s))}" placeholder="Modificadores: DES-2>=5" aria-label="Modificadores"></div>
+          <input data-ci="${ci}" data-si="${si}" data-f="desc" maxlength="200" value="${esc(s.desc || '')}" placeholder="Descrição (aparece ao passar o mouse)" aria-label="Descrição"></div>`).join('')}
+        <button type="button" class="btn sm ghost" data-adds="${ci}">+ Status em ${esc(k.name)}</button></fieldset>`).join('') + '<button type="button" class="btn sm" id="stAddC">+ Categoria</button>';
+      box.querySelector('#stAddC').onclick = () => { cats.push({ name: 'Nova categoria', icon: '⭐', color: '#6c7cff', stats: [] }); draw(); };
+    };
+    draw();
+    box.oninput = e => {
+      const t = e.target, ci = t.dataset.ci; if (ci === undefined) return;
+      const k = cats[+ci], f = t.dataset.f, obj = t.dataset.si !== undefined ? k.stats[+t.dataset.si] : k;
+      if (f === 'mods') { obj.mods = []; for (const mm of t.value.toUpperCase().matchAll(/([A-ZÇÃÁÉÍÓÚ]{2,6})\s*([+-]\s*\d+)\s*(>=|<=)\s*(-?\d+)/g)) obj.mods.push({ attr: mm[1], v: +mm[2].replace(/\s/g, ''), op: mm[3], at: +mm[4] }); }
+      else if (f === 'rn' || f === 'ron') { obj.regen = obj.regen || { n: 0, on: 'nunca' }; if (f === 'rn') obj.regen.n = +t.value; else obj.regen.on = t.value; }
+      else obj[f] = ['min', 'max', 'start'].includes(f) ? +t.value : t.value;
+    };
+    box.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return; const ds = b.dataset, sw = (arr, i, j) => { if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; };
+      if (ds.up !== undefined) sw(cats, +ds.up, +ds.up - 1); else if (ds.down !== undefined) sw(cats, +ds.down, +ds.down + 1); else if (ds.delc !== undefined) cats.splice(+ds.delc, 1);
+      else if (ds.adds !== undefined) cats[+ds.adds].stats.push({ name: 'Novo status', icon: '', min: 0, max: 10, start: 0, show: 'barra', regen: { n: 0, on: 'nunca' }, mods: [], desc: '' });
+      else if (ds.sup || ds.sdown || ds.dels) { const [ci, si] = (ds.sup || ds.sdown || ds.dels).split(':').map(Number), arr = cats[ci].stats; if (ds.sup) sw(arr, si, si - 1); else if (ds.sdown) sw(arr, si, si + 1); else arr.splice(si, 1); }
+      else return;
+      draw();
+    };
+    md.querySelector('#stSug').onclick = async () => { if (await H.confirmBox('Usar sugestões', 'Troca as categorias por Físicos, Mentais e Sobrenaturais (com exemplos).', 'Trocar', false)) { const r = await call('rpg:stats', { cid: c.id, suggest: true }, 'Sugestões aplicadas.'); if (r.ok) close(); } };
+    md.querySelector('#stSave').onclick = async () => { const r = await call('rpg:stats', { cid: c.id, cats }, 'Status salvos.'); if (r.ok) close(); };
+  });
+}
+
 /* ---------- janelas: ficha, criatura, configurações, convites ---------- */
 function sheetModal(ch, ownerId) {
   const c = R.st.camp, master = isMaster(), own = ch ? ch.ownerId === me() : true;
   const edit = master || (own && (!ch || c.rules.editOwn));
-  const d = ch ? JSON.parse(JSON.stringify(ch)) : { name: '', classId: c.classes[0] ? c.classes[0].id : null, level: 1, hp: 10, hpMax: 10, mp: 0, mpMax: 0, def: 10, attrs: Object.fromEntries(c.attrs.map(a => [a, 10])), skills: '', inv: [], conds: [], notes: '', img: null, color: '#6c7cff' };
+  const d = ch ? JSON.parse(JSON.stringify(ch)) : { name: '', classId: c.classes[0] ? c.classes[0].id : null, level: 1, hp: 10, hpMax: 10, mp: 0, mpMax: 0, def: 10, attrs: Object.fromEntries(c.attrs.map(a => [a, 10])), stats: {}, skills: '', inv: [], conds: [], notes: '', img: null, color: '#6c7cff' };
   if (!ch) { const cl = c.classes.find(k => k.id === d.classId); if (cl) applyClass(d, cl, c); }
   const dis = edit ? '' : 'disabled';
   const classOpts = `<option value="">Sem classe</option>` + c.classes.map(k => `<option value="${k.id}" ${d.classId === k.id ? 'selected' : ''}>${esc(k.icon + ' ' + k.name)}</option>`).join('');
+  const smods = C.statMods(c.statCats, d);
   H.modal(`<div class="modal-h"><h2>📜 ${ch ? esc(ch.name) : 'Novo personagem'}</h2><p>${ch ? `De ${esc(H.nameOf(ch.ownerId))}` : ownerId && ownerId !== me() ? `Para ${esc(H.nameOf(ownerId))}` : 'Seu personagem nesta campanha.'}${edit ? '' : ' · só o Mestre pode mudar.'}</p></div>
     <div class="modal-b rpg-form rpg-sheet">
       <div class="rpg-sheet-top"><button type="button" class="rpg-portrait" id="shImg" ${dis} style="--tc:${esc(d.color)}" aria-label="Retrato">${d.img || avatarUrl(ch ? ch.ownerId : (ownerId || me())) ? `<img src="${esc(d.img || avatarUrl(ch ? ch.ownerId : (ownerId || me())))}" alt="">` : '<span>🙂</span>'}</button>
@@ -981,11 +1347,13 @@ function sheetModal(ch, ownerId) {
         <div class="rpg-row"><label class="field">Classe<select id="shClass" ${dis}>${classOpts}</select></label><label class="field">Nível<input id="shLvl" type="number" min="1" max="99" value="${d.level}" ${dis}></label><label class="field">Cor<input id="shColor" type="color" value="${esc(d.color)}" ${dis}></label></div></div></div>
       <p class="muted small" id="shClassDesc"></p>
       <div class="rpg-row rpg-vitals"><label class="field">❤️ Vida<input id="shHp" type="number" value="${d.hp}" ${dis}></label><label class="field">Máx.<input id="shHpMax" type="number" min="1" value="${d.hpMax}" ${dis}></label><label class="field">🔷 Mana<input id="shMp" type="number" min="0" value="${d.mp}" ${dis}></label><label class="field">Máx.<input id="shMpMax" type="number" min="0" value="${d.mpMax}" ${dis}></label><label class="field">🛡️ Defesa<input id="shDef" type="number" min="0" max="99" value="${d.def}" ${dis}></label></div>
-      <div class="rpg-attrs">${c.attrs.map(a => `<label class="rpg-attr"><span>${esc(a)}</span><input type="number" min="1" max="30" data-attr="${esc(a)}" value="${d.attrs[a] ?? 10}" ${dis}><i>${mod(d.attrs[a])}</i></label>`).join('')}</div>
+      <div class="rpg-attrs">${c.attrs.map(a => `<label class="rpg-attr" title="${esc(attrName(a))}"><span>${esc(attrName(a))}</span><input type="number" min="1" max="30" data-attr="${esc(a)}" value="${d.attrs[a] ?? 10}" ${dis}><i>${mod(d.attrs[a])}${smods[a] ? `<b class="${smods[a] < 0 ? 'neg' : 'pos'}">${sgn(smods[a])}</b>` : ''}</i></label>`).join('')}</div>
+      ${(c.statCats || []).length ? `<div class="rpg-stats">${c.statCats.map(k => `<fieldset class="rpg-stcat view" style="--sc:${esc(k.color)}"><legend>${esc(k.icon || '')} ${esc(k.name)}</legend>${k.stats.map(s => statWidget(s, statOf(d, s), edit, master)).join('') || '<span class="muted small">vazia</span>'}</fieldset>`).join('')}</div>` : ''}
+      ${master ? `<div class="rpg-row rpg-vitals"><label class="field">👁️ Visão (casas)<input id="shSight" type="number" min="1" max="30" value="${d.sight ?? ''}" placeholder="do mapa"></label><label class="field">🌑 Visão no escuro<input id="shDark" type="number" min="0" max="30" value="${d.dark ?? 1}"></label>${ch ? `<button type="button" class="btn sm" id="shLant">🔦 ${ch.lantern ? 'Lanterna…' : 'Dar lanterna'}</button>` : ''}</div>` : ''}
       <label class="field">Habilidades e magias <span class="muted small">(uma por linha)</span><textarea id="shSkills" rows="3" maxlength="1500" ${dis}>${esc(d.skills)}</textarea></label>
-      <div class="field">Inventário<div class="rpg-inv" id="shInv"></div>${edit ? '<button type="button" class="btn sm ghost" id="shInvAdd">+ Item</button>' : ''}</div>
+      <div class="field">Inventário <span class="muted small">(chaves abrem portas trancadas pelo nome)</span><div class="rpg-inv" id="shInv"></div>${edit ? '<button type="button" class="btn sm ghost" id="shInvAdd">+ Item</button>' : ''}</div>
       ${master ? `<div class="field">Condições<div class="rpg-condpick big" id="shConds">${CONDS.map(x => `<button type="button" data-v="${esc(x)}" class="${d.conds.includes(x) ? 'on' : ''}">${COND_IC[x]} ${esc(x)}</button>`).join('')}</div></div>` : (d.conds.length ? `<div class="rpg-conds">${d.conds.map(x => `<span>${COND_IC[x] || '•'} ${esc(x)}</span>`).join('')}</div>` : '')}
-      <label class="field">Anotações<textarea id="shNotes" rows="2" maxlength="2000" ${dis}>${esc(d.notes)}</textarea></label>
+      ${d.notes !== undefined ? `<label class="field">Anotações<textarea id="shNotes" rows="2" maxlength="2000" ${dis}>${esc(d.notes || '')}</textarea></label>` : ''}
     </div>
     <div class="modal-f">${ch && (master || own) ? '<button class="btn ghost danger-t" id="shDel">Apagar personagem</button><span class="spacer" style="flex:1"></span>' : ''}<button class="btn ghost" data-close>${edit ? 'Cancelar' : 'Fechar'}</button>${edit ? `<button class="btn primary" id="shSave">${ch ? 'Salvar' : 'Criar personagem'}</button>` : ''}</div>`, (m, close) => {
     const q = s => m.querySelector(s);
@@ -993,33 +1361,39 @@ function sheetModal(ch, ownerId) {
       q('#shInv').innerHTML = d.inv.length ? d.inv.map((it, i) => `<div class="rpg-inv-it"><input value="${esc(it.name)}" data-i="${i}" data-f="name" maxlength="40" ${dis} aria-label="Item"><input type="number" min="0" value="${it.qty}" data-i="${i}" data-f="qty" ${dis} aria-label="Quantidade"><input value="${esc(it.note || '')}" data-i="${i}" data-f="note" maxlength="120" placeholder="nota" ${dis} aria-label="Nota">${edit ? `<button type="button" class="icon-btn" data-del="${i}" aria-label="Tirar item">${H.ic('x')}</button>` : ''}</div>`).join('') : '<p class="muted small" style="margin:0">Mochila vazia.</p>';
     };
     drawInv();
-    const descCls = () => { const cl = c.classes.find(k => k.id === q('#shClass').value); q('#shClassDesc').textContent = cl ? `${cl.desc} Vida base ${cl.hp}, mana ${cl.mp}${Object.keys(cl.mods).length ? ', bônus ' + Object.entries(cl.mods).map(([a, v]) => `${a} ${v >= 0 ? '+' : ''}${v}`).join(' ') : ''}.` : ''; };
+    const descCls = () => { const cl = c.classes.find(k => k.id === q('#shClass').value); q('#shClassDesc').textContent = cl ? `${cl.desc} Vida base ${cl.hp}, mana ${cl.mp}${Object.keys(cl.mods).length ? ', bônus ' + Object.entries(cl.mods).map(([a, v]) => `${attrName(a)} ${sgn(v)}`).join(' ') : ''}.` : ''; };
     descCls();
     q('#shInv').oninput = e => { const t = e.target; if (t.dataset.i === undefined) return; const it = d.inv[+t.dataset.i]; if (!it) return; it[t.dataset.f] = t.dataset.f === 'qty' ? +t.value : t.value; };
     q('#shInv').onclick = e => { const b = e.target.closest('[data-del]'); if (b) { d.inv.splice(+b.dataset.del, 1); drawInv(); } };
     const add = q('#shInvAdd'); if (add) add.onclick = () => { d.inv.push({ name: 'Item', qty: 1, note: '' }); drawInv(); };
-    m.querySelectorAll('[data-attr]').forEach(i => { i.oninput = () => { i.nextElementSibling.textContent = mod(i.value); }; });
-    // habilidades que a classe preencheu sozinha: trocando de classe, elas são trocadas (se a pessoa não mexeu)
+    m.querySelectorAll('[data-attr]').forEach(i => { i.oninput = () => { i.nextElementSibling.firstChild.textContent = mod(i.value); }; });
+    // bolinhas clicáveis dos status
+    m.querySelectorAll('[data-pip]').forEach(p => { p.onclick = () => { const inp = m.querySelector(`[data-sv="${p.dataset.pip}"]`); if (!inp) return; inp.value = +inp.value === +p.dataset.n ? +p.dataset.n - 1 : p.dataset.n; inp.dispatchEvent(new Event('input')); }; });
+    m.querySelectorAll('[data-sv]').forEach(inp => { inp.oninput = () => { const box = inp.closest('.rpg-st'); box.querySelectorAll('.rpg-pips i').forEach((x, k) => x.classList.toggle('on', +x.dataset.n <= +inp.value)); }; });
     let autoSkills = !ch ? d.skills : null;
     q('#shClass').onchange = () => {
       descCls();
-      // personagem novo: a classe preenche vida, mana, bônus e habilidades (dá para mudar depois)
       if (!ch) {
         const cl = c.classes.find(k => k.id === q('#shClass').value); const tmp = { attrs: Object.fromEntries(c.attrs.map(a => [a, 10])) };
         const sk = q('#shSkills'), untouched = !sk.value.trim() || sk.value === autoSkills;
         if (cl) { applyClass(tmp, cl, c); q('#shHp').value = q('#shHpMax').value = tmp.hpMax; q('#shMp').value = q('#shMpMax').value = tmp.mpMax; }
         if (untouched) { sk.value = cl ? cl.skills : ''; autoSkills = sk.value; }
-        m.querySelectorAll('[data-attr]').forEach(i => { i.value = tmp.attrs[i.dataset.attr] ?? 10; i.nextElementSibling.textContent = mod(i.value); });
+        m.querySelectorAll('[data-attr]').forEach(i => { i.value = tmp.attrs[i.dataset.attr] ?? 10; i.nextElementSibling.firstChild.textContent = mod(i.value); });
       }
     };
     const condBox = q('#shConds'); if (condBox) condBox.onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; const v = b.dataset.v; d.conds = d.conds.includes(v) ? d.conds.filter(x => x !== v) : [...d.conds, v]; b.classList.toggle('on'); };
     if (edit) q('#shImg').onclick = async () => { const f = await H.pickFile(); const up = await upImg(f, 512); if (up) { d.img = up.url; q('#shImg').innerHTML = `<img src="${esc(up.url)}" alt="">`; } };
+    const lb = q('#shLant'); if (lb) lb.onclick = () => lanternModal(ch);
     const save = q('#shSave');
     if (save) save.onclick = async () => {
+      const stats = {};
+      m.querySelectorAll('[data-sv]').forEach(i => { stats[i.dataset.sv] = { v: +i.value }; });
+      m.querySelectorAll('[data-sm]').forEach(i => { const s = statDefs().find(x => x.id === i.dataset.sm); stats[i.dataset.sm] = { ...(stats[i.dataset.sm] || {}), max: s && +i.value === s.max ? null : +i.value }; });
       const x = { ...d, id: ch ? ch.id : undefined, ownerId: ch ? ch.ownerId : (ownerId || undefined), custom: true,
         name: q('#shName').value, classId: q('#shClass').value || null, level: +q('#shLvl').value, color: q('#shColor').value,
         hp: +q('#shHp').value, hpMax: +q('#shHpMax').value, mp: +q('#shMp').value, mpMax: +q('#shMpMax').value, def: +q('#shDef').value,
-        attrs: Object.fromEntries([...m.querySelectorAll('[data-attr]')].map(i => [i.dataset.attr, +i.value])), skills: q('#shSkills').value, notes: q('#shNotes').value };
+        attrs: Object.fromEntries([...m.querySelectorAll('[data-attr]')].map(i => [i.dataset.attr, +i.value])), stats, skills: q('#shSkills').value, notes: q('#shNotes') ? q('#shNotes').value : d.notes };
+      if (master) { x.sight = q('#shSight').value === '' ? null : +q('#shSight').value; x.dark = +q('#shDark').value; } else { delete x.sight; delete x.dark; }
       if (!x.name.trim()) return toast('Dê um nome para o personagem.', true);
       const r = await call('rpg:char:save', { cid: c.id, char: x }, ch ? 'Ficha salva.' : 'Personagem criado!');
       if (r.ok) close();
@@ -1060,9 +1434,9 @@ function entModal(e, at) {
     const ix = q('#enImgX'); if (ix) ix.onclick = () => { d.img = null; q('#enImg').innerHTML = `<span>${esc(q('#enEmoji').value || '👾')}</span>`; ix.remove(); };
     q('#enKind').onchange = () => { if (!e) q('#enColor').value = { chefe: '#ff3b3b', npc: '#3fb97a', objeto: '#9aa4b6', monstro: '#d9822b' }[q('#enKind').value]; };
     q('#enSave').onclick = async () => {
-      const pos = at || viewCenter(); // botão direito no mapa: nasce onde clicou
+      const pos = at || viewCenter();
       const x = { id: e ? e.id : undefined, kind: q('#enKind').value, name: q('#enName').value, emoji: q('#enEmoji').value, img: d.img, color: q('#enColor').value, hp: +q('#enHp').value, hpMax: +q('#enHpMax').value, def: +q('#enDef').value, atk: +q('#enAtk').value, level: +q('#enLvl').value, init: +q('#enInit').value, size: +q('#enSize').value, hidden: q('#enHid').checked, notes: q('#enNotes').value, conds: d.conds || [] };
-      if (!e) { x.x = pos.x; x.y = pos.y; }
+      if (!e) { x.x = pos.x; x.y = pos.y; x.mapId = curMap() && curMap().id; }
       if (!x.name.trim()) return toast('Dê um nome.', true);
       const r = await call('rpg:ent:save', { cid: R.st.camp.id, ent: x }, e ? 'Salvo.' : `${x.name} entrou no mapa.`);
       if (r.ok) close();
@@ -1072,8 +1446,9 @@ function entModal(e, at) {
 function settingsModal() {
   const c = R.st.camp; let cover = c.cover;
   const classes = JSON.parse(JSON.stringify(c.classes));
+  const attrs = c.attrs.map(k => ({ k, n: attrName(k) }));
   const rules = { ...c.rules };
-  const RL = [['grid', 'Andar pela grade (encaixa nas casas)'], ['lock', 'Travar movimentação dos jogadores'], ['walls', 'Paredes e obstáculos bloqueiam os jogadores'], ['editOwn', 'Jogadores editam a própria ficha e vida'], ['monsterHp', 'Jogadores veem a vida dos monstros'], ['spect', 'Membros que não jogam podem assistir']];
+  const RL = [['grid', 'Andar pela grade (encaixa nas casas)'], ['lock', 'Travar movimentação dos jogadores'], ['walls', 'Paredes, obstáculos e portas fechadas bloqueiam os jogadores'], ['doors', 'Jogadores abrem e fecham portas (as permitidas)'], ['editOwn', 'Jogadores editam a própria ficha, vida e status'], ['monsterHp', 'Jogadores veem a vida dos monstros'], ['spect', 'Membros que não jogam podem assistir']];
   H.modal(`<div class="modal-h"><h2>⚙️ Campanha</h2><p>Só você (o Mestre) muda isto. Ser Mestre vale só nesta campanha.</p></div>
     <div class="modal-b rpg-form rpg-set">
       <label class="field">Nome<input id="csName" maxlength="60" value="${esc(c.name)}"></label>
@@ -1082,19 +1457,25 @@ function settingsModal() {
       <div class="rpg-row"><label class="field">Estado<select id="csState">${[['ativa', 'Ativa'], ['pausada', 'Pausada (ninguém move)'], ['encerrada', 'Encerrada']].map(([k, l]) => `<option value="${k}" ${c.state === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="field">Máx. jogadores<input id="csMax" type="number" min="1" max="20" value="${c.maxPlayers}"></label></div>
       <label class="rpg-check"><input type="checkbox" id="csOpen" ${c.open ? 'checked' : ''}> Qualquer membro pode entrar sem convite</label>
-      <h4 class="rpg-h">Regras</h4><div class="rpg-rules">${RL.map(([k, l]) => `<label class="rpg-check"><input type="checkbox" data-rule="${k}" ${rules[k] ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+      <h4 class="rpg-h">Regras</h4><div class="rpg-rules">${RL.map(([k, l]) => `<label class="rpg-check"><input type="checkbox" data-rule="${k}" ${rules[k] !== false && (rules[k] || k === 'doors') ? 'checked' : ''}> ${l}</label>`).join('')}</div>
       <label class="field">Grade no mapa<select id="csGrid">${[['nenhuma', 'Nenhuma (mapa pintado)'], ['pontos', 'Pontos discretos'], ['quadrados', 'Quadrados']].map(([k, l]) => `<option value="${k}" ${(rules.gridStyle || 'nenhuma') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label class="field">Atributos <span class="muted small">(separados por vírgula, até 8)</span><input id="csAttrs" maxlength="80" value="${esc(c.attrs.join(', '))}"></label>
+      <h4 class="rpg-h">Atributos <button type="button" class="btn sm ghost" id="csAttrAdd">+ Atributo</button></h4><div class="rpg-attrsed" id="csAttrs"></div>
+      <p class="muted small">Sigla curta (usada nas classes, testes e portas) e o nome que aparece na ficha. Status personalizados ficam em Mestre → 📊 Fichas.</p>
       <h4 class="rpg-h">Classes <button type="button" class="btn sm ghost" id="csClsAdd">+ Classe</button></h4><div class="rpg-classes" id="csCls"></div>
       <h4 class="rpg-h">Passar o papel de Mestre</h4>
       <div class="rpg-row"><select class="input" id="csMaster" style="flex:1;width:auto"><option value="">Escolha alguém do ${c.scope === 'g' ? 'grupo' : 'conversa'}</option>${scopeMembers().filter(u => u !== c.masterId).map(u => `<option value="${u}">${esc(H.nameOf(u))}</option>`).join('')}</select><button type="button" class="btn sm" id="csMasterGo">Passar</button></div>
     </div>
     <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="csSave">Salvar</button></div>`, (m, close) => {
     const q = s => m.querySelector(s);
+    const drawAttrs = () => { q('#csAttrs').innerHTML = attrs.map((a, i) => `<div class="rpg-row"><input value="${esc(a.k)}" data-ai="${i}" data-f="k" maxlength="6" class="rpg-attr-k" aria-label="Sigla"><input value="${esc(a.n)}" data-ai="${i}" data-f="n" maxlength="20" aria-label="Nome"><button type="button" class="icon-btn" data-adel="${i}" aria-label="Tirar atributo">${H.ic('x')}</button></div>`).join(''); };
+    drawAttrs();
+    q('#csAttrs').oninput = e => { const t = e.target; if (t.dataset.ai === undefined) return; attrs[+t.dataset.ai][t.dataset.f] = t.dataset.f === 'k' ? t.value.toUpperCase() : t.value; };
+    q('#csAttrs').onclick = e => { const b = e.target.closest('[data-adel]'); if (b) { attrs.splice(+b.dataset.adel, 1); drawAttrs(); } };
+    q('#csAttrAdd').onclick = () => { if (attrs.length >= 10) return toast('No máximo 10 atributos.', true); attrs.push({ k: 'NOV', n: 'Novo' }); drawAttrs(); };
     const drawCls = () => {
       q('#csCls').innerHTML = classes.map((k, i) => `<div class="rpg-cls"><div class="rpg-row"><input value="${esc(k.icon)}" data-i="${i}" data-f="icon" maxlength="8" class="rpg-cls-ic" aria-label="Ícone"><input value="${esc(k.name)}" data-i="${i}" data-f="name" maxlength="32" aria-label="Nome da classe"><label>❤️<input type="number" min="1" max="999" value="${k.hp}" data-i="${i}" data-f="hp" aria-label="Vida base"></label><label>🔷<input type="number" min="0" max="999" value="${k.mp}" data-i="${i}" data-f="mp" aria-label="Mana base"></label><button type="button" class="icon-btn" data-del="${i}" aria-label="Apagar classe">${H.ic('trash')}</button></div>
         <input value="${esc(k.desc)}" data-i="${i}" data-f="desc" maxlength="300" placeholder="Descrição" aria-label="Descrição">
-        <div class="rpg-row"><input value="${esc(Object.entries(k.mods).map(([a, v]) => `${a}${v >= 0 ? '+' : ''}${v}`).join(' '))}" data-i="${i}" data-f="mods" placeholder="Bônus: FOR+2 CON+1" aria-label="Bônus de atributos"><input value="${esc(k.skills.replace(/\n/g, '; '))}" data-i="${i}" data-f="skills" maxlength="800" placeholder="Habilidades (separe com ;)" aria-label="Habilidades"></div></div>`).join('') || '<p class="muted small">Sem classes: os jogadores criam livremente.</p>';
+        <div class="rpg-row"><input value="${esc(Object.entries(k.mods).map(([a, v]) => `${a}${sgn(v)}`).join(' '))}" data-i="${i}" data-f="mods" placeholder="Bônus: FOR+2 CON+1" aria-label="Bônus de atributos"><input value="${esc(k.skills.replace(/\n/g, '; '))}" data-i="${i}" data-f="skills" maxlength="800" placeholder="Habilidades (separe com ;)" aria-label="Habilidades"></div></div>`).join('') || '<p class="muted small">Sem classes: os jogadores criam livremente.</p>';
     };
     drawCls();
     q('#csCls').oninput = e => {
@@ -1114,7 +1495,7 @@ function settingsModal() {
     q('#csSave').onclick = async () => {
       m.querySelectorAll('[data-rule]').forEach(i => { rules[i.dataset.rule] = i.checked; });
       rules.gridStyle = q('#csGrid').value;
-      const r = await call('rpg:update', { cid: c.id, name: q('#csName').value, desc: q('#csDesc').value, cover, state: q('#csState').value, maxPlayers: +q('#csMax').value, open: q('#csOpen').checked, rules, attrs: q('#csAttrs').value.split(',').map(s => s.trim()).filter(Boolean), classes }, 'Campanha salva.');
+      const r = await call('rpg:update', { cid: c.id, name: q('#csName').value, desc: q('#csDesc').value, cover, state: q('#csState').value, maxPlayers: +q('#csMax').value, open: q('#csOpen').checked, rules, attrs: attrs.filter(a => a.k.trim()), classes }, 'Campanha salva.');
       if (r.ok) close();
     };
   });
@@ -1136,7 +1517,7 @@ function inviteModal() {
   });
 }
 
-/* ---------- rolagem na tela (todo mundo vê junto) ---------- */
+/* ---------- rolagem na tela ---------- */
 function showRoll(e) {
   if (!R.el || e.type !== 'roll') return;
   R.fx.push(e); if (!R.fxOn) nextFx();
@@ -1157,21 +1538,29 @@ function nextFx() {
 
 /* =============== tempo real =============== */
 function attach(sock) {
-  sock.on('connect', () => { if (R.el && R.st) { const cid = R.st.camp.id; H.emit('rpg:open', { cid }).then(r => { if (!R.el || !R.st || R.st.camp.id !== cid) return; if (r.ok) { R.st = r; renderAll(); } else { closeRoom(true); toast(r.erro || 'A mesa foi fechada.', true); } }); } });
+  sock.on('connect', () => { if (R.el && R.st) { const cid = R.st.camp.id; H.emit('rpg:open', { cid, view: R.st.camp.view || '' }).then(r => { if (!R.el || !R.st || R.st.camp.id !== cid) return; if (r.ok) { R.st = r; R.paintKey = ''; renderAll(); } else { closeRoom(true); toast(r.erro || 'A mesa foi fechada.', true); } }); } });
   const live = fn => d => { if (R.el && R.st) fn(d); };
   sock.on('rpg:state', live(d => {
     const mapChanged = (R.st.map && R.st.map.id) !== (d.map && d.map.id);
-    R.st = d; renderAll(); if (mapChanged) fitZoom();
+    R.st = d; if (mapChanged) { R.paintKey = ''; R.preview = ''; } renderAll(); if (mapChanged) fitZoom();
   }));
-  sock.on('rpg:map', live(m => { if (!R.st.map || m.id !== R.st.map.id) return; const sizeChanged = m.w !== R.st.map.w || m.h !== R.st.map.h; R.st.map = m; drawMap(); renderTokens(); renderTools(); if (sizeChanged) fitZoom(); if (R.tab === 'mestre') renderPane(); }));
+  sock.on('rpg:map', live(m => { if (!R.st.map || m.id !== R.st.map.id) return; const sizeChanged = m.w !== R.st.map.w || m.h !== R.st.map.h; R.st.map = m; drawMap(); renderTokens(); renderTools(); renderTop(); if (sizeChanged) fitZoom(); if (R.tab === 'mestre') renderPane(); }));
+  // jogadores com névoa: o que dá para ver agora (o servidor nem manda o resto)
+  sock.on('rpg:view', live(v => {
+    const m = curMap(); if (!m || v.mapId !== m.id) return;
+    Object.assign(m, { vis: v.vis, seenMask: v.seenMask, marks: v.marks, traps: v.traps, doors: v.doors });
+    R.st.ents = v.ents; R.st.chars = v.chars;
+    renderTokens(); drawDoors(); drawMarks(); drawLight(); drawFog(); renderSel(); renderCombat();
+  }));
   sock.on('rpg:ent', live(e => {
     const i = R.st.ents.findIndex(x => x.id === e.id);
     if (i >= 0) R.st.ents[i] = e; else R.st.ents.push(e);
     renderTokens(); if (R.sel && R.sel.id === e.id) renderSel(); renderCombat(); if (R.tab === 'mestre') renderPane();
   }));
   sock.on('rpg:ent:del', live(d => { R.st.ents = R.st.ents.filter(x => x.id !== d.id); if (R.sel && R.sel.id === d.id) select(null); renderTokens(); renderCombat(); if (R.tab === 'mestre') renderPane(); }));
-  sock.on('rpg:chars', live(list => { R.st.chars = list; renderTokens(); renderCombat(); renderSel(); if (R.tab === 'grupo' || R.tab === 'dados' || R.tab === 'mestre') renderPane(); renderTop(); }));
+  sock.on('rpg:chars', live(list => { R.st.chars = list; renderTokens(); renderCombat(); renderSel(); drawLight(); if (isMaster() && curMap() && curMap().fog) drawFog(); if (R.tab === 'grupo' || R.tab === 'dados' || R.tab === 'mestre') renderPane(); renderTop(); }));
   sock.on('rpg:move', live(applyMove));
+  sock.on('rpg:face', live(d => { const ch = charOf(d.id); if (!ch) return; ch.dir = d.dir; const el = $r(`.rpg-tok[data-k="c"][data-id="${d.id}"]`); if (el) el.style.setProperty('--dir', d.dir + 'deg'); drawLight(); if (isMaster() && curMap() && curMap().fog) drawFog(); }));
   sock.on('rpg:ping', live(showPing));
   sock.on('rpg:drag', live(d => { if (R.drag && R.drag.id === d.id) return; const el = $r(`.rpg-tok[data-k="${d.k}"][data-id="${d.id}"]`); if (el) { el.classList.add('remote'); el.style.left = d.x * CELL + 'px'; el.style.top = d.y * CELL + 'px'; clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('remote'), 400); } }));
   sock.on('rpg:event', live(e => {
@@ -1180,11 +1569,11 @@ function attach(sock) {
     showRoll(e);
   }));
   sock.on('rpg:combat', live(cb => { R.st.camp.combat = cb; renderCombat(); renderTokens(); if (R.tab === 'mestre') renderPane(); }));
+  sock.on('rpg:scene', d => { if (R.st && R.st.camp.id === d.cid) toast(d.sid ? `🎭 O Mestre te levou para o evento "${d.name}".` : 'Você voltou para a cena principal.'); });
   sock.on('rpg:closed', d => { if (R.st && R.st.camp.id === d.cid) { closeRoom(true); toast(d.why || 'A mesa foi fechada.', true); } });
   sock.on('rpg:list', d => { if (R.lobbyEl && R.scope && R.scope.kind === d.scope && R.scope.id === d.id) drawLobby(); });
   sock.on('rpg:invited', d => invitedCard(d));
 }
-// aviso de convite (fica no canto até a pessoa decidir)
 function invitedCard(d) {
   H.tone([[523, .1], [659, .1], [784, .18]], 'triangle', .06);
   const el = document.createElement('div'); el.className = 'rpg-inv-card';
@@ -1193,13 +1582,15 @@ function invitedCard(d) {
   el.onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; el.remove(); if (b.dataset.v === 'ok') lobby({ kind: d.scope, id: d.scopeId }); };
   setTimeout(() => el.remove(), 30000);
 }
+D.setOnImg(() => { if (R.el) { R.paintKey = ''; drawMap(); } });
 
 document.addEventListener('keydown', e => {
   if (!R.el || e.target.closest('input, textarea, select') || document.querySelector('.modal-back')) return;
   if (e.key === 'Escape') { if (ctxEl) closeCtx(); else if (R.sel) select(null); else if (R.tool !== 'mover') setTool('mover'); }
-  // atalhos das ferramentas (como nas mesas virtuais)
-  const k = e.key.toLowerCase(), sh = { v: 'mover', r: 'regua', p: 'ping', b: 'pincel' }[k];
-  if (sh && !e.ctrlKey && !e.metaKey && !e.altKey && (sh !== 'pincel' || (isMaster() && curMap() && !curMap().bg))) setTool(sh);
+  const k = e.key.toLowerCase(), sh = { v: 'mover', r: 'regua', p: 'ping', b: 'pincel', d: 'porta', l: 'luz', m: 'marcador' }[k];
+  if (sh && !e.ctrlKey && !e.metaKey && !e.altKey && (['mover', 'regua', 'ping'].includes(sh) || (isMaster() && curMap()))) setTool(sh);
+  // Q/E: vira o personagem selecionado (a lanterna acompanha)
+  if ((k === 'q' || k === 'e') && R.sel && R.sel.k === 'c') { const t = charOf(R.sel.id); if (t && (isMaster() || (t.ownerId === me() && canMove('c', t)))) rotate(t, k === 'q' ? -45 : 45); }
   if (e.key === 'Delete' && R.sel && R.sel.k === 'e' && isMaster()) { const t = entOf(R.sel.id); if (t) H.confirmBox('Apagar', `Tirar ${t.name} do mapa?`, 'Apagar').then(ok => ok && call('rpg:ent:del', { cid: R.st.camp.id, id: t.id }).then(r => r.ok && select(null))); }
   if (e.key === '+' || e.key === '=') setZoom(R.z * 1.2);
   if (e.key === '-') setZoom(R.z / 1.2);
@@ -1211,13 +1602,12 @@ window.anarchyRpg = {
   lobby,
   open: openRoom,
   isOpen: () => !!R.el,
-  // botão voltar do celular: fecha o que estiver por cima (painel, seleção, mesa, área de campanhas)
   back() {
     if (R.el) { if (R.el.classList.contains('side-open')) { R.el.classList.remove('side-open'); return true; } if (R.sel) { select(null); return true; } closeRoom(); return true; }
     if (R.lobbyEl) { closeLobby(); return true; }
     return false;
   },
   _state: () => R, // testes
-  _paint: (m, cv) => paintMap(m, cv), _tex: t => texCanvas(t) // testes do desenho do mapa
+  _paint: (m, cv) => D.paintMap(m, cv, { cell: CELL, mats: mats() }), _tex: id => D.texCanvas(C.mat(id))
 };
 })();
