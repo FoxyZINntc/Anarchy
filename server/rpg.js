@@ -231,7 +231,7 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
       const o = { ...ch, pos: {}, away: !M || cm !== M.id };
       if (p && M && cm === M.id && (r === 'mestre' || ch.ownerId === uid || !mk || mk.vis[cellOf(M, p[0], p[1])])) o.pos[cm] = p;
       if (r === 'mestre' && p) o.pos[cm] = p;
-      if (r !== 'mestre' && ch.ownerId !== uid) { delete o.notes; }
+      if (r !== 'mestre' && ch.ownerId !== uid) { delete o.notes; delete o.notifs; } // avisos são só do dono (e do Mestre)
       return o;
     });
   }
@@ -277,6 +277,37 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
     return ev;
   }
   const say = (c, text, extra = {}) => addEvent(c, { type: 'log', text: txt(text, 400), ...extra });
+
+  /* ---------- avisos do personagem: o dono recebe o que aconteceu com ele (dano, cura, atributos, status...) ---------- */
+  // fica guardado na ficha (os últimos 60) e chega na hora para o dono, mesmo com a mesa fechada
+  function notify(c, ch, list, by) {
+    if (!ch || !ch.ownerId || !list.length || by === ch.ownerId) return;
+    const at = now(), items = list.slice(0, 20).map(([ic, text, kind]) => ({ id: newId(), ts: at, ic, text: txt(text, 200), kind: kind || 'info' }));
+    ch.notifs = [...(ch.notifs || []), ...items].slice(-60);
+    toUser(ch.ownerId, 'rpg:notif', { cid: c.id, camp: c.name, charId: ch.id, char: ch.name, items, by: by ? userName(by) : null });
+  }
+  const sgnN = n => (n > 0 ? '+' : '') + n;
+  // compara a ficha antes e depois de o Mestre salvar e descreve o que mudou, em português simples
+  function sheetDiff(c, a, b) {
+    const out = [], an = k => (c.attrNames && c.attrNames[k]) || k;
+    for (const k of c.attrs) { const x = a.attrs[k] ?? 10, y = b.attrs[k] ?? 10; if (x !== y) out.push([y > x ? '⬆️' : '⬇️', `${an(k)}: ${x} → ${y} (${sgnN(y - x)})`, y > x ? 'ganho' : 'perda']); }
+    if (a.level !== b.level) out.push(['⭐', `Nível: ${a.level} → ${b.level}`, b.level > a.level ? 'ganho' : 'perda']);
+    if (a.hpMax !== b.hpMax) out.push(['❤️', `Vida máxima: ${a.hpMax} → ${b.hpMax}`, b.hpMax > a.hpMax ? 'ganho' : 'perda']);
+    if (a.hp !== b.hp) out.push([b.hp < a.hp ? '💥' : '💚', `Vida: ${a.hp} → ${b.hp}/${b.hpMax}`, b.hp < a.hp ? 'dano' : 'cura']);
+    if (a.mpMax !== b.mpMax) out.push(['🔷', `Mana máxima: ${a.mpMax} → ${b.mpMax}`, b.mpMax > a.mpMax ? 'ganho' : 'perda']);
+    if (a.mp !== b.mp) out.push(['🔷', `Mana: ${a.mp} → ${b.mp}/${b.mpMax}`, b.mp < a.mp ? 'perda' : 'ganho']);
+    if (a.def !== b.def) out.push(['🛡️', `Defesa: ${a.def} → ${b.def}`, b.def > a.def ? 'ganho' : 'perda']);
+    if (a.classId !== b.classId) { const cl = c.classes.find(k => k.id === b.classId); out.push(['🎭', `Classe: ${cl ? cl.name : 'sem classe'}`]); }
+    for (const s of statDefs(c)) { const x = (a.stats || {})[s.id], y = (b.stats || {})[s.id]; const xv = x ? x.v : s.start, yv = y ? y.v : s.start; if (xv !== yv) out.push([s.icon || '📊', `${s.name}: ${xv} → ${yv}`, yv > xv ? 'ganho' : 'perda']); const xm = x && x.max, ym = y && y.max; if ((xm ?? s.max) !== (ym ?? s.max)) out.push([s.icon || '📊', `${s.name} (máximo): ${xm ?? s.max} → ${ym ?? s.max}`]); }
+    const names = l => (l || []).map(i => `${i.name}${i.qty !== 1 ? ' ×' + i.qty : ''}`);
+    const ia = names(a.inv), ib = names(b.inv);
+    for (const n of ib.filter(x => !ia.includes(x))) out.push(['🎒', `Ganhou: ${n}`, 'ganho']);
+    for (const n of ia.filter(x => !ib.includes(x))) out.push(['🎒', `Perdeu: ${n}`, 'perda']);
+    const ca = a.conds || [], cb = b.conds || [];
+    for (const x of cb.filter(y => !ca.includes(y))) out.push(['⚠️', `Você ficou ${x}`, 'perda']);
+    for (const x of ca.filter(y => !cb.includes(y))) out.push(['✨', `Não está mais ${x}`, 'ganho']);
+    return out;
+  }
 
   /* ---------- dados ---------- */
   function roll(expr) {
@@ -671,14 +702,17 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
       const x = ch.stats[s.id] || { v: s.start }, top = x.max ?? s.max;
       const v = has(d, 'v') ? int(d.v, s.min, top, x.v) : Math.max(s.min, Math.min(top, x.v + int(d.dv, -9999, 9999, 0)));
       ch.stats[s.id] = { ...x, v };
+      if (v !== x.v) notify(c, ch, [[s.icon || '📊', `${s.name}: ${x.v} → ${v}`, v > x.v ? 'ganho' : 'perda']], uid);
       touched(c); emitChars(c); ok(cb, { v });
     });
     // descanso: aplica a recuperação "descanso" dos status nos personagens da cena que o Mestre está vendo
     on('rpg:rest', (d, cb) => {
       const c = camp(d, 'mestre'); if (!c) return fail(cb, NO);
       const sid = myView(c), mid = mapOfScene(c, sid), chars = byCamp(R.chars, c.id).filter(ch => charMap(c, ch) === mid);
+      const before = new Map(chars.map(ch => [ch.id, clone(ch)]));
       regen(c, chars, 'descanso');
       if (d.full) for (const ch of chars) { ch.hp = ch.hpMax; ch.mp = ch.mpMax; }
+      for (const ch of chars) notify(c, ch, [['🏕️', d.full ? 'Descanso longo: vida e mana cheias.' : 'Descanso curto.', 'cura'], ...sheetDiff(c, before.get(ch.id), ch).filter(x => x[0] !== '💚' && !/^Mana:/.test(x[1]))], uid);
       say(c, `🏕️ O grupo descansou${d.full ? ' e recuperou vida e mana' : ''}.`, { type: 'sys', sc: sid });
       touched(c); emitChars(c); ok(cb, {});
     });
@@ -953,7 +987,13 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
     on('rpg:lantern', (d, cb) => {
       const c = camp(d, 'jogar'); if (!c) return fail(cb, NO);
       const ch = R.chars[str(d.id, 40)]; if (!ch || ch.campId !== c.id) return fail(cb, 'Personagem não encontrado.');
-      if (isM(c, uid)) { ch.lantern = d.lantern === null ? null : cleanLantern(d.lantern, ch.lantern); }
+      if (isM(c, uid)) {
+        const had = !!ch.lantern, wasOn = had && ch.lantern.on;
+        ch.lantern = d.lantern === null ? null : cleanLantern(d.lantern, ch.lantern);
+        if (!had && ch.lantern) notify(c, ch, [['🔦', `O Mestre te deu: ${(C.LANTERN_KINDS[ch.lantern.kind] || {}).n || 'uma luz'} (${ch.lantern.range} casas).`, 'ganho']], uid);
+        else if (had && !ch.lantern) notify(c, ch, [['🌑', 'O Mestre tirou a sua luz.', 'perda']], uid);
+        else if (had && wasOn !== ch.lantern.on) notify(c, ch, [[ch.lantern.on ? '🔦' : '🌑', ch.lantern.on ? 'Sua luz foi acesa.' : 'Sua luz se apagou.']], uid);
+      }
       else {
         if (ch.ownerId !== uid) return fail(cb, NO);
         if (!ch.lantern) return fail(cb, 'Você não tem lanterna. Peça ao Mestre.');
@@ -993,7 +1033,9 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
         dirty(m); touched(c); emitChars(c); pushView(c, m);
         return ok(cb, { id: ch.id });
       }
+      const prev = clone(old);
       Object.assign(old, cleanChar(x, old, c, master));
+      if (master) notify(c, old, sheetDiff(c, prev, old), uid);
       if (master && x.ownerId && (c.players.includes(x.ownerId) || x.ownerId === c.masterId)) old.ownerId = x.ownerId;
       const m = R.maps[charMap(c, old)]; dirty(m);
       touched(c); emitChars(c); pushView(c, m);
@@ -1111,6 +1153,9 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
       if ('set' in d) t[field] = int(d.set, field === 'hp' ? -9999 : 0, max, before);
       else { const dmg = int(d.dmg, -99999, 99999, 0); t[field] = Math.max(field === 'hp' ? -9999 : 0, Math.min(max, before - dmg)); }
       const diff = t[field] - before;
+      if (k === 'c' && diff) notify(c, t, [field === 'mp'
+        ? ['🔷', diff < 0 ? `Você gastou ${-diff} de mana (${t.mp}/${t.mpMax}).` : `Você recuperou ${diff} de mana (${t.mp}/${t.mpMax}).`, diff < 0 ? 'perda' : 'ganho']
+        : [diff < 0 ? '💥' : '💚', diff < 0 ? `Você tomou ${-diff} de dano (${t.hp}/${t.hpMax}).${t.hp <= 0 ? ' Você caiu!' : ''}` : `Você recuperou ${diff} de vida (${t.hp}/${t.hpMax}).`, diff < 0 ? 'dano' : 'cura']], uid);
       touched(c);
       const sc = k === 'c' ? (sceneOfChar(c, t.id) || {}).id || '' : (active(c).find(s => s.mapId === t.mapId) || {}).id || '';
       if (k === 'c') emitChars(c); else { emitMap(c, t.mapId, 'rpg:ent', (u, r) => entView(t, c, r)); pushView(c, R.maps[t.mapId]); }
@@ -1125,7 +1170,9 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
       const c = camp(d, 'mestre'); if (!c) return fail(cb, NO);
       const k = d.k === 'c' ? 'c' : 'e', t = k === 'c' ? R.chars[str(d.id, 40)] : R.ents[str(d.id, 40)];
       if (!t || t.campId !== c.id) return fail(cb, 'Não encontrado.');
+      const was = (t.conds || []).slice();
       t.conds = cleanConds(d.conds); touched(c);
+      if (k === 'c') notify(c, t, [...t.conds.filter(x => !was.includes(x)).map(x => ['⚠️', `Você ficou ${x}.`, 'perda']), ...was.filter(x => !t.conds.includes(x)).map(x => ['✨', `Não está mais ${x}.`, 'ganho'])], uid);
       if (k === 'c') emitChars(c); else { emitMap(c, t.mapId, 'rpg:ent', (u, r) => entView(t, c, r)); pushView(c, R.maps[t.mapId]); }
       ok(cb, {});
     });
@@ -1158,6 +1205,45 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
       if (!scenePerm(c, uid, 'say')) return fail(cb, 'Nesta cena só o Mestre escreve.');
       if (limited('rpg-say:' + uid, 20, 30e3)) return fail(cb, 'Calma! Muitas mensagens seguidas.');
       addEvent(c, { type: isM(c, uid) ? 'narr' : 'act', uid, text: t, priv: isM(c, uid) && !!d.priv, sc: actScene(c, uid, socket) });
+      touched(c); ok(cb, {});
+    });
+    // fala do personagem: um balão em cima da miniatura (e do retrato). O jogador fala pelo próprio personagem;
+    // o Mestre fala por qualquer um (NPCs, monstros). Quem não enxerga a miniatura (névoa) não recebe o balão.
+    on('rpg:speak', (d, cb) => {
+      const c = camp(d, 'jogar'); if (!c) return fail(cb, NO);
+      const text = txt(d.text, 160); if (!text) return fail(cb, 'Escreva o que o personagem diz.');
+      if (!scenePerm(c, uid, 'say')) return fail(cb, 'Nesta cena só o Mestre fala.');
+      if (limited('rpg-speak:' + uid, 12, 15e3)) return fail(cb, 'Calma! Muitas falas seguidas.');
+      const k = d.k === 'e' ? 'e' : 'c', t = k === 'c' ? R.chars[str(d.id, 40)] : R.ents[str(d.id, 40)];
+      if (!t || t.campId !== c.id) return fail(cb, 'Personagem não encontrado.');
+      const master = isM(c, uid);
+      if (!master && (k !== 'c' || t.ownerId !== uid)) return fail(cb, 'Você só fala pelo seu personagem.');
+      const m = R.maps[k === 'c' ? charMap(c, t) : t.mapId]; if (!m) return fail(cb, 'Mapa não encontrado.');
+      const pos = k === 'c' ? t.pos[m.id] : [t.x, t.y]; if (!pos) return fail(cb, 'O personagem não está no mapa.');
+      const i = cellOf(m, pos[0], pos[1]), hidden = k === 'e' && t.hidden, bubble = { k, id: t.id, name: t.name, text, mapId: m.id, ts: now() };
+      each(c, (sk, u, r) => {
+        if (mapOfScene(c, viewScene(c, sk)) !== m.id) return;
+        if (r !== 'mestre' && (hidden || (m.fog && !(k === 'c' && t.ownerId === u) && !(masks(c, m, u, r) || { vis: [] }).vis[i]))) return;
+        sk.emit('rpg:bubble', bubble);
+      });
+      if (!hidden) addEvent(c, { type: 'fala', uid, text, who: t.name, k, sc: (active(c).find(s => s.mapId === m.id) || {}).id || '' });
+      touched(c); ok(cb, {});
+    });
+    // anúncio do Mestre: texto grande na tela de todos que estão vendo a cena (chefe, perigo, narração, vitória...)
+    const ANN = ['chefe', 'perigo', 'narracao', 'vitoria', 'misterio'];
+    on('rpg:announce', (d, cb) => {
+      const c = camp(d, 'mestre'); if (!c) return fail(cb, NO);
+      const title = txt(d.title, 60); if (!title) return fail(cb, 'Escreva o texto do anúncio.');
+      if (limited('rpg-ann:' + uid, 10, 30e3)) return fail(cb, 'Calma com os anúncios!');
+      const sid = myView(c), a = { title, sub: txt(d.sub, 120), style: ANN.includes(d.style) ? d.style : 'narracao', dur: int(d.dur, 2, 15, 5), ts: now() };
+      emitScene(c, sid, 'rpg:announce', a);
+      addEvent(c, { type: 'narr', uid, text: `📢 ${title}${a.sub ? ' — ' + a.sub : ''}`, sc: sid });
+      touched(c); ok(cb, {});
+    });
+    // o dono limpa os próprios avisos
+    on('rpg:notif:clear', (d, cb) => {
+      const c = camp(d, 'jogar'); if (!c) return fail(cb, NO);
+      for (const ch of byCamp(R.chars, c.id)) if (ch.ownerId === uid) ch.notifs = [];
       touched(c); ok(cb, {});
     });
 

@@ -175,7 +175,10 @@ async function openRoom(cid, view) {
     <div class="rpg-scenes" hidden></div>
     <div class="rpg-body">
       <section class="rpg-stage">
-        <div class="rpg-view"><div class="rpg-board"><img class="rpg-bg" alt="" hidden draggable="false"><canvas class="rpg-tiles"></canvas><canvas class="rpg-doors"></canvas><canvas class="rpg-gridc"></canvas><div class="rpg-toks"></div><canvas class="rpg-light" hidden></canvas><div class="rpg-marks"></div><canvas class="rpg-fog"></canvas><div class="rpg-handles"></div><svg class="rpg-ruler"></svg></div></div>
+        <div class="rpg-view"><div class="rpg-board"><img class="rpg-bg" alt="" hidden draggable="false"><canvas class="rpg-tiles"></canvas><canvas class="rpg-doors"></canvas><canvas class="rpg-gridc"></canvas><div class="rpg-toks"></div><canvas class="rpg-light" hidden></canvas><div class="rpg-marks"></div><canvas class="rpg-fog"></canvas><div class="rpg-bubbles"></div><div class="rpg-handles"></div><svg class="rpg-ruler"></svg></div></div>
+        <form class="rpg-speak" hidden autocomplete="off"><span class="rpg-speak-who"></span><input maxlength="160" aria-label="Fala do personagem"><button class="btn primary sm" aria-label="Falar">💬</button></form>
+        <div class="rpg-annbox" aria-live="assertive"></div>
+        <div class="rpg-npop" aria-live="polite"></div>
         <nav class="rpg-toolbar" aria-label="Ferramentas do mapa"></nav>
         <div class="rpg-brush" hidden></div>
         <div class="rpg-combat" hidden></div>
@@ -275,7 +278,112 @@ function closeRoom(silent) {
 }
 const $r = s => R.el && R.el.querySelector(s);
 
-function renderAll() { if (!R.el) return; renderTop(); renderScenes(); drawMap(); renderTokens(); renderCombat(); renderTools(); renderTabs(); renderPane(); renderSel(); }
+function renderAll() { if (!R.el) return; renderTop(); renderScenes(); drawMap(); renderTokens(); renderCombat(); renderTools(); renderTabs(); renderPane(); renderSel(); renderSpeak(); }
+
+/* ---------- falas: balão em cima da miniatura e do retrato ---------- */
+// quem fala: o jogador pelo próprio personagem; o Mestre pela miniatura selecionada (NPC, monstro, personagem)
+function speaker() {
+  if (!R.st || !isPlayer()) return null;
+  const m = curMap();
+  if (isMaster()) { if (!R.sel) return null; const t = R.sel.k === 'c' ? charOf(R.sel.id) : entOf(R.sel.id); return t ? { k: R.sel.k, id: t.id, name: t.name } : null; }
+  const ch = R.st.chars.find(c => c.ownerId === me() && m && c.pos && c.pos[m.id]) || myChar();
+  return ch ? { k: 'c', id: ch.id, name: ch.name } : null;
+}
+function renderSpeak() {
+  const f = $r('.rpg-speak'); if (!f) return;
+  const who = speaker(), master = isMaster();
+  f.hidden = !isPlayer() || (!who && !master);
+  if (f.hidden) return;
+  const inp = f.querySelector('input');
+  f.querySelector('.rpg-speak-who').textContent = who ? `💬 ${who.name}` : '💬';
+  inp.disabled = !who;
+  inp.placeholder = who ? `O que ${who.name} diz? (Enter)` : 'Selecione uma miniatura para falar por ela';
+  f.onsubmit = async e => {
+    e.preventDefault(); const w = speaker(), text = inp.value.trim(); if (!w || !text) return;
+    const r = await call('rpg:speak', { cid: R.st.camp.id, k: w.k, id: w.id, text });
+    if (r.ok) { inp.value = ''; inp.blur(); }
+  };
+  inp.onkeydown = e => { if (e.key === 'Escape') { inp.value = ''; inp.blur(); } };
+}
+const bubbleT = new Map();
+function showBubble(b) {
+  const m = curMap(); if (!R.el || !m || b.mapId !== m.id) return;
+  const layer = $r('.rpg-bubbles'); if (!layer) return;
+  const old = layer.querySelector(`[data-b="${b.k}-${b.id}"]`); if (old) old.remove();
+  const el = document.createElement('div'); el.className = 'rpg-bubble' + (b.k === 'e' ? ' npc' : ''); el.dataset.b = b.k + '-' + b.id;
+  el.innerHTML = `<b>${esc(b.name)}</b><span>${esc(b.text)}</span>`;
+  layer.appendChild(el);
+  // acompanha a miniatura enquanto ela anda
+  const place = () => { const tok = $r(`.rpg-tok[data-k="${b.k}"][data-id="${b.id}"]`); if (!tok) { el.style.opacity = '0'; return; } const sz = parseFloat(getComputedStyle(tok).getPropertyValue('--s')) || 1; el.style.opacity = ''; el.style.left = (parseFloat(tok.style.left) + sz * CELL / 2) + 'px'; el.style.top = parseFloat(tok.style.top) + 'px'; };
+  place();
+  const iv = setInterval(place, 120);
+  // também em cima do retrato do grupo
+  const pp = b.k === 'c' && $r(`.rpg-pp[data-pp="${b.id}"]`);
+  if (pp) { pp.querySelector('.rpg-pp-say')?.remove(); const s = document.createElement('span'); s.className = 'rpg-pp-say'; s.textContent = b.text; pp.appendChild(s); setTimeout(() => s.remove(), 5000); }
+  const ms = Math.max(3500, Math.min(9000, 1500 + b.text.length * 70));
+  clearTimeout(bubbleT.get(el.dataset.b));
+  bubbleT.set(el.dataset.b, setTimeout(() => { clearInterval(iv); el.classList.add('out'); setTimeout(() => el.remove(), 300); }, ms));
+  H.tone([[660, .03], [880, .04]], 'sine', .025);
+}
+
+/* ---------- anúncio do Mestre (texto grande na tela, tipo chegada de chefe) ---------- */
+const ANN = { chefe: ['☠️', 'Chefe'], perigo: ['⚠️', 'Perigo'], narracao: ['📖', 'Narração'], vitoria: ['🏆', 'Vitória'], misterio: ['🔮', 'Mistério'] };
+function showAnnounce(a) {
+  const box = $r('.rpg-annbox'); if (!box) return;
+  box.innerHTML = '';
+  const el = document.createElement('div'); el.className = `rpg-ann st-${a.style}`;
+  el.innerHTML = `<div class="rpg-ann-in"><i class="rpg-ann-ic">${ANN[a.style] ? ANN[a.style][0] : '📢'}</i><h2>${esc(a.title)}</h2>${a.sub ? `<p>${esc(a.sub)}</p>` : ''}</div>`;
+  box.appendChild(el);
+  const sound = { chefe: [[98, .35], [73, .5], [55, .9]], perigo: [[440, .12], [330, .12], [440, .12], [330, .25]], vitoria: [[523, .12], [659, .12], [784, .12], [1047, .5]], misterio: [[392, .3], [466, .3], [370, .6]], narracao: [[523, .15], [392, .3]] }[a.style];
+  if (sound) H.tone(sound, a.style === 'chefe' ? 'sawtooth' : 'triangle', a.style === 'chefe' ? .05 : .04);
+  el.onclick = () => el.classList.add('out');
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 700); }, (a.dur || 5) * 1000);
+}
+function announceModal(pre = {}) {
+  let style = pre.style || 'chefe';
+  H.modal(`<div class="modal-h"><h2>📢 Anunciar na tela</h2><p>Um texto grande aparece na tela de todo mundo que está nesta cena (e vai para o histórico).</p></div>
+    <div class="modal-b rpg-form">
+      <div class="rpg-looks five">${Object.entries(ANN).map(([k, [ic, n]]) => `<button type="button" class="rpg-look ${style === k ? 'on' : ''}" data-s="${k}"><i>${ic}</i><b>${n}</b></button>`).join('')}</div>
+      <label class="field">Texto principal<input id="anT" maxlength="60" value="${esc(pre.title || '')}" placeholder="O Dragão Ancião desperta!"></label>
+      <label class="field">Linha de baixo (opcional)<input id="anS" maxlength="120" value="${esc(pre.sub || '')}" placeholder="A caverna inteira treme..."></label>
+      <label class="field">Fica na tela por <b id="anDv">5 s</b><input id="anD" type="range" min="2" max="12" value="5"></label>
+    </div>
+    <div class="modal-f"><button class="btn ghost" id="anPrev">👁️ Ver antes</button><span class="spacer" style="flex:1"></span><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="anGo">📢 Anunciar</button></div>`, (md, close) => {
+    const q = s => md.querySelector(s), data = () => ({ title: q('#anT').value.trim(), sub: q('#anS').value.trim(), style, dur: +q('#anD').value });
+    md.querySelector('.rpg-looks').onclick = e => { const b = e.target.closest('[data-s]'); if (!b) return; style = b.dataset.s; md.querySelectorAll('[data-s]').forEach(x => x.classList.toggle('on', x === b)); };
+    q('#anD').oninput = () => { q('#anDv').textContent = q('#anD').value + ' s'; };
+    q('#anPrev').onclick = () => { const d = data(); if (!d.title) return toast('Escreva o texto.', true); showAnnounce(d); };
+    q('#anGo').onclick = async () => { const d = data(); if (!d.title) return toast('Escreva o texto.', true); const r = await call('rpg:announce', { cid: R.st.camp.id, ...d }); if (r.ok) close(); };
+    setTimeout(() => q('#anT').focus(), 50);
+  });
+}
+
+/* ---------- avisos do jogador: o que aconteceu com o seu personagem ---------- */
+const NKIND = { dano: 'dano', cura: 'cura', ganho: 'ganho', perda: 'perda' };
+const myNotifs = () => (R.st ? R.st.chars.filter(c => c.ownerId === me()).flatMap(c => (c.notifs || []).map(n => ({ ...n, char: c.name }))).sort((a, b) => b.ts - a.ts) : []);
+const readKey = () => 'rpg:avisos:' + R.st.camp.id;
+const lastRead = () => { try { return +localStorage.getItem(readKey()) || 0; } catch { return 0; } };
+const unread = () => myNotifs().filter(n => n.ts > lastRead()).length;
+function markRead() { try { localStorage.setItem(readKey(), String(Date.now())); } catch {} }
+function popNotifs(items, by) {
+  const box = $r('.rpg-npop'); if (!box) return;
+  for (const n of items.slice(0, 4)) {
+    const el = document.createElement('div'); el.className = 'rpg-npop-it k-' + (NKIND[n.kind] || 'info');
+    el.innerHTML = `<i>${esc(n.ic)}</i><span>${esc(n.text)}${by ? `<small>por ${esc(by)}</small>` : ''}</span>`;
+    el.onclick = () => { R.tab = 'avisos'; renderTabs(); renderPane(); el.remove(); };
+    box.appendChild(el); setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 400); }, 5500);
+  }
+  const bad = items.some(n => n.kind === 'dano' || n.kind === 'perda');
+  H.tone(bad ? [[220, .08], [165, .18]] : [[660, .06], [880, .1]], 'triangle', .04);
+}
+function paneAvisos(p) {
+  const list = myNotifs(), lr = lastRead(), many = R.st.chars.filter(c => c.ownerId === me()).length > 1;
+  markRead();
+  p.innerHTML = `<div class="rpg-row"><p class="muted small" style="flex:1;margin:0">Tudo o que acontece com o seu personagem: dano, cura, atributos, status, itens e condições que o Mestre mudar.</p>${list.length ? '<button class="btn sm ghost" data-n="clear">Limpar</button>' : ''}</div>
+    <div class="rpg-notifs">${list.map(n => `<div class="rpg-notif k-${NKIND[n.kind] || 'info'} ${n.ts > lr ? 'new' : ''}"><i>${esc(n.ic)}</i><div><span>${esc(n.text)}</span><time>${many ? esc(n.char) + ' · ' : ''}${new Date(n.ts).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</time></div></div>`).join('') || '<div class="rpg-empty sm">🔔<b>Nenhum aviso ainda</b><span>Quando seu personagem tomar dano ou o Mestre mudar algo nele, aparece aqui.</span></div>'}</div>`;
+  p.onclick = async e => { if (e.target.closest('[data-n="clear"]') && await H.confirmBox('Limpar avisos', 'Apaga a lista de avisos dos seus personagens.', 'Limpar')) { const r = await call('rpg:notif:clear', { cid: R.st.camp.id }); if (r.ok) { for (const c of R.st.chars) if (c.ownerId === me()) c.notifs = []; renderPane(); renderTabs(); } } };
+  setTimeout(renderTabs, 0);
+}
 
 function renderTop() {
   const c = R.st.camp, m = curMap();
@@ -287,6 +395,7 @@ function renderTop() {
     ${c.role === 'convidado' ? '<button class="btn primary sm" data-a="join">Aceitar convite</button>' : ''}
     ${c.role === 'espectador' && c.open && c.state !== 'encerrada' && c.players.length < c.maxPlayers ? '<button class="btn sm" data-a="join">Entrar como jogador</button>' : ''}
     ${isPlayer() ? '<button class="btn sm" data-a="mysheet">📜 <span>Minha ficha</span></button>' : ''}
+    ${isMaster() ? '<button class="btn sm rpg-ann-btn" data-a="announce" data-tip="Anunciar na tela de todos (chefe, perigo, narração...)">📢 <span>Anunciar</span></button>' : ''}
     <button class="icon-btn rpg-top-ic2" data-a="look" data-tip="Visual: filtro da tela (só para você)" aria-label="Visual da mesa">🎬</button>
     <button class="icon-btn rpg-top-ic2" data-a="help" data-tip="Como usar a mesa" aria-label="Como usar a mesa">?</button>
     ${isMaster() ? `<button class="icon-btn" data-a="settings" data-tip="Configurações da campanha" aria-label="Configurações da campanha">${H.ic('gear')}</button>` : ''}
@@ -298,6 +407,7 @@ function renderTop() {
     if (a === 'side') R.el.classList.toggle('side-open');
     if (a === 'settings') settingsModal();
     if (a === 'look') lookModal();
+    if (a === 'announce') announceModal();
     if (a === 'help') helpModal();
     if (a === 'mysheet') { const ch = myChar(); ch ? sheetModal(ch) : sheetModal(null); }
     if (a === 'join') { const q = await call('rpg:join', { cid: R.st.camp.id }, 'Você entrou na campanha! Agora crie seu personagem.'); if (q.ok && !myChar()) setTimeout(() => sheetModal(null), 300); }
@@ -880,6 +990,7 @@ function tokenMenu(k, id, x, y) {
   const items = [];
   if (k === 'c') {
     items.push({ ic: '📜', label: canEdit ? 'Editar ficha' : 'Ver ficha', act: () => sheetModal(t) });
+    if (master || own) items.push({ ic: '💬', label: own ? 'Falar' : `Falar como ${t.name}`, act: () => { select('c', id); setTimeout(() => { const i = $r('.rpg-speak input'); if (i) i.focus(); }, 30); } });
     if (canEdit) items.push({ sep: true }, hpBlock(k, t));
     if (master) items.push({ sep: true }, condBlock(k, t));
     if (pos && (master || (own && canMove('c', t)))) items.push({ sep: true }, faceBlock(t));
@@ -896,7 +1007,9 @@ function tokenMenu(k, id, x, y) {
     if (master || own) items.push({ ic: '🗑️', label: 'Apagar personagem', danger: true, act: async () => { if (await H.confirmBox('Apagar personagem', `Apagar ${t.name}? Não dá para desfazer.`, 'Apagar')) call('rpg:char:del', { cid, id }); } });
   } else {
     if (master) {
-      items.push({ ic: '✏️', label: 'Editar', act: () => entModal(t) }, { sep: true }, hpBlock(k, t), { sep: true }, condBlock(k, t), { sep: true },
+      items.push({ ic: '✏️', label: 'Editar', act: () => entModal(t) },
+        { ic: '💬', label: `Falar como ${t.name}`, act: () => { select('e', id); setTimeout(() => { const i = $r('.rpg-speak input'); if (i) i.focus(); }, 30); } },
+        { ic: '📢', label: t.kind === 'chefe' ? 'Anunciar a chegada do chefe' : 'Anunciar na tela', act: () => announceModal({ title: t.kind === 'chefe' ? `${t.name} apareceu!` : t.name, style: t.kind === 'chefe' ? 'chefe' : 'perigo' }) }, { sep: true }, hpBlock(k, t), { sep: true }, condBlock(k, t), { sep: true },
         { ic: t.hidden ? '👁️' : '🙈', label: t.hidden ? 'Mostrar para os jogadores' : 'Esconder dos jogadores', act: () => call('rpg:ent:save', { cid, ent: { id, hidden: !t.hidden } }) },
         { ic: '⧉', label: 'Duplicar', act: () => { const { id: _, ...copy } = t; call('rpg:ent:save', { cid, ent: { ...copy, mapId: m.id, x: Math.min(m.w - 1, t.x + t.size), y: t.y } }); } },
         { ic: '➕', label: 'Aumentar', hint: `${t.size}×${t.size}`, disabled: t.size >= 6, act: () => call('rpg:ent:save', { cid, ent: { id, size: t.size + 1 } }) },
@@ -1008,6 +1121,7 @@ function select(k, id) {
   renderSel();
 }
 function renderSel() {
+  renderSpeak();
   const box = $r('.rpg-selbox'); if (!box) return;
   const s = R.sel, t = s && (s.k === 'c' ? charOf(s.id) : entOf(s.id));
   if (!t) { box.hidden = true; R.sel = null; return; }
@@ -1052,7 +1166,8 @@ const rotate = (t, by) => call('rpg:face', { cid: R.st.camp.id, id: t.id, dir: (
 
 /* ---------- painel lateral ---------- */
 function renderTabs() {
-  const tabs = [['grupo', '🧙 Grupo'], ['dados', '🎲 Dados'], ['hist', '📜 Histórico'], ...(isMaster() ? [['mestre', '👑 Mestre']] : [])];
+  const hasChar = R.st.chars.some(c => c.ownerId === me()), n = hasChar ? unread() : 0;
+  const tabs = [['grupo', '🧙 Grupo'], ['dados', '🎲 Dados'], ['hist', '📜 Histórico'], ...(hasChar && !isMaster() ? [['avisos', `🔔 Avisos${n && R.tab !== 'avisos' ? `<i class="rpg-tab-n">${n > 9 ? '9+' : n}</i>` : ''}`]] : []), ...(isMaster() ? [['mestre', '👑 Mestre']] : [])];
   if (!tabs.some(t => t[0] === R.tab)) R.tab = 'grupo';
   const nav = $r('.rpg-tabs');
   nav.innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${R.tab === k ? 'on' : ''}">${l}</button>`).join('');
@@ -1061,7 +1176,7 @@ function renderTabs() {
 function renderPane() {
   const p = $r('.rpg-pane'); if (!p) return;
   p.onclick = null; p.onchange = null; p.onsubmit = null; p.oninput = null;
-  ({ grupo: paneGrupo, dados: paneDados, hist: paneHist, mestre: paneMestre })[R.tab](p);
+  ({ grupo: paneGrupo, dados: paneDados, hist: paneHist, mestre: paneMestre, avisos: paneAvisos })[R.tab](p);
 }
 function paneGrupo(p) {
   const c = R.st.camp, mine = myChar();
@@ -1144,6 +1259,7 @@ function evHtml(e) {
     return `<div class="rpg-ev roll ${e.priv ? 'priv' : ''} ${r.crit ? 'crit' : ''} ${r.fail ? 'fail' : ''}">${H.av(e.uid, 24, false)}<div><div class="rpg-ev-h"><b>${esc(H.nameOf(e.uid))}</b>${e.text ? ` · ${esc(e.text)}` : ''}${e.priv ? ' <span class="rpg-pv">secreta</span>' : ''}${sc}<time>${t}</time></div>
       <div class="rpg-ev-roll"><code>${esc(r.expr)}</code> = <b class="rpg-total">${r.total}</b>${r.crit ? ' <span class="rpg-crit">CRÍTICO!</span>' : r.fail ? ' <span class="rpg-fail">falha crítica</span>' : ''}</div><div class="rpg-dsets">${parts}</div></div></div>`;
   }
+  if (e.type === 'fala') return `<div class="rpg-ev fala">${H.av(e.uid, 24, false)}<div><div class="rpg-ev-h"><b>💬 ${esc(e.who || H.nameOf(e.uid))}</b>${e.k === 'e' ? ' · NPC' : ''}${sc}<time>${new Date(e.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</time></div><p class="rpg-fala">“${esc(e.text)}”</p></div></div>`;
   const ic = { sys: '📌', narr: '📖', act: '🗡️', dmg: '💥', heal: '💚', combat: '⚔️', turn: '⏳', log: '•' }[e.type] || '•';
   const who = e.uid && (e.type === 'narr' || e.type === 'act');
   return `<div class="rpg-ev ${esc(e.type)} ${e.priv ? 'priv' : ''}">${who ? H.av(e.uid, 24, false) : `<span class="rpg-ev-ic">${ic}</span>`}<div>${who ? `<div class="rpg-ev-h"><b>${esc(H.nameOf(e.uid))}</b>${e.type === 'narr' ? ' · Mestre' : ''}${e.priv ? ' <span class="rpg-pv">anotação</span>' : ''}${sc}<time>${t}</time></div>` : ''}<p>${esc(e.text)}${!who ? sc : ''}</p>${!who ? `<time>${t}</time>` : ''}</div></div>`;
@@ -1785,6 +1901,16 @@ function attach(sock) {
   sock.on('rpg:closed', d => { if (R.st && R.st.camp.id === d.cid) { closeRoom(true); toast(d.why || 'A mesa foi fechada.', true); } });
   sock.on('rpg:list', d => { if (R.lobbyEl && R.scope && R.scope.kind === d.scope && R.scope.id === d.id) drawLobby(); });
   sock.on('rpg:invited', d => invitedCard(d));
+  sock.on('rpg:bubble', live(showBubble));
+  sock.on('rpg:announce', live(showAnnounce));
+  // aviso do personagem: com a mesa aberta, cartão no canto e contador na aba; fechada, um aviso do app
+  sock.on('rpg:notif', d => {
+    if (R.el && R.st && R.st.camp.id === d.cid) {
+      const ch = charOf(d.charId); if (ch) ch.notifs = [...(ch.notifs || []), ...d.items].slice(-60);
+      popNotifs(d.items, d.by);
+      if (R.tab === 'avisos') renderPane(); else renderTabs();
+    } else toast(`🎲 ${d.char}: ${d.items[0].text}${d.items.length > 1 ? ` (+${d.items.length - 1})` : ''}`);
+  });
 }
 function invitedCard(d) {
   H.tone([[523, .1], [659, .1], [784, .18]], 'triangle', .06);
@@ -1800,6 +1926,8 @@ document.addEventListener('keydown', e => {
   if (!R.el || e.target.closest('input, textarea, select') || document.querySelector('.modal-back')) return;
   if (e.key === 'Escape') { if (ctxEl) closeCtx(); else if (R.meas || R.trail) { R.meas = null; R.trail = null; drawMeasure([]); } else if (R.sel) select(null); else if (R.tool !== 'mover') setTool('mover'); }
   if (e.key === 'Enter' && R.trail) { trailWalk(); return; }
+  // Enter abre a caixa de fala do personagem
+  if (e.key === 'Enter') { const f = $r('.rpg-speak'), i = f && f.querySelector('input'); if (f && !f.hidden && !i.disabled) { e.preventDefault(); i.focus(); return; } }
   const k = e.key.toLowerCase(), sh = { v: 'mover', r: 'regua', c: 'caminho', p: 'ping', b: 'pincel', d: 'porta', l: 'luz', m: 'marcador' }[k];
   if (sh && !e.ctrlKey && !e.metaKey && !e.altKey && (['mover', 'regua', 'caminho', 'ping'].includes(sh) || (isMaster() && curMap()))) setTool(sh);
   // Q/E: vira o personagem selecionado (a lanterna acompanha)
