@@ -163,11 +163,21 @@ async function openRoom(cid, view) {
       </section>
       <aside class="rpg-side"><nav class="rpg-tabs"></nav><div class="rpg-pane"></div></aside>
     </div>`;
+  el.style.setProperty('--rg-grain', `url(${grain()})`);
   document.body.appendChild(el); R.el = el;
   closeLobby();
   bindBoard();
   renderAll();
   fitZoom();
+}
+// granulação de filme (gerada uma vez, ruído cinza)
+let grainUrl = '';
+function grain() {
+  if (grainUrl) return grainUrl;
+  const c = document.createElement('canvas'); c.width = c.height = 160; const g = c.getContext('2d'), im = g.createImageData(160, 160);
+  for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() * 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
+  g.putImageData(im, 0, 0);
+  return (grainUrl = c.toDataURL('image/png'));
 }
 function closeRoom(silent) {
   if (!R.el) return;

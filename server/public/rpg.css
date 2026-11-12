@@ -489,3 +489,12 @@
 .rpg-ruler .tr-tag text { fill: #bfeaff; }
 .rpg-view[data-tool='caminho'] { cursor: crosshair; }
 .rpg-tok.walking { transition: left .15s linear, top .15s linear; }
+
+/* clima de cinema: luz das tochas tremulando, granulação de filme e bordas escuras na tela */
+.rpg-light { animation: rpg-flicker 3.2s infinite; filter: blur(9px); }
+@keyframes rpg-flicker { 0%, 100% { opacity: 1; } 18% { opacity: .94; } 22% { opacity: .99; } 47% { opacity: .95; } 52% { opacity: 1; } 76% { opacity: .96; } 80% { opacity: .99; } }
+.rpg-stage::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background-image: var(--rg-grain, none); background-size: 160px; opacity: .085; mix-blend-mode: overlay; animation: rpg-grain .9s steps(5) infinite; }
+.rpg-stage::after { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; box-shadow: inset 0 0 140px 30px rgba(0, 0, 0, .55); }
+@keyframes rpg-grain { 0% { background-position: 0 0; } 20% { background-position: -37px 21px; } 40% { background-position: 53px -18px; } 60% { background-position: -12px -49px; } 80% { background-position: 28px 44px; } }
+.rpg-tok-face { filter: drop-shadow(3px 5px 4px rgba(0, 0, 0, .6)); }
+@media (prefers-reduced-motion: reduce) { .rpg-light, .rpg-stage::before { animation: none; } }
