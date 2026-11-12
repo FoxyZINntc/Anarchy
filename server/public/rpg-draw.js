@@ -240,7 +240,8 @@ function drawLight(m, cv, srcs, opt = {}) {
   const k = 8; // pixels por casa (o canvas é esticado com desfoque: bordas suaves)
   cv.width = m.w * k; cv.height = m.h * k;
   const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
-  const dark = m.amb === 'escuro' ? (opt.master ? .55 : .9) : m.amb === 'penumbra' ? (opt.master ? .3 : .5) : 0;
+  // o Mestre vê o mapa mesmo no escuro (só um pouco sombreado) para conseguir trabalhar
+  const dark = m.amb === 'escuro' ? (opt.master ? .32 : .9) : m.amb === 'penumbra' ? (opt.master ? .18 : .5) : 0;
   if (!dark && !srcs.length) return false;
   if (dark) { g.fillStyle = `rgba(4,4,10,${dark})`; g.fillRect(0, 0, cv.width, cv.height); }
   for (const s of srcs) {
