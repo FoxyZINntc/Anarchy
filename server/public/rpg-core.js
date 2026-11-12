@@ -248,6 +248,42 @@ function reach(F, w, h, a, b) {
   return false;
 }
 
+// menor caminho casa a casa de a até b (8 direções, diagonal sem cortar quina). Devolve [[x,y], ...] sem a casa de
+// partida, ou null se não tiver passagem. bit = o que bloqueia (1 = não dá para andar); free = ignora bloqueios (Mestre)
+function path(F, w, h, a, b, free) {
+  const s = a[1] * w + a[0], t = b[1] * w + b[0];
+  if (s === t) return [];
+  if (b[0] < 0 || b[1] < 0 || b[0] >= w || b[1] >= h || (!free && (F[t] & 1))) return null;
+  const prev = new Int32Array(w * h).fill(-1), q = [s]; prev[s] = s;
+  const blk = i => !free && (F[i] & 1);
+  for (let k = 0; k < q.length; k++) {
+    const i = q[k], x = i % w, y = (i / w) | 0;
+    // primeiro as retas, depois as diagonais: o caminho fica mais natural (em L, como se anda numa mesa)
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const j = ny * w + nx; if (prev[j] >= 0 || blk(j)) continue;
+      if (dx && dy && (blk(y * w + nx) || blk(ny * w + x))) continue;
+      prev[j] = i;
+      if (j === t) { const out = []; for (let c = t; c !== s; c = prev[c]) out.push([c % w, (c / w) | 0]); return out.reverse(); }
+      q.push(j);
+    }
+  }
+  return null;
+}
+// confere um caminho recebido: cada passo para uma casa vizinha, livre e sem cortar quina
+function validPath(F, w, h, from, steps, free) {
+  let [x, y] = from;
+  for (const p of steps) {
+    if (!Array.isArray(p)) return false;
+    const nx = p[0], ny = p[1];
+    if (!Number.isInteger(nx) || !Number.isInteger(ny) || nx < 0 || ny < 0 || nx >= w || ny >= h) return false;
+    const dx = nx - x, dy = ny - y; if (Math.max(Math.abs(dx), Math.abs(dy)) !== 1) return false;
+    if (!free && ((F[ny * w + nx] & 1) || (dx && dy && ((F[y * w + nx] & 1) || (F[ny * w + x] & 1))))) return false;
+    x = nx; y = ny;
+  }
+  return true;
+}
+
 /* ---------- linha de visão, luz e campo de visão ---------- */
 // segmento livre de (ox,oy) até o ponto (ex,ey) dentro da casa (tx,ty)? Não pode passar por casa com o bit nem
 // escapar pela quina entre duas casas bloqueadas na diagonal.
@@ -350,5 +386,5 @@ const ATTR_MOD = v => Math.floor(((Number.isFinite(+v) ? +v : 10) - 10) / 2);
 const attrBonus = (camp, ch, a) => ATTR_MOD(ch && ch.attrs ? ch.attrs[a] : 10) + (statMods(camp && camp.statCats, ch)[a] || 0);
 
 return { LAYERS, LAYER_NAMES, statVal, statMods, ATTR_MOD, attrBonus, CATS, MATS, STYLES, DOOR_LOOKS, DOOR_STATES, LIGHT_SHAPES, LANTERN_KINDS, FOG_MODES, AMBIENTS, ALPHA,
-  mat, cellId, setCells, compactPal, emptyLayers, fromTiles, flags, reach, fov, lighting, vision, bitsEnc, bitsDec, bitsOr };
+  mat, cellId, setCells, compactPal, emptyLayers, fromTiles, flags, reach, path, validPath, fov, lighting, vision, bitsEnc, bitsDec, bitsOr };
 });
