@@ -377,14 +377,78 @@ function fitZoom() {
   const m = curMap(), v = $r('.rpg-view'); if (!m || !v) return;
   setZoom(Math.min(1.4, Math.max(0.3, Math.min((v.clientWidth - 24) / (m.w * CELL), (v.clientHeight - 24) / (m.h * CELL)))));
 }
-function ruler(a, b) {
+// distância em casas (diagonal conta 1, como no D&D 5e) e em metros (1 casa = 1,5 m)
+const casas = n => `${n} casa${n === 1 ? '' : 's'} · ${(n * 1.5).toLocaleString('pt-BR')} m`;
+const cheb = (a, b) => Math.max(Math.abs(Math.round(b.x) - Math.round(a.x)), Math.abs(Math.round(b.y) - Math.round(a.y)));
+const tag = (x, y, label, cls = '') => `<g transform="translate(${x},${y})" class="${cls}"><rect x="-${label.length * 3.4 + 8}" y="-11" width="${label.length * 6.8 + 16}" height="22" rx="11" class="rl-tag"/><text text-anchor="middle" dy="4">${label}</text></g>`;
+// régua de medir: vários pontos (curvas em L, N...). Cada trecho mostra a própria distância e o fim mostra o total.
+function drawMeasure(pts, hover) {
   const svg = $r('.rpg-ruler'); if (!svg) return;
-  if (!a) { svg.innerHTML = ''; return; }
-  const n = Math.max(Math.abs(Math.round(b.x) - Math.round(a.x)), Math.abs(Math.round(b.y) - Math.round(a.y)));
-  const x1 = (a.x + .5) * CELL, y1 = (a.y + .5) * CELL, x2 = (b.x + .5) * CELL, y2 = (b.y + .5) * CELL;
-  const label = `${n} casa${n === 1 ? '' : 's'} · ${(n * 1.5).toLocaleString('pt-BR')} m`;
-  svg.innerHTML = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="rl-bg"/><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="rl"/><circle cx="${x1}" cy="${y1}" r="4" class="rl-dot"/><circle cx="${x2}" cy="${y2}" r="${CELL * .48}" class="rl-end"/>
-    <g transform="translate(${(x1 + x2) / 2},${(y1 + y2) / 2 - 14})"><rect x="-${label.length * 3.4 + 8}" y="-11" width="${label.length * 6.8 + 16}" height="22" rx="11" class="rl-tag"/><text text-anchor="middle" dy="4">${label}</text></g>`;
+  const all = hover ? [...pts, hover] : pts;
+  if (!all.length) { svg.innerHTML = ''; return; }
+  const c = p => [(p.x + .5) * CELL, (p.y + .5) * CELL], line = all.map(p => c(p).join(',')).join(' ');
+  let total = 0, segs = '';
+  for (let i = 1; i < all.length; i++) { const n = cheb(all[i - 1], all[i]); total += n; if (all.length > 2 && n) { const [x1, y1] = c(all[i - 1]), [x2, y2] = c(all[i]); segs += tag((x1 + x2) / 2, (y1 + y2) / 2, String(n), 'rl-seg'); } }
+  const [ex, ey] = c(all[all.length - 1]);
+  svg.innerHTML = `<polyline points="${line}" class="rl-bg"/><polyline points="${line}" class="rl"/>${pts.map(p => `<circle cx="${c(p)[0]}" cy="${c(p)[1]}" r="5" class="rl-dot"/>`).join('')}<circle cx="${ex}" cy="${ey}" r="${CELL * .48}" class="rl-end"/>${segs}${all.length > 1 ? tag(ex, ey - CELL * .9, (all.length > 2 ? 'Total: ' : '') + casas(total)) : ''}`;
+}
+function ruler(a, b) { if (!a) drawMeasure([]); else drawMeasure([a], b); }
+// régua de caminho (👣): mostra casa por casa por onde o personagem vai passar
+function drawTrail(t, preview) {
+  const svg = $r('.rpg-ruler'); if (!svg) return;
+  if (!t) { svg.innerHTML = ''; return; }
+  const c = p => [(p[0] + .5) * CELL, (p[1] + .5) * CELL];
+  const done = [t.from, ...t.cells], line = done.map(p => c(p).join(',')).join(' ');
+  const pv = preview && preview.length ? [done[done.length - 1], ...preview].map(p => c(p).join(',')).join(' ') : '';
+  const end = c(done[done.length - 1]);
+  svg.innerHTML = `${pv ? `<polyline points="${pv}" class="tr-pv"/>` : ''}<polyline points="${line}" class="tr-bg"/><polyline points="${line}" class="tr"/>
+    ${t.cells.map(p => `<circle cx="${c(p)[0]}" cy="${c(p)[1]}" r="3.5" class="tr-step"/>`).join('')}${t.pts.map(p => `<circle cx="${c(p)[0]}" cy="${c(p)[1]}" r="8" class="tr-pt"/>`).join('')}
+    ${t.cells.length || pv ? tag(end[0], end[1] - CELL * .9, `👣 ${casas(t.cells.length)}${preview && preview.length ? ` (+${preview.length})` : ''}`, 'tr-tag') : ''}`;
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+// a miniatura anda casa por casa pelo caminho
+const walking = new Set();
+async function animWalk(k, id, steps) {
+  walking.add(id);
+  const m = curMap(), t = k === 'c' ? charOf(id) : entOf(id);
+  for (const [x, y] of steps) {
+    if (!R.el || curMap() !== m) break;
+    const el = $r(`.rpg-tok[data-k="${k}"][data-id="${id}"]`);
+    if (el) { el.classList.add('walking'); el.style.left = x * CELL + 'px'; el.style.top = y * CELL + 'px'; }
+    if (t) { if (k === 'c') { t.pos = t.pos || {}; t.pos[m.id] = [x, y]; } else { t.x = x; t.y = y; } }
+    if (k === 'c') drawLight();
+    await sleep(150);
+  }
+  const el = $r(`.rpg-tok[data-k="${k}"][data-id="${id}"]`); if (el) el.classList.remove('walking');
+  walking.delete(id);
+}
+// começa um caminho: pelo personagem clicado, pelo selecionado ou pelo seu
+function trailStart(tok) {
+  const m = curMap(); if (!m) return null;
+  let k = null, id = null;
+  if (tok) { k = tok.dataset.k; id = tok.dataset.id; }
+  else if (R.sel) { k = R.sel.k; id = R.sel.id; }
+  else if (myChar()) { k = 'c'; id = myChar().id; }
+  const t = k && (k === 'c' ? charOf(id) : entOf(id));
+  const p = t && (k === 'c' ? t.pos && t.pos[m.id] : [t.x, t.y]);
+  if (!t || !p) { toast('Clique primeiro no personagem que vai andar.', true); return null; }
+  if (!canMove(k, t)) { toast('Você não pode mover isso.', true); return null; }
+  select(k, id);
+  return { k, id, from: [Math.round(p[0]), Math.round(p[1])], pts: [], cells: [], segs: [] };
+}
+const trailFree = () => isMaster() || !R.st.camp.rules.walls;
+function trailTo(t, cell) {
+  const m = curMap(), last = t.cells.length ? t.cells[t.cells.length - 1] : t.from;
+  return C.path(C.flags(m, mats()), m.w, m.h, last, cell, trailFree());
+}
+async function trailWalk() {
+  const t = R.trail; if (!t) return;
+  R.trail = null; drawTrail(null);
+  if (!t.cells.length) return;
+  const r = await H.emit('rpg:move', { cid: R.st.camp.id, k: t.k, id: t.id, path: t.cells });
+  if (!r.ok) return toast(r.erro || 'Não deu para andar.', true);
+  await animWalk(t.k, t.id, r.path);
+  applyMove({ k: t.k, id: t.id, x: r.x, y: r.y, dir: r.dir, mapId: curMap() && curMap().id });
 }
 // clique numa porta: abre/fecha (jogadores precisam estar do lado; o servidor confere)
 async function toggleDoor(d) {
@@ -394,14 +458,32 @@ async function toggleDoor(d) {
 }
 function bindBoard() {
   const view = $r('.rpg-view');
-  let pan = null, paint = null, meas = null, hd = null;
+  let pan = null, paint = null, hd = null;
   view.addEventListener('wheel', e => { if (!e.ctrlKey && !e.metaKey) return; e.preventDefault(); const r = view.getBoundingClientRect(); setZoom(R.z * (e.deltaY < 0 ? 1.12 : 1 / 1.12), { x: e.clientX - r.left, y: e.clientY - r.top }); }, { passive: false });
   view.addEventListener('pointerdown', e => {
     if (e.button !== 0 && e.button !== 1) return;
     closeCtx();
     const tok = e.target.closest('.rpg-tok'), m = curMap(); if (!m) return;
     if (e.button === 0 && (e.altKey || R.tool === 'ping')) { const p = boardPos(e); if (isPlayer()) call('rpg:ping', { cid: R.st.camp.id, x: p.x - .5, y: p.y - .5 }); else showPing({ uid: me(), x: p.x - .5, y: p.y - .5 }); return; }
-    if (R.tool === 'regua' && e.button === 0) { const p = boardPos(e); meas = { a: { x: Math.floor(p.x), y: Math.floor(p.y) } }; capture(view, e); return; }
+    // régua de medir: cada clique põe um ponto (curvas); clicar de novo no último ponto termina
+    if (R.tool === 'regua' && e.button === 0) {
+      const p = boardPos(e), cell = { x: Math.max(0, Math.min(m.w - 1, Math.floor(p.x))), y: Math.max(0, Math.min(m.h - 1, Math.floor(p.y))) };
+      if (!R.meas) R.meas = { pts: [cell] };
+      else { const last = R.meas.pts[R.meas.pts.length - 1]; if (last.x === cell.x && last.y === cell.y) { const done = R.meas; R.meas = null; drawMeasure(done.pts); setTimeout(() => { if (!R.meas && R.tool === 'regua') drawMeasure([]); }, 2500); return; } R.meas.pts.push(cell); }
+      drawMeasure(R.meas.pts); return;
+    }
+    // régua de caminho: clique no personagem, depois nos pontos; clicar de novo no último ponto (ou Enter) faz ele andar
+    if (R.tool === 'caminho' && e.button === 0) {
+      const p = boardPos(e), cell = [Math.max(0, Math.min(m.w - 1, Math.floor(p.x))), Math.max(0, Math.min(m.h - 1, Math.floor(p.y)))];
+      if (!R.trail) { R.trail = trailStart(tok); if (!R.trail || tok) { drawTrail(R.trail); return; } }
+      const t = R.trail, end = t.cells.length ? t.cells[t.cells.length - 1] : t.from;
+      if (end[0] === cell[0] && end[1] === cell[1]) { trailWalk(); return; }
+      const seg = trailTo(t, cell);
+      if (!seg) { toast('Não tem passagem até aí (parede, obstáculo ou porta fechada).', true); return; }
+      if (t.cells.length + seg.length > 300) { toast('Caminho longo demais. Ande em partes.', true); return; }
+      t.cells.push(...seg); t.pts.push(cell); t.segs.push(seg.length);
+      drawTrail(t); return;
+    }
     // Mestre arrasta lâmpadas e marcadores
     const lamp = e.target.closest('.rpg-lamp'), mk = e.target.closest('.rpg-mk.mv');
     if (isMaster() && R.tool === 'mover' && e.button === 0 && (lamp || mk)) {
@@ -437,7 +519,13 @@ function bindBoard() {
       return;
     }
     if (hd) { const p = boardPos(e), m = curMap(); const nx = Math.max(0, Math.min(m.w - 1, p.x - hd.dx)), ny = Math.max(0, Math.min(m.h - 1, p.y - hd.dy)); if (!hd.moved && Math.hypot(nx - hd.ox, ny - hd.oy) < .2) return; hd.moved = true; hd.x = nx; hd.y = ny; hd.el.style.left = (hd.kind === 'luz' ? Math.round(nx) : nx) * CELL + 'px'; hd.el.style.top = (hd.kind === 'luz' ? Math.round(ny) : ny) * CELL + 'px'; return; }
-    if (meas) { const p = boardPos(e); ruler(meas.a, { x: Math.floor(p.x), y: Math.floor(p.y) }); return; }
+    if (R.meas && R.tool === 'regua') { const p = boardPos(e); drawMeasure(R.meas.pts, { x: Math.floor(p.x), y: Math.floor(p.y) }); return; }
+    if (R.trail && R.tool === 'caminho' && !pan) {
+      const p = boardPos(e), m = curMap(), cell = [Math.floor(p.x), Math.floor(p.y)];
+      if (cell[0] < 0 || cell[1] < 0 || cell[0] >= m.w || cell[1] >= m.h) return;
+      const k = cell.join(','); if (R.trail.hk === k) return; R.trail.hk = k;
+      drawTrail(R.trail, trailTo(R.trail, cell)); return;
+    }
     if (paint) { paintAt(e, paint); return; }
     if (pan) { view.scrollLeft = pan.sl - (e.clientX - pan.x); view.scrollTop = pan.st - (e.clientY - pan.y); }
   });
@@ -458,7 +546,6 @@ function bindBoard() {
       else call('rpg:mark:save', { cid: R.st.camp.id, mapId: m.id, mark: { id: h.id, x: Math.round(h.x * 4) / 4, y: Math.round(h.y * 4) / 4 } });
       return;
     }
-    if (meas) { meas = null; setTimeout(() => ruler(null), 1200); return; }
     if (paint) { const p = paint; paint = null; flushPaint(p); return; }
     if (pan) {
       const moved = Math.abs(e.clientX - pan.x) + Math.abs(e.clientY - pan.y) > 4, start = pan.e; pan = null; view.classList.remove('panning');
@@ -477,6 +564,9 @@ function bindBoard() {
   R.el.addEventListener('contextmenu', e => {
     if (e.target.closest('input, textarea, select')) { e.stopPropagation(); return; }
     e.stopPropagation(); e.preventDefault();
+    // com a régua ou o caminho: botão direito desfaz o último ponto
+    if (R.tool === 'regua' && R.meas) { R.meas.pts.pop(); if (!R.meas.pts.length) R.meas = null; drawMeasure(R.meas ? R.meas.pts : []); return; }
+    if (R.tool === 'caminho' && R.trail) { const t = R.trail; if (t.segs.length) { t.cells.splice(t.cells.length - t.segs.pop()); t.pts.pop(); t.hk = ''; drawTrail(t); } else { R.trail = null; drawTrail(null); } return; }
     const tok = e.target.closest('.rpg-tok'), pp = e.target.closest('[data-pp]'), party = e.target.closest('.rpg-party-it[data-id]');
     const lamp = e.target.closest('.rpg-lamp'), mk = e.target.closest('.rpg-mk');
     if (tok) return tokenMenu(tok.dataset.k, tok.dataset.id, e.clientX, e.clientY);
@@ -545,11 +635,11 @@ function applyMove(mv) {
 
 /* ---------- barra de ferramentas ---------- */
 const TOOLS = [
-  ['mover', '✋', 'Mover e selecionar (V). Clique numa porta para abrir/fechar', false], ['regua', '📏', 'Régua: arraste para medir (R)', false], ['ping', '📍', 'Ping: mostre um ponto para todos (P ou Alt+clique)', false],
+  ['mover', '✋', 'Mover e selecionar (V). Clique numa porta para abrir/fechar', false], ['regua', '📏', 'Régua de medir: clique ponto a ponto, faz curvas (R)', false], ['caminho', '👣', 'Caminho: trace por onde o personagem anda, casa por casa (C)', false],['ping', '📍', 'Ping: mostre um ponto para todos (P ou Alt+clique)', false],
   ['pincel', '🖌️', 'Pincel de materiais, por camada (B)', true], ['porta', '🚪', 'Portas: clique numa casa para criar ou editar (D)', true], ['luz', '💡', 'Lâmpada: clique para iluminar (L)', true],
   ['marcador', '🏷️', 'Marcadores: emojis com nome (M)', true], ['revelar', '🔦', 'Revelar névoa à mão', true], ['esconder', '🌫️', 'Cobrir com névoa à mão', true], ['armadilha', '🪤', 'Armadilha: cria → revela → apaga', true]
 ];
-const TOOL_HINT = { regua: 'Arraste no mapa para medir a distância.', ping: 'Clique no mapa para mostrar um ponto para todo mundo.', pincel: 'Escolha a camada e o material. Cada camada é independente: pôr um objeto não troca o chão.', porta: 'Clique numa casa para criar uma porta (ela ocupa a abertura da parede). Clique numa porta para editar.', luz: 'Clique no mapa para pôr uma lâmpada. Arraste as 💡 com ✋ para mover; botão direito para editar.', marcador: 'Escolha o emoji, o nome e quem vê. Clique no mapa para colocar.', revelar: 'Pinte para revelar o que os jogadores veem.', esconder: 'Pinte para esconder de novo com névoa.', armadilha: 'Clique numa casa: cria (escondida) → revela → apaga.' };
+const TOOL_HINT = { regua: 'Clique para pôr pontos (dá para fazer curvas). Clique de novo no último ponto para terminar · botão direito desfaz um ponto.', caminho: 'Clique no personagem e depois nos pontos do caminho (ele desvia de paredes). Clique de novo no último ponto ou Enter: ele anda casa por casa · botão direito desfaz · Esc cancela.', ping: 'Clique no mapa para mostrar um ponto para todo mundo.', pincel: 'Escolha a camada e o material. Cada camada é independente: pôr um objeto não troca o chão.', porta: 'Clique numa casa para criar uma porta (ela ocupa a abertura da parede). Clique numa porta para editar.', luz: 'Clique no mapa para pôr uma lâmpada. Arraste as 💡 com ✋ para mover; botão direito para editar.', marcador: 'Escolha o emoji, o nome e quem vê. Clique no mapa para colocar.', revelar: 'Pinte para revelar o que os jogadores veem.', esconder: 'Pinte para esconder de novo com névoa.', armadilha: 'Clique numa casa: cria (escondida) → revela → apaga.' };
 function matPreview(cv, mt) {
   const g = cv.getContext('2d'), s = cv.width; g.clearRect(0, 0, s, s);
   if (mt.L === 'objeto') { g.fillStyle = '#3a342d'; g.beginPath(); g.arc(s / 2, s / 2, s / 2 - 1, 0, 7); g.fill(); if (mt.img) g.drawImage(D.texCanvas(mt), 3, 3, s - 6, s - 6); else (D.OBJ[mt.st] || D.OBJ.emoji)(g, s / 2, s / 2, s * .95, mt.c, 3, mt); return; }
@@ -615,7 +705,8 @@ function renderTools() {
   };
 }
 function setTool(v) {
-  R.tool = v; if (v !== 'mover') select(null);
+  R.meas = null; R.trail = null; drawMeasure([]);
+  R.tool = v; if (v !== 'mover' && v !== 'caminho') select(null);
   if ((v === 'revelar' || v === 'esconder') && curMap() && !curMap().fog) toast('A névoa está desligada. Ligue em Mestre → Luz e névoa para os jogadores verem a diferença.');
   renderTools();
 }
@@ -722,7 +813,7 @@ function mapMenu(cx, cy, x, y) {
   const i = cy * m.w + cx, d = doorAt(m, i), items = [];
   if (d) items.push(...doorItems(d), { sep: true });
   if (isPlayer()) items.push({ ic: '📍', label: 'Ping aqui', act: () => call('rpg:ping', { cid, x: cx, y: cy }) });
-  items.push({ ic: '📏', label: 'Medir daqui', act: () => setTool('regua') });
+  items.push({ ic: '📏', label: 'Medir daqui', act: () => { setTool('regua'); R.meas = { pts: [{ x: cx, y: cy }] }; drawMeasure(R.meas.pts); } });
   if (master) {
     items.push({ sep: true },
       { ic: '👾', label: 'Criar criatura aqui', act: () => entModal(null, { x: cx, y: cy }) },
@@ -1559,7 +1650,14 @@ function attach(sock) {
   }));
   sock.on('rpg:ent:del', live(d => { R.st.ents = R.st.ents.filter(x => x.id !== d.id); if (R.sel && R.sel.id === d.id) select(null); renderTokens(); renderCombat(); if (R.tab === 'mestre') renderPane(); }));
   sock.on('rpg:chars', live(list => { R.st.chars = list; renderTokens(); renderCombat(); renderSel(); drawLight(); if (isMaster() && curMap() && curMap().fog) drawFog(); if (R.tab === 'grupo' || R.tab === 'dados' || R.tab === 'mestre') renderPane(); renderTop(); }));
-  sock.on('rpg:move', live(applyMove));
+  sock.on('rpg:move', live(mv => { if (!walking.has(mv.id)) applyMove(mv); }));
+  // alguém andou por um caminho traçado: a miniatura percorre casa por casa
+  sock.on('rpg:walk', live(async d => {
+    const m = curMap(); if (!m || d.mapId !== m.id || !d.path.length) return;
+    await animWalk(d.k, d.id, d.path);
+    const last = d.path[d.path.length - 1];
+    applyMove({ k: d.k, id: d.id, x: last[0], y: last[1], dir: d.dir, mapId: d.mapId });
+  }));
   sock.on('rpg:face', live(d => { const ch = charOf(d.id); if (!ch) return; ch.dir = d.dir; const el = $r(`.rpg-tok[data-k="c"][data-id="${d.id}"]`); if (el) el.style.setProperty('--dir', d.dir + 'deg'); drawLight(); if (isMaster() && curMap() && curMap().fog) drawFog(); }));
   sock.on('rpg:ping', live(showPing));
   sock.on('rpg:drag', live(d => { if (R.drag && R.drag.id === d.id) return; const el = $r(`.rpg-tok[data-k="${d.k}"][data-id="${d.id}"]`); if (el) { el.classList.add('remote'); el.style.left = d.x * CELL + 'px'; el.style.top = d.y * CELL + 'px'; clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('remote'), 400); } }));
@@ -1586,9 +1684,10 @@ D.setOnImg(() => { if (R.el) { R.paintKey = ''; drawMap(); } });
 
 document.addEventListener('keydown', e => {
   if (!R.el || e.target.closest('input, textarea, select') || document.querySelector('.modal-back')) return;
-  if (e.key === 'Escape') { if (ctxEl) closeCtx(); else if (R.sel) select(null); else if (R.tool !== 'mover') setTool('mover'); }
-  const k = e.key.toLowerCase(), sh = { v: 'mover', r: 'regua', p: 'ping', b: 'pincel', d: 'porta', l: 'luz', m: 'marcador' }[k];
-  if (sh && !e.ctrlKey && !e.metaKey && !e.altKey && (['mover', 'regua', 'ping'].includes(sh) || (isMaster() && curMap()))) setTool(sh);
+  if (e.key === 'Escape') { if (ctxEl) closeCtx(); else if (R.meas || R.trail) { R.meas = null; R.trail = null; drawMeasure([]); } else if (R.sel) select(null); else if (R.tool !== 'mover') setTool('mover'); }
+  if (e.key === 'Enter' && R.trail) { trailWalk(); return; }
+  const k = e.key.toLowerCase(), sh = { v: 'mover', r: 'regua', c: 'caminho', p: 'ping', b: 'pincel', d: 'porta', l: 'luz', m: 'marcador' }[k];
+  if (sh && !e.ctrlKey && !e.metaKey && !e.altKey && (['mover', 'regua', 'caminho', 'ping'].includes(sh) || (isMaster() && curMap()))) setTool(sh);
   // Q/E: vira o personagem selecionado (a lanterna acompanha)
   if ((k === 'q' || k === 'e') && R.sel && R.sel.k === 'c') { const t = charOf(R.sel.id); if (t && (isMaster() || (t.ownerId === me() && canMove('c', t)))) rotate(t, k === 'q' ? -45 : 45); }
   if (e.key === 'Delete' && R.sel && R.sel.k === 'e' && isMaster()) { const t = entOf(R.sel.id); if (t) H.confirmBox('Apagar', `Tirar ${t.name} do mapa?`, 'Apagar').then(ok => ok && call('rpg:ent:del', { cid: R.st.camp.id, id: t.id }).then(r => r.ok && select(null))); }

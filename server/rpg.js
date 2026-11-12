@@ -1063,9 +1063,22 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
       const k = d.k === 'c' ? 'c' : 'e', t = movable(c, k, str(d.id, 40));
       if (!t) return fail(cb, c.rules.lock && !isM(c, uid) ? 'O Mestre travou a movimentação.' : !scenePerm(c, uid, 'move') ? 'Nesta cena o Mestre controla os movimentos.' : 'Você não pode mover isso.');
       const m = R.maps[k === 'c' ? charMap(c, t) : t.mapId]; if (!m) return fail(cb, 'Mapa não encontrado.');
+      const from = k === 'c' ? t.pos[m.id] : [t.x, t.y];
+      // caminho traçado (ferramenta 👣): a miniatura percorre casa por casa; cada passo é conferido aqui
+      if (Array.isArray(d.path)) {
+        const steps = d.path.slice(0, 300), free = isM(c, uid) || !c.rules.walls;
+        if (!steps.length || !from) return fail(cb, 'Caminho vazio.');
+        const start = [Math.round(from[0]), Math.round(from[1])];
+        if (!C.validPath(vstate(c, m).F, m.w, m.h, start, steps, free)) return fail(cb, 'Esse caminho passa por parede, obstáculo ou porta fechada.');
+        const last = steps[steps.length - 1], prev = steps.length > 1 ? steps[steps.length - 2] : start;
+        if (k === 'c') { t.dir = ((Math.round(Math.atan2(last[1] - prev[1], last[0] - prev[0]) * 180 / Math.PI / 45) * 45) % 360 + 360) % 360; t.pos[m.id] = [last[0], last[1]]; } else { t.x = last[0]; t.y = last[1]; }
+        save(); dirty(m);
+        emitMap(c, m.id, 'rpg:walk', (u, r) => (u === uid || (k === 'e' && t.hidden && r !== 'mestre') ? undefined : { k, id: t.id, mapId: m.id, path: steps, dir: k === 'c' ? t.dir : undefined }));
+        pushView(c, m);
+        return ok(cb, { x: last[0], y: last[1], dir: k === 'c' ? t.dir : undefined, path: steps });
+      }
       let x = num(d.x, 0, m.w - 1, 0), y = num(d.y, 0, m.h - 1, 0);
       if (c.rules.grid) { x = Math.round(x); y = Math.round(y); } else { x = Math.round(x * 20) / 20; y = Math.round(y * 20) / 20; }
-      const from = k === 'c' ? t.pos[m.id] : [t.x, t.y];
       // colisão de verdade: o caminho até o destino não pode atravessar parede, obstáculo nem porta fechada
       if (!isM(c, uid) && c.rules.walls) {
         const F = vstate(c, m).F, b = [Math.round(x), Math.round(y)];
