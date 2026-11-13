@@ -1941,6 +1941,9 @@ async function toggleBlock(uid) {
 }
 document.addEventListener('contextmenu', e => {
   if (e.target.closest('input, textarea, .settings, .modal')) return;
+  // tela compartilhada de alguém: menu da tela (volume, silenciar, parar de assistir)
+  const scr = e.target.closest('.tile[data-scr]');
+  if (scr) { e.preventDefault(); screenMenu(scr.dataset.scr, scr.querySelector('.nm') || scr); return; }
   const t = e.target.closest('[data-vuid], .av[data-user], .mem[data-id], .person[data-id], [data-act="profile"][data-id], .voice-person[data-vuid]');
   if (!t) {
     // mensagem (texto, imagem, GIF, figurinha): menu da mensagem; seleção de texto e campos de edição continuam normais
@@ -2818,7 +2821,8 @@ setInterval(() => {
 }, 20);
 
 /* =============== voz, vídeo e tela (WebRTC) =============== */
-const V = { room: null, mic: null, screen: null, cam: null, peers: new Map(), muted: false, deaf: false, ice: [], pttDown: false, calling: false, levels: new Map(), videoCache: new Map(), rejoin: null };
+// watch: telas que EU estou assistindo (sid de quem compartilha). ownPreview: mostrar a prévia da minha própria tela
+const V = { room: null, mic: null, screen: null, cam: null, peers: new Map(), muted: false, deaf: false, ice: [], pttDown: false, calling: false, levels: new Map(), videoCache: new Map(), rejoin: null, watch: new Set(), ownPreview: false };
 const SB = { playing: new Map(), cache: new Map(), last: 0 }; // Central de Áudio (sons tocando, áudios já baixados)
 
 /* =============== registro da call: o que aconteceu e por que caiu ===============
@@ -2882,21 +2886,52 @@ function tuneSdp(sdp) {
   };
   // voz em mono (o padrão seguro: estéreo dobra o tráfego e pode atrapalhar o processamento de voz) com correção de perda
   pts('opus').forEach(pt => fmtp(pt, { useinbandfec: 1, usedtx: 0, maxaveragebitrate: 96000, maxplaybackrate: 48000, stereo: 0, 'sprop-stereo': 0 }));
-  ['VP8', 'VP9', 'H264', 'AV1'].forEach(c => pts(c).forEach(pt => fmtp(pt, { 'x-google-start-bitrate': 1500, 'x-google-max-bitrate': 8000 })));
+  ['VP8', 'VP9', 'H264', 'AV1'].forEach(c => pts(c).forEach(pt => fmtp(pt, { 'x-google-start-bitrate': 1200, 'x-google-max-bitrate': (SCR_Q[prefs.quality] || SCR_Q['1080p30'])[0] })));
   return lines.join('\r\n');
 }
-// limites de cada envio: voz com prioridade, tela nítida (ou fluida em 60 fps), câmera equilibrada
+/* ---- compartilhamento de tela leve ----
+   A call é ponto a ponto: quem compartilha codifica a tela uma vez PARA CADA pessoa e manda tudo pelo próprio upload.
+   Por isso: (1) só recebe a tela quem clicou em "Assistir" (para os outros o envio fica pausado: zero CPU e zero
+   internet); (2) a soma do envio de tela tem um teto (SCR_BUDGET) dividido entre quem assiste, e a voz tem prioridade
+   na rede, para o ping não subir; (3) a tela vai em H.264 quando der (a placa de vídeo codifica, não o processador). */
+const SCR_Q = { '720p30': [1800, 30], '1080p30': [3200, 30], '1080p60': [5500, 60] }; // kbps, fps
+const SCR_BUDGET = 6000; // kbps somando todo mundo que assiste
+const screenWatchers = () => { let n = 0; V.peers.forEach(p => { if (p.wantScreen) n++; }); return n; };
 function tuneSenders(pc) {
-  const q = { '720p30': [2500, 30], '1080p30': [5000, 30], '1080p60': [8000, 60] }[prefs.quality] || [5000, 30];
+  const p = [...V.peers.values()].find(x => x.pc === pc);
+  const q = SCR_Q[prefs.quality] || SCR_Q['1080p30'];
+  const per = Math.max(700, Math.min(q[0], Math.round(SCR_BUDGET / Math.max(1, screenWatchers()))));
   pc.getSenders().forEach(snd => {
     const t = snd.track; if (!t) return;
     const prm = snd.getParameters(); if (!prm.encodings || !prm.encodings.length) return;
     const e = prm.encodings[0];
-    if (t.kind === 'audio') { e.maxBitrate = 96000; e.priority = 'high'; e.networkPriority = 'high'; }
-    else if (V.screen && V.screen.getTracks().includes(t)) { e.maxBitrate = q[0] * 1000; e.maxFramerate = q[1]; e.priority = 'medium'; prm.degradationPreference = q[1] >= 60 ? 'maintain-framerate' : 'maintain-resolution'; }
-    else { e.maxBitrate = 2500000; e.maxFramerate = 30; prm.degradationPreference = 'balanced'; }
+    if (V.screen && V.screen.getTracks().includes(t)) {
+      e.active = !!(p && p.wantScreen); // ninguém assistindo daqui: pausa o envio para essa pessoa
+      e.priority = 'low'; e.networkPriority = 'low';
+      if (t.kind === 'video') { e.maxBitrate = per * 1000; e.maxFramerate = q[1]; e.scaleResolutionDownBy = per < q[0] * .55 ? 1.5 : 1; prm.degradationPreference = q[1] >= 60 ? 'maintain-framerate' : 'maintain-resolution'; }
+      else e.maxBitrate = 96000;
+    }
+    else if (t.kind === 'audio') { e.maxBitrate = 96000; e.priority = 'high'; e.networkPriority = 'high'; }
+    else { e.maxBitrate = 1500000; e.maxFramerate = 30; prm.degradationPreference = 'balanced'; }
     snd.setParameters(prm).catch(() => {});
   });
+}
+const retuneAll = () => V.peers.forEach(p => tuneSenders(p.pc));
+// tela em H.264 (codificado pela placa de vídeo na maioria dos PCs); se não tiver, fica no padrão
+function preferScreenCodec(pc) {
+  if (!V.screen || !window.RTCRtpSender || !RTCRtpSender.getCapabilities) return;
+  const caps = RTCRtpSender.getCapabilities('video'); if (!caps || !caps.codecs) return;
+  const h = caps.codecs.filter(c => /h264/i.test(c.mimeType)); if (!h.length) return;
+  const order = [...h, ...caps.codecs.filter(c => !/h264/i.test(c.mimeType))];
+  pc.getTransceivers().forEach(tr => { if (tr.sender && tr.sender.track && V.screen.getVideoTracks().includes(tr.sender.track) && tr.setCodecPreferences) { try { tr.setCodecPreferences(order); } catch {} } });
+}
+// eu passo a assistir (ou paro de assistir) a tela de alguém: avisa quem compartilha
+function setWatch(sid, on) {
+  const p = V.peers.get(sid);
+  if (on) V.watch.add(sid); else { V.watch.delete(sid); V.videoCache.delete('screen:' + sid); if (S.focusTile === 'screen:' + sid) S.focusTile = null; }
+  if (p) sendSig(p, { watch: !!on });
+  if (on) S.focusTile = 'screen:' + sid;
+  renderStageSlot();
 }
 function secureOk() { return window.isSecureContext && navigator.mediaDevices; }
 function applyMicGate() {
@@ -2935,7 +2970,7 @@ function cleanupVoice() {
   V.peers.forEach(p => { try { p.pc.close(); } catch {} });
   V.peers.clear();
   [V.screen, V.cam].forEach(s => s && s.getTracks().forEach(t => t.stop())); stopMic();
-  V.screen = V.cam = null; V.room = null; SB.playing.forEach(x => { try { x.src.stop(); } catch {} }); SB.playing.clear(); V.calling = false; S.focusTile = null;
+  V.screen = V.cam = null; V.room = null; V.watch.clear(); V.ownPreview = false; SB.playing.forEach(x => { try { x.src.stop(); } catch {} }); SB.playing.clear(); V.calling = false; S.focusTile = null;
   [...V.levels.keys()].forEach(dropLevel); V.videoCache.clear(); dropAudio(() => true); $('#audioSink').innerHTML = '';
   ring(false); musicSync(); mixerSync(); render();
   droid('call', false, '');
@@ -2991,6 +3026,7 @@ function getPeer(sid) {
   p = { sid, pc, polite: S.mySid > sid, makingOffer: false, ignoreOffer: false, streams: new Map(), rjt: null, joinedAt: (peerInfo(sid) || {}).joinedAt || null };
   V.peers.set(sid, p);
   [V.mic, V.screen, V.cam].forEach(s => s && s.getTracks().forEach(t => pc.addTrack(t, s)));
+  preferScreenCodec(pc);
   pc.onnegotiationneeded = async () => {
     try {
       p.makingOffer = true;
@@ -3014,6 +3050,7 @@ function getPeer(sid) {
     const who = nameOf(peerInfo(sid)?.uid);
     if (pc.connectionState === 'connected') {
       p.warned = false; clearTimeout(p.connT);
+      if (V.watch.has(sid)) sendSig(p, { watch: true }); // reconectou: continua assistindo a tela dessa pessoa
       // por onde o áudio passa: direto (rede local/internet) ou pelo servidor TURN
       pc.getStats().then(st => {
         let pair = null; st.forEach(x => { if (x.type === 'transport' && x.selectedCandidatePairId) pair = st.get(x.selectedCandidatePairId); });
@@ -3050,6 +3087,8 @@ async function onSignal({ from, data }) {
   }
   p = p || getPeer(from);
   if (data.jt && !p.rjt) p.rjt = data.jt;
+  // a pessoa começou/parou de assistir a minha tela: liga ou pausa o envio só para ela e redivide a banda
+  if ('watch' in data) { p.wantScreen = !!data.watch; retuneAll(); clog(`${nameOf(peerInfo(from)?.uid)} ${p.wantScreen ? 'começou a assistir' : 'parou de assistir'} a sua tela.`); return; }
   const pc = p.pc;
   try {
     if (data.description) {
@@ -3242,6 +3281,24 @@ function voiceMenu(uid, anchor) {
   $('#vmM', p).onchange = e => { set('umute', e.target.checked ? true : null); renderSide(); renderStageSlot(); };
   $('#vmR', p).onclick = () => { ['vol', 'svol', 'umute'].forEach(k => set(k, null)); closePops(); renderSide(); renderStageSlot(); };
 }
+// botão direito na tela de alguém: volume do som da tela, silenciar, tela cheia e parar/começar a assistir
+function screenMenu(sid, anchor) {
+  const info = peerInfo(sid); if (!info) return;
+  const uid = info.uid, watching = V.watch.has(sid), cur = volOf(uid, 'screen');
+  const p = pop(`<div class="vm-h">${ic('screen')}<b>Tela de ${esc(nameOf(uid))}</b></div>
+    <label class="vm-l" for="smV">Volume da tela<output id="smVO">${cur}%</output></label><input type="range" id="smV" min="0" max="200" step="5" value="${cur}">
+    <label class="vm-c"><input type="checkbox" id="smM" ${cur === 0 ? 'checked' : ''}>Silenciar o som da tela</label>
+    <p class="muted small" style="margin:0">Muda só o que você escuta. A voz da pessoa continua normal.</p>
+    <div class="vm-f">${watching ? '<button class="btn sm" id="smFs">Tela cheia</button><button class="btn sm danger" id="smStop">⏹ Parar de assistir</button>' : '<button class="btn sm primary" id="smWatch">▶ Assistir</button>'}</div>`, anchor, 'vmenu', 'above');
+  let last = cur || 100;
+  const set = v => { prefs.svol = { ...(prefs.svol || {}) }; if (v === 100) delete prefs.svol[uid]; else prefs.svol[uid] = v; savePrefs(); applyVolumes(); $('#smV', p).value = v; $('#smVO', p).textContent = v + '%'; $('#smM', p).checked = v === 0; };
+  $('#smV', p).oninput = e => { const v = +e.target.value; if (v) last = v; set(v); };
+  $('#smV', p).onchange = () => renderStageSlot();
+  $('#smM', p).onchange = e => { set(e.target.checked ? 0 : last); renderStageSlot(); };
+  const fs = $('#smFs', p); if (fs) fs.onclick = () => { closePops(); const v = $(`.tile[data-key="screen:${sid}"] video`); (v && v.requestFullscreen ? v.requestFullscreen() : Promise.reject()).catch(() => {}); };
+  const st = $('#smStop', p); if (st) st.onclick = () => { closePops(); setWatch(sid, false); };
+  const w = $('#smWatch', p); if (w) w.onclick = () => { closePops(); setWatch(sid, true); };
+}
 // marquinha ao lado do nome quando você mudou o volume da pessoa
 const volTag = uid => (prefs.umute && prefs.umute[uid]) ? '<span class="vol-tag" title="Silenciado para você">🔇</span>' : (prefs.vol && prefs.vol[uid] !== undefined) ? `<span class="vol-tag" title="Volume para você">${prefs.vol[uid]}%</span>` : '';
 
@@ -3291,7 +3348,8 @@ async function toggleScreen() {
   // No navegador, o "som do sistema" pega o PC inteiro, vozes da call incluídas (quem fala se ouve de volta).
   // restrictOwnAudio tira da captura o som da própria página. No app de PC o som vem do somtela.exe, que já exclui o Anarchy.
   const sup = (navigator.mediaDevices.getSupportedConstraints && navigator.mediaDevices.getSupportedConstraints()) || {};
-  const ask = audio => navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: q[0] }, height: { ideal: q[1] }, frameRate: { ideal: q[2] } },
+  // teto na captura: nunca pega acima da qualidade escolhida (tela 2K/4K seria redimensionada a cada quadro)
+  const ask = audio => navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: q[0], max: q[0] }, height: { ideal: q[1], max: q[1] }, frameRate: { ideal: q[2], max: q[2] } },
     audio: audio && sup.restrictOwnAudio ? { restrictOwnAudio: true } : audio });
   const fail = e => { if (e && e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast('Não consegui compartilhar a tela: ' + (e.message || e.name), true); };
   try { V.screen = await ask(true); }
@@ -3304,9 +3362,11 @@ async function toggleScreen() {
   }
   if (!V.room) { V.screen.getTracks().forEach(t => t.stop()); V.screen = null; return; }
   const vt = V.screen.getVideoTracks()[0]; if (vt) { vt.contentHint = prefs.quality === '1080p60' ? 'motion' : 'detail'; vt.onended = () => stopStream('screen'); }
-  V.peers.forEach(p => V.screen.getTracks().forEach(t => p.pc.addTrack(t, V.screen)));
-  S.focusTile = 'screen:' + S.mySid;
+  // ninguém recebe ainda: cada um clica em "Assistir" (o envio só liga para quem assiste)
+  V.peers.forEach(p => { p.wantScreen = false; V.screen.getTracks().forEach(t => p.pc.addTrack(t, V.screen)); preferScreenCodec(p.pc); });
+  V.ownPreview = false;
   sendState(); render(); openStage();
+  toast('Você está compartilhando a tela. Quem quiser ver clica em "Assistir".');
 }
 async function toggleCam() {
   if (!V.room) return;
@@ -3323,6 +3383,7 @@ function stopStream(kind) {
   const tracks = s.getTracks(); tracks.forEach(t => t.stop());
   V.peers.forEach(p => p.pc.getSenders().forEach(snd => { if (snd.track && tracks.includes(snd.track)) try { p.pc.removeTrack(snd); } catch {} }));
   V[kind] = null; V.videoCache.delete(kind + ':' + S.mySid);
+  if (kind === 'screen') V.peers.forEach(p => { p.wantScreen = false; });
   if (S.focusTile === kind + ':' + S.mySid) S.focusTile = null;
   sendState(); render();
 }
@@ -3390,11 +3451,22 @@ function renderStageSlot() {
     const me = p.sid === S.mySid;
     const peer = V.peers.get(p.sid);
     const camStream = me ? V.cam : p.cam && peer?.streams.get(p.cam);
-    const scrStream = me ? V.screen : p.screen && peer?.streams.get(p.screen);
+    // a tela só é mostrada (e recebida) se você estiver assistindo; a sua só com a prévia ligada
+    if (!me && !p.screen && V.watch.has(p.sid)) V.watch.delete(p.sid);
+    const watching = me ? V.ownPreview : V.watch.has(p.sid);
+    const scrStream = !watching ? null : me ? V.screen : p.screen && peer?.streams.get(p.screen);
     const flags = `${p.deafened ? ic('headOff') : p.muted ? ic('micOff') : ''}`;
     const vb = me ? '' : `<button class="tvol" data-act="voiceUser" data-vuid="${p.uid}" title="Volume de ${esc(nameOf(p.uid))}">${ic(prefs.umute && prefs.umute[p.uid] ? 'micOff' : 'voice')}</button>`;
     tiles.push({ key: 'user:' + p.sid, html: `<div class="tile ${camStream ? 'cam' : ''}" data-act="focus" data-key="user:${p.sid}" data-speak="${p.sid}" ${me ? '' : `data-vuid="${p.uid}"`}>${camStream ? `<div class="vslot" data-v="cam:${p.sid}" style="position:absolute;inset:0"></div>` : av(p.uid, 80, false)}<span class="nm">${flags}${esc(nameOf(p.uid))}${me ? ' (você)' : ''}${volTag(p.uid)}</span>${vb}</div>`, stream: camStream, vkey: 'cam:' + p.sid, mirror: me });
-    if (p.screen || (me && V.screen)) tiles.push({ key: 'screen:' + p.sid, html: `<div class="tile" data-act="focus" data-key="screen:${p.sid}" ${me ? '' : `data-vuid="${p.uid}"`}>${scrStream ? `<div class="vslot" data-v="screen:${p.sid}" style="position:absolute;inset:0"></div>` : '<span class="muted">Conectando à tela...</span>'}<span class="live">AO VIVO</span><span class="nm">${ic('screen')}Tela de ${esc(nameOf(p.uid))}${!me && prefs.svol && prefs.svol[p.uid] !== undefined ? `<span class="vol-tag">${prefs.svol[p.uid]}%</span>` : ''}</span>${me ? '' : `<button class="tvol" data-act="voiceUser" data-vuid="${p.uid}" title="Volume da tela">${ic('voice')}</button>`}<button class="fs" data-act="fullscreen" data-key="screen:${p.sid}" title="Tela cheia">${ic('max')}</button></div>`, stream: scrStream, vkey: 'screen:' + p.sid });
+    if (p.screen || (me && V.screen)) {
+      const sv = prefs.svol && prefs.svol[p.uid];
+      // sem assistir: um cartão com "Assistir" (nada é baixado nem decodificado até clicar)
+      const body = scrStream ? `<div class="vslot" data-v="screen:${p.sid}" style="position:absolute;inset:0"></div>`
+        : me ? `<div class="scr-idle">${ic('screen')}<b>Você está compartilhando a tela</b><span>${screenWatchers() ? `${screenWatchers()} ${screenWatchers() === 1 ? 'pessoa assistindo' : 'pessoas assistindo'}` : 'Ninguém assistindo ainda'}</span><button class="btn sm" data-act="ownPreview">Ver prévia</button></div>`
+        : watching ? '<span class="muted">Conectando à tela...</span>'
+        : `<div class="scr-idle">${av(p.uid, 48, false)}<b>${esc(nameOf(p.uid))} está compartilhando a tela</b><button class="btn primary" data-act="watchScreen" data-sid="${p.sid}">▶ Assistir</button></div>`;
+      tiles.push({ key: 'screen:' + p.sid, html: `<div class="tile scr ${watching ? '' : 'idle'}" data-act="focus" data-key="screen:${p.sid}" ${me ? '' : `data-scr="${p.sid}" data-suid="${p.uid}"`}>${body}<span class="live">AO VIVO</span><span class="nm">${ic('screen')}Tela de ${esc(nameOf(p.uid))}${!me && sv !== undefined ? `<span class="vol-tag">${sv === 0 ? '🔇' : sv + '%'}</span>` : ''}</span>${!me && watching ? `<button class="tstop" data-act="unwatchScreen" data-sid="${p.sid}" title="Parar de assistir">⏹ Parar de assistir</button><button class="tvol" data-act="screenMenu" data-sid="${p.sid}" title="Volume da tela (ou botão direito na tela)">${ic('voice')}</button>` : ''}${me && V.ownPreview ? `<button class="tstop" data-act="ownPreview" title="Esconder a prévia (economiza o PC)">Esconder prévia</button>` : ''}${scrStream ? `<button class="fs" data-act="fullscreen" data-key="screen:${p.sid}" title="Tela cheia">${ic('max')}</button>` : ''}</div>`, stream: scrStream, vkey: 'screen:' + p.sid });
+    }
   }
   const focus = S.focusTile && tiles.find(t => t.key === S.focusTile);
   const ctrls = `<div class="stage-ctrls"><div class="stage-pill">
@@ -4245,6 +4317,10 @@ const A = {
   // RPG de Mesa do grupo ou da conversa aberta (rpg.js)
   rpg: () => { const v = S.view; if (!window.anarchyRpg) return; if (v.kind === 'group') window.anarchyRpg.lobby({ kind: 'g', id: v.gid }); else if (v.kind === 'dm') window.anarchyRpg.lobby({ kind: 'dm', id: v.id }); },
   voiceUser: (el, e) => { e.stopPropagation(); voiceMenu(el.dataset.vuid, el); },
+  watchScreen: (el, e) => { e.stopPropagation(); setWatch(el.dataset.sid, true); },
+  unwatchScreen: (el, e) => { e.stopPropagation(); setWatch(el.dataset.sid, false); toast('Você parou de assistir. A tela não é mais baixada.'); },
+  ownPreview: (el, e) => { e.stopPropagation(); V.ownPreview = !V.ownPreview; if (!V.ownPreview) V.videoCache.delete('screen:' + S.mySid); renderStageSlot(); },
+  screenMenu: (el, e) => { e.stopPropagation(); screenMenu(el.dataset.sid, el); },
   focus: (el, e) => { if (e.target.closest('.fs')) return; S.focusTile = S.focusTile === el.dataset.key ? null : el.dataset.key; renderStageSlot(); },
   fullscreen: (el, e) => { e.stopPropagation(); const v = el.closest('.tile').querySelector('video'); (v?.requestFullscreen ? v.requestFullscreen() : el.closest('.tile').requestFullscreen?.())?.catch?.(() => {}); },
   acceptCall: async () => { const d = incoming?.dmId; closeRing(); ring(false); if (d) { await joinVoice(d); go({ kind: 'dm', id: d }); } },

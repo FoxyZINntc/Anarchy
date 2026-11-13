@@ -587,6 +587,17 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .tile:not(:has(.fs)) .tvol { right: 8px; }
 .tile:hover .tvol, .tile .tvol:focus-visible { opacity: 1; }
 .tile .tvol svg { width: 16px; height: 16px; }
+/* tela compartilhada: cartão "Assistir" (nada é baixado até clicar) e botão "Parar de assistir" */
+.tile .scr-idle { display: grid; gap: 8px; justify-items: center; text-align: center; padding: 16px; }
+.tile .scr-idle > svg { width: 34px; height: 34px; opacity: .7; }
+.tile .scr-idle b { font-size: 14px; }
+.tile .scr-idle span { font-size: 12px; opacity: .65; }
+.tile.scr.idle { background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, .06), transparent 70%), var(--bg3, #1e1f22); }
+.thumbs .tile .scr-idle b, .thumbs .tile .scr-idle span { display: none; }
+.thumbs .tile .scr-idle .btn { padding: 4px 10px; font-size: 12px; }
+.tile .tstop { position: absolute; left: 8px; top: 8px; background: rgba(0, 0, 0, .6); color: #fff; border: 0; border-radius: 6px; padding: 5px 9px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; opacity: 0; transition: opacity .15s, background .15s; }
+.tile:hover .tstop, .tile .tstop:focus-visible { opacity: 1; }
+.tile .tstop:hover { background: var(--danger); }
 .pop.vmenu { padding: 14px; width: 270px; display: grid; gap: 8px; }
 .vm-h { display: flex; align-items: center; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .vm-h b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
