@@ -1217,6 +1217,12 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-13-tela-leve', date: '13/11/2026', title: 'Tela compartilhada mais leve', emoji: '🖥️', items: [
+    'Compartilhar a tela pesa bem menos no PC e na internet: o ping não dispara mais.',
+    'Quando alguém compartilha, clique em <b>▶ Assistir</b> para ver. Quem não está assistindo não gasta nada.',
+    'Botão <b>⏹ Parar de assistir</b> em cima da tela.',
+    '<b>Botão direito</b> na tela de alguém: volume do som da tela, silenciar e tela cheia.'
+  ] },
   { id: '2026-11-12-rpg-visual-hud', date: '12/11/2026', title: 'RPG de Mesa: visual do seu jeito', emoji: '🎬', items: [
     'Novo botão <b>🎬</b> no topo da mesa: escolha o filtro da tela entre <b>Limpo</b>, <b>Suave</b> ou <b>Cinema</b>, ou ajuste cada efeito. Vale só para você.',
     'O filtro padrão ficou mais leve.',
