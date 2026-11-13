@@ -143,7 +143,10 @@ function publicUser(u) {
     accent: u.accent || null, frame: u.frame || null, effect: u.effect || null, badges: u.bot ? [] : badgesOf(u),
     status: on ? (u.status || 'online') : 'offline', createdAt: u.createdAt,
     plate: u.plate && PLATES.includes(u.plate) ? u.plate : null,
-    avfx: u.avfx && AVFX[u.avfx] ? u.avfx : null
+    avfx: u.avfx && AVFX[u.avfx] ? u.avfx : null,
+    // conquistas (ids) e o que está fazendo agora (some depois de 12 horas)
+    ach: u.ach ? Object.keys(u.ach) : [],
+    activity: u.activity && Date.now() - u.activity.at < 12 * 3600e3 ? { text: u.activity.text, emoji: u.activity.emoji } : null
   };
 }
 /* insígnias: calculadas a partir de dados reais da conta (ninguém escolhe a própria) */
@@ -236,7 +239,10 @@ const above = (g, uid, target) => rank(g, uid) < rank(g, target);
 // o email da conta só vai para o próprio dono (nunca no publicUser)
 function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online', blocked: u.blocked || [], favs: u.favs || null, privacy: u.privacy || {}, email: u.email || null, emailAsked: u.emailAsked || 0, mailOn: mailOn(),
   items: u.items || [], lost: (u.lost || []).slice(-100), admin: isAdmin(u), given: isAdmin(u) ? (u.given || []).slice(-300) : [],
-  points: u.points || 0, pointsTotal: u.pointsTotal || 0, callAcc: u.callAcc || 0, ptEvery: PT_EVERY, boxes: u.boxes || 0, boxLog: (u.boxLog || []).slice(-40), ptsLog: (u.ptsLog || []).slice(-40) }; }
+  points: u.points || 0, pointsTotal: u.pointsTotal || 0, callAcc: u.callAcc || 0, ptEvery: PT_EVERY, boxes: u.boxes || 0, boxLog: (u.boxLog || []).slice(-40), ptsLog: (u.ptsLog || []).slice(-40),
+  // caixa diária: pronta para pegar hoje? (vira à meia-noite de Brasília) e quantos dias seguidos
+  daily: { ready: !u.daily || u.daily.last !== new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), streak: (u.daily && u.daily.streak) || 0 },
+  achAt: u.ach || {}, stats: u.stats || {} }; }
 // bloqueio vale nos dois sentidos: quem bloqueou e quem foi bloqueado não se alcançam
 const blockedBetween = (a, b) => !!((db.users[a] && (db.users[a].blocked || []).includes(b)) || (db.users[b] && (db.users[b].blocked || []).includes(a)));
 
@@ -304,6 +310,7 @@ setInterval(() => {
         u.callAcc -= PT_EVERY; u.points = (u.points || 0) + PT_GAIN; u.pointsTotal = (u.pointsTotal || 0) + PT_GAIN;
         toUser(u.id, 'points:gain', { amount: PT_GAIN, points: u.points });
       }
+      fun.track(u.id, 'callMin'); // minutos em call (conquistas e retrospectiva)
       toUser(u.id, 'me:update', selfUser(u));
     }
   }
@@ -860,6 +867,10 @@ const rpg = require('./rpg').createRpg({
   db, save, newId, now, str, log, toUser, toUsers, can, pushGroup, limited, users: db.users,
   isUpload: u => store.isUpload(u)
 });
+/* ---------- diversão: enquetes, bombas, conquistas, caixa diária, atividade, eventos, roleta, retrospectiva (ver diversao.js) ---------- */
+const fun = require('./diversao').createDiversao({
+  db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, rollAvfx, AVFX, REFUND
+});
 
 /* ---------- Socket.IO ---------- */
 function onConnection(socket) {
@@ -876,6 +887,8 @@ function onConnection(socket) {
   const fail = (cb, erro) => typeof cb === 'function' && cb({ ok: false, erro });
   const on = (ev, fn) => socket.on(ev, (data, cb) => { try { fn(data || {}, cb); } catch (e) { console.error(ev, e); fail(cb, 'Erro interno.'); } });
   rpg.bind(socket, uid, on, ok, fail);
+  fun.bind(socket, uid, on, ok, fail);
+  on('ach:list', (_, cb) => ok(cb, { list: fun.ACH }));
 
   on('init', (_, cb) => {
     const users = {};
@@ -979,6 +992,8 @@ function onConnection(socket) {
     else u.items.push({ id: newId(), item: 'av:' + item, from: 'caixa', at: now(), seen: true });
     u.boxes = (u.boxes || 0) + 1;
     u.boxLog = [...(u.boxLog || []), { item, at: now(), dup }].slice(-60);
+    if (tier === 'lendario' || tier === 'mitico') { u.stats = u.stats || {}; u.stats.luck = (u.stats.luck || 0) + 1; }
+    fun.check(u); // conquistas de caixa e de sorte
     save(); toUser(uid, 'me:update', selfUser(u));
     if (tier === 'lendario' || tier === 'mitico') log(`   Caixa: @${u.username} tirou ${item} (${tier})!`);
     ok(cb, { item, tier, dup, refund, points: u.points });
@@ -1310,7 +1325,7 @@ function onConnection(socket) {
     const list = db.messages[d.cid] || [];
     let end = list.length;
     if (d.before) { const i = list.findIndex(m => m.id === d.before); if (i >= 0) end = i; }
-    ok(cb, { messages: list.slice(Math.max(0, end - 60), end), more: end > 60 });
+    ok(cb, { messages: list.slice(Math.max(0, end - 60), end).map(fun.pubMsg), more: end > 60 });
   });
   on('message:send', (d, cb) => {
     if (limited('msg:' + uid, 12, 10e3)) return fail(cb, 'Calma! Você está mandando mensagens rápido demais.');
@@ -1353,6 +1368,7 @@ function onConnection(socket) {
     if (msg.image && d.imageName) { const n = str(d.imageName, 120).replace(/[^\w.\- ()À-ÿ]/g, '').trim(); if (n) msg.imageName = n; }
     const list = db.messages[d.cid] || (db.messages[d.cid] = []);
     list.push(msg); if (list.length > 3000) list.splice(0, list.length - 3000);
+    fun.track(uid, 'msgs');
     save(); toUsers(info.members, 'message:new', msg);
     if (info.kind === 'dm') toUsers(info.members, 'dm:update', { ...info.dm, last: msg.ts });
     ok(cb, { message: msg });
@@ -1361,6 +1377,7 @@ function onConnection(socket) {
   on('message:edit', (d, cb) => {
     const info = canAccess(uid, d.cid); const m = info && findMsg(d.cid, d.id);
     if (!m || m.authorId !== uid) return fail(cb, 'Sem permissão.');
+    if (m.bomb || m.poll) return fail(cb, 'Enquetes e mensagens-bomba não podem ser editadas.');
     const c = str(d.content, 4000).trim(); if (!c && !m.image) return fail(cb, 'Mensagem vazia.');
     m.content = c; m.edited = now(); save(); toUsers(info.members, 'message:update', m); ok(cb);
   });
@@ -1379,19 +1396,19 @@ function onConnection(socket) {
       if ((db.messages[d.cid] || []).filter(x => x.pinned).length >= 50) return fail(cb, 'Limite de 50 mensagens fixadas por canal.');
       m.pinned = { by: uid, at: now() };
     } else delete m.pinned;
-    save(); toUsers(info.members, 'message:update', m); ok(cb);
+    save(); toUsers(info.members, 'message:update', fun.pubMsg(m)); ok(cb);
   });
   on('messages:pins', (d, cb) => {
     if (!canAccess(uid, d.cid)) return fail(cb, 'Sem acesso.');
-    ok(cb, { messages: (db.messages[d.cid] || []).filter(m => m.pinned).sort((a, b) => b.pinned.at - a.pinned.at) });
+    ok(cb, { messages: (db.messages[d.cid] || []).filter(m => m.pinned).sort((a, b) => b.pinned.at - a.pinned.at).map(fun.pubMsg) });
   });
   on('message:react', (d, cb) => {
     const info = canAccess(uid, d.cid); const m = info && findMsg(d.cid, d.id);
     const emoji = str(d.emoji, 16); if (!m || !emoji) return fail(cb, 'Inválido.');
     const arr = m.reactions[emoji] || (m.reactions[emoji] = []);
-    const i = arr.indexOf(uid); if (i >= 0) arr.splice(i, 1); else arr.push(uid);
+    const i = arr.indexOf(uid); if (i >= 0) arr.splice(i, 1); else { arr.push(uid); fun.track(uid, 'reacts'); }
     if (!arr.length) delete m.reactions[emoji];
-    save(); toUsers(info.members, 'message:update', m); ok(cb);
+    save(); toUsers(info.members, 'message:update', fun.pubMsg(m)); ok(cb);
   });
   on('typing', d => { const info = canAccess(uid, d.cid); if (info) toUsers(info.members.filter(m => m !== uid), 'typing', { cid: d.cid, uid }); });
 
