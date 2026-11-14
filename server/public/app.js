@@ -1031,7 +1031,7 @@ function renderMembers() {
   const r = id => {
     const u = user(id), call = inCall.has(id);
     const sub = call ? `<span class="mem-s call">${ic('voice')}Em call</span>` : u.activity ? `<span class="mem-s act">${esc(u.activity.emoji)} ${esc(u.activity.text)}</span>` : u.customStatus ? `<span class="mem-s">${esc(u.customStatus)}</span>` : '';
-    return `<div class="mem ${u.status === 'offline' ? 'off' : ''}${npCls(id)}" data-act="profile" data-id="${id}">${av(id, 32, true, 'calm')}<div class="info"><div class="mem-n"><b style="color:${esc(nameColor(id, g))}">${esc(u.displayName)}</b>${u.bot ? '<span class="bot-tag">BOT</span>' : ''}${g.ownerId === id ? '<span class="crown" title="Dono do grupo">👑</span>' : ''}</div>${sub}</div></div>`;
+    return `<div class="mem ${u.status === 'offline' ? 'off' : ''}${npCls(id)}" data-act="profile" data-id="${id}">${av(id, 32, true, 'calm')}<div class="info"><div class="mem-n"><b style="color:${esc(nameColor(id, g))}">${esc(u.displayName)}</b>${window.anarchyFun ? window.anarchyFun.nickTag(g, id) : ''}${u.bot ? '<span class="bot-tag">BOT</span>' : ''}${g.ownerId === id ? '<span class="crown" title="Dono do grupo">👑</span>' : ''}</div>${sub}</div></div>`;
   };
   // como no Discord: quem está online aparece no primeiro cargo "separado" que tiver; offline fica no fim
   const placed = new Set(); let html = '';
@@ -1101,7 +1101,7 @@ function renderMessages(forceBottom) {
       html += `<div class="msg sys" id="m-${m.id}"><span class="sys-ic">${ic('reply').replace('<svg', '<svg style="transform:scaleX(-1) rotate(180deg)"')}</span><span class="sys-t">${line} <time>${fmtDay(m.ts) === 'Hoje' ? 'Hoje às ' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></span></div>`;
       prev = null; continue;
     }
-    if (m.system === 'event' && window.anarchyFun) { html += window.anarchyFun.sysEvent(m); prev = null; continue; } // evento do grupo começou
+    if ((m.system === 'event' || m.system === 'porteiro') && window.anarchyFun) { html += window.anarchyFun.sysEvent(m); prev = null; continue; } // evento começou / comentário do Porteiro
     if ((S.me.blocked || []).includes(m.authorId) && !S.unhide[m.id]) {
       html += `<div class="msg sys blocked" id="m-${m.id}"><span class="sys-ic">${ic('ban')}</span><span class="sys-t muted">Mensagem de alguém que você bloqueou. <button class="link" data-act="unhide" data-id="${m.id}">Mostrar</button></span></div>`;
       prev = null; continue;
@@ -1117,14 +1117,14 @@ function renderMessages(forceBottom) {
       ${head ? av(m.authorId, 40, false) : `<div class="gutter">${fmtTime(m.ts)}</div>`}
       <div class="mc" style="min-width:0">
         ${m.replyTo ? `<div class="reply-ref" data-act="jump" data-id="${m.replyTo}">${ic('reply').replace('<svg', '<svg style="width:14px;height:14px;transform:scaleX(-1)"')}${ref ? `<b>${esc(nameOf(ref.authorId))}</b> ${esc((ref.content || (ref.sticker ? '🗂️ figurinha' : ref.gif ? '🎞️ GIF' : '🖼️ imagem')).slice(0, 90))}` : '<i>mensagem apagada</i>'}</div>` : ''}
-        ${head ? `<div class="who"><b data-act="profile" data-id="${m.authorId}" style="color:${esc(nameColor(m.authorId, g))}">${esc(u.displayName)}</b>${u.bot ? '<span class="bot-tag">BOT</span>' : ''}${g && g.ownerId === m.authorId ? '<span class="crown">👑</span>' : ''}<time>${fmtDay(m.ts) === 'Hoje' ? '' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></div>` : ''}
+        ${head ? `<div class="who"><b data-act="profile" data-id="${m.authorId}" style="color:${esc(nameColor(m.authorId, g))}">${esc(u.displayName)}</b>${g && window.anarchyFun ? window.anarchyFun.nickTag(g, m.authorId) : ''}${u.bot ? '<span class="bot-tag">BOT</span>' : ''}${g && g.ownerId === m.authorId ? '<span class="crown">👑</span>' : ''}<time>${fmtDay(m.ts) === 'Hoje' ? '' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></div>` : ''}
         ${editing ? `<div class="edit-box"><textarea id="editArea" rows="2">${esc(m.content)}</textarea><span class="small muted">Enter salva · Esc cancela</span></div>`
           : m.content ? `<div class="body" style="${big ? 'font-size:2.4em;line-height:1.2' : ''}">${md(m.content)}${m.edited ? ' <span class="ed">(editado)</span>' : ''}</div>` : ''}
         ${m.music ? `<div class="dj-embed">${m.music.thumb ? `<img src="${esc(m.music.thumb)}" alt="" loading="lazy">` : '<div class="dj-noart">🎵</div>'}<div><b>${m.music.page ? `<a href="${esc(m.music.page)}" target="_blank" rel="noopener">${esc(m.music.title)}</a>` : esc(m.music.title)}</b><span>${esc(m.music.by || '')}${m.music.dur ? `${m.music.by ? ' · ' : ''}${fmtDur(m.music.dur)}` : ''}</span></div></div>` : ''}
         ${m.image ? `<img class="img" src="${esc(m.image)}" alt="Imagem enviada por ${esc(u.displayName)}" data-act="zoom" loading="lazy">` : ''}
         ${m.sticker ? `<img class="sticker" src="${esc(m.sticker.url)}" alt="Figurinha: ${esc(m.sticker.name)}" title="${esc(m.sticker.name)}" data-act="stickerInfo" data-id="${esc(m.sticker.id)}" loading="lazy">` : ''}
         ${m.gif ? `<img class="gifmsg" src="${esc(m.gif.url)}" alt="${esc(m.gif.title || 'GIF')}" loading="lazy" ${m.gif.w && m.gif.h ? `style="aspect-ratio:${m.gif.w}/${m.gif.h}"` : ''} data-act="zoom">` : ''}
-        ${(m.poll || m.bomb) && window.anarchyFun ? window.anarchyFun.msgExtra(m) : ''}
+        ${(m.poll || m.bomb || m.bet || m.nick) && window.anarchyFun ? window.anarchyFun.msgExtra(m) : ''}
         ${reacts.length ? `<div class="reacts">${reacts.map(([e, us]) => `<button class="react ${us.includes(S.me.id) ? 'mine' : ''}" data-act="react" data-id="${m.id}" data-emoji="${esc(e)}" title="${esc(us.map(nameOf).join(', '))}">${esc(e)} ${us.length}</button>`).join('')}</div>` : ''}
       </div>
       <div class="msg-tools">
@@ -1132,7 +1132,7 @@ function renderMessages(forceBottom) {
         <button data-act="reactPick" data-id="${m.id}" title="Mais reações">${ic('smile')}</button>
         <button data-act="reply" data-id="${m.id}" title="Responder">${ic('reply')}</button>
         <button data-act="msgMore" data-id="${m.id}" title="Mais opções" aria-label="Mais opções da mensagem">${ic('more')}</button>
-        ${mine && !m.poll && !m.bomb ? `<button data-act="edit" data-id="${m.id}" title="Editar">${ic('edit')}</button>` : ''}
+        ${mine && !m.poll && !m.bomb && !m.bet && !m.nick ? `<button data-act="edit" data-id="${m.id}" title="Editar">${ic('edit')}</button>` : ''}
         ${canDel ? `<button data-act="delMsg" data-id="${m.id}" title="Apagar" style="color:var(--danger)">${ic('trash')}</button>` : ''}
       </div>
     </div>`;
@@ -1678,7 +1678,7 @@ function drawInventory(b) {
   if (INV.tab === 'dar' && !me.admin) INV.tab = 'efeitos';
   drawInventory.sig = invSig(me);
   const every = me.ptEvery || 1800000, prog = Math.min(100, Math.round((me.callAcc || 0) / every * 100)), left = Math.max(1, Math.ceil((every - (me.callAcc || 0)) / 60000));
-  const tabs = [['efeitos', '✨ Efeitos de foto', `${own.size}/${AVFX_IDS.length}`], ['placas', '🏷️ Placas de nome', `${owned.size}/${PLATE_IDS.length}`], ['conquistas', '🏆 Conquistas', `${Object.keys(me.achAt || {}).length}`], ['historico', '📜 Histórico', ''], ...(me.admin ? [['dar', '🎁 Dar presentes', '']] : [])];
+  const tabs = [['efeitos', '✨ Efeitos de foto', `${own.size}/${AVFX_IDS.length}`], ['placas', '🏷️ Placas de nome', `${owned.size}/${PLATE_IDS.length}`], ['conquistas', '🏆 Conquistas', `${Object.keys(me.achAt || {}).length}`], ['loja', '🛒 Loja da semana', ''], ['historico', '📜 Histórico', ''], ...(me.admin ? [['dar', '🎁 Dar presentes', '']] : [])];
   b.innerHTML = `<h2>Inventário</h2>
     <div class="iv-hero">
       <div class="iv-look"><span class="iv-k">Seu visual</span>
@@ -1714,9 +1714,11 @@ function drawInventory(b) {
   };
   if (INV.tab === 'placas' && fresh) emit('inv:seen');
   if (INV.tab === 'dar') drawGive();
+  if (INV.tab === 'loja' && window.anarchyFun) window.anarchyFun.fillShop($('#ivPane .fun-shop'));
 }
 function invPane(me, own, owned, eqP) {
   if (INV.tab === 'conquistas') return window.anarchyFun ? window.anarchyFun.achPane() : '';
+  if (INV.tab === 'loja') return '<div class="fun-shop"><p class="muted small">Abrindo a loja...</p></div>';
   if (INV.tab === 'efeitos') {
     const filt = [['todos', 'Todos'], ['meus', 'Meus'], ...Object.entries(AVR).map(([k, v]) => [k, v[0]])];
     const ids = AVFX_IDS.filter(id => INV.rar === 'todos' || (INV.rar === 'meus' ? own.has(id) : AVFX[id].tier === INV.rar));
@@ -1908,6 +1910,7 @@ function userMenu(uid, x, y, anchor) {
     <button data-m="pf">Ver perfil ${I('user')}</button>
     ${me ? `<button data-m="edit">Editar perfil ${I('edit')}</button>` : u.bot ? `<button data-m="djset">Comandos e configurações do DJ</button>` : `<button data-m="dm">Enviar mensagem ${I('msg')}</button><button data-m="call">Iniciar chamada ${I('phone')}</button><button data-m="vid">Chamada de vídeo ${I('cam')}</button>`}
     ${canMention ? `<button data-m="men">Mencionar</button>` : ''}
+    ${g && !u.bot && g.members.includes(uid) ? `<button data-fun="nickNew" data-gid="${g.id}" data-uid="${uid}">Sugerir apelido <span style="margin-left:auto">🏷️</span></button>` : ''}
     ${S.me.admin && !u.bot ? `<hr><button data-m="gpts">Dar AnarchyPoints <i class="pts-ic" style="margin-left:auto"></i></button><button data-m="gift">Dar placa de nome <span style="margin-left:auto">🏷️</span></button>` : ''}
     ${u.bot ? `<hr><div class="um-vol"><label>Volume do DJ para você <output>${prefs.djVol ?? 70}%</output></label><input type="range" min="0" max="100" step="1" value="${prefs.djVol ?? 70}" data-m="djvol"></div>
       <button data-m="djmute">${prefs.djOn === false ? 'Voltar a ouvir o DJ' : 'Silenciar o DJ para mim'} ${I(prefs.djOn === false ? 'voice' : 'micOff')}</button>` : ''}
@@ -3223,7 +3226,7 @@ function djCard(roomId) {
         <span class="dj-time">${loading ? '' : '0:00'}</span>
         <label class="dj-vol" title="Volume do DJ só para você (dá para usar a rodinha do mouse)">${ic('voice')}<input type="range" min="0" max="100" step="1" value="${prefs.djVol ?? 70}" data-djvol="1" aria-label="Volume do DJ para você"><output>${prefs.djVol ?? 70}%</output></label>
       </div>
-      ${st.queue.length ? `<details class="dj-q"><summary>Próximas (${st.queue.length})</summary>${st.queue.slice(0, 15).map((t, i) => `<div class="dj-qi"><span>${i + 1}.</span><b title="${esc(t.title)}">${esc(t.title)}</b><span class="muted">${t.dur ? fmtDur(t.dur) : ''}</span>${inRoom ? `<button class="icon-btn" data-act="djCtl" data-a="tirar" data-v="${i + 1}" data-room="${roomId}" title="Tirar da fila">${ic('x')}</button>` : ''}</div>`).join('')}</details>` : ''}
+      ${st.queue.length ? `<details class="dj-q"><summary>Próximas (${st.queue.length})</summary>${st.queue.slice(0, 15).map((t, i) => `<div class="dj-qi"><span>${i + 1}.</span><b title="${esc(t.title)}">${esc(t.title)}</b><span class="muted">${t.dur ? fmtDur(t.dur) : ''}</span>${inRoom && window.anarchyFun ? window.anarchyFun.djVotes(roomId, t) : ''}${inRoom ? `<button class="icon-btn" data-act="djCtl" data-a="tirar" data-v="${i + 1}" data-room="${roomId}" title="Tirar da fila">${ic('x')}</button>` : ''}</div>`).join('')}</details>` : ''}
     </div></div>`;
 }
 // volume do DJ só para você: todas as barras (cartão da call e menu do botão direito) andam juntas
@@ -4392,7 +4395,8 @@ window.addEventListener('beforeunload', () => { if (V.room) socket?.emit('voice:
 
 /* =============== RPG de Mesa (rpg.js): o que ele usa do app =============== */
 if (window.anarchyRpg) window.anarchyRpg.init({ S, esc, ic, av, user, nameOf, emit, toast, modal, confirmBox, pickFile, readFile, api, tone, gCan, openGroupSettings, get socket() { return socket; } });
-if (window.anarchyFun) window.anarchyFun.init({ S, esc, av, nameOf, emit, toast, modal, confirmBox, pop, closePops, tone, confetti, md, gCan, reduceMotion, viewingCid: () => viewingCid(), renderMessages: () => renderMessages(), inCall: () => !!V.room });
+if (window.anarchyFun) window.anarchyFun.init({ S, esc, av, nameOf, emit, toast, modal, confirmBox, pop, closePops, tone, confetti, md, gCan, reduceMotion, viewingCid: () => viewingCid(), renderMessages: () => renderMessages(), inCall: () => !!V.room,
+  avfx: id => AVFX[id], avWith, rarName: t => (AVR[t] || [t])[0], plate: id => PLATES[id], plateRow, renderStage: () => renderStageSlot() });
 
 /* =============== início =============== */
 // quem entrou numa versão antiga tem o token guardado no navegador: troca por cookie (sem precisar entrar de novo)

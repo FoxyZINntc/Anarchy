@@ -124,4 +124,46 @@
 .iv-daily { background: linear-gradient(135deg, #3ccf91, #1f9d6b); color: #fff; border: 0; animation: fun-glow 2s ease-in-out infinite; }
 .iv-daily-ok { display: block; }
 @keyframes fun-glow { 50% { box-shadow: 0 0 18px -2px rgba(60, 207, 145, .7); } }
+/* ---- apostas ---- */
+.fun-bet { margin-top: 6px; max-width: 480px; padding: 12px; border-radius: 14px; background: linear-gradient(160deg, color-mix(in srgb, #e6bd62 10%, var(--panel)), var(--panel)); border: 1px solid color-mix(in srgb, #e6bd62 35%, var(--line)); display: grid; gap: 7px; }
+.fb-h { display: grid; gap: 2px; } .fb-h span { font-size: .8em; color: var(--muted); }
+.fb-opt { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; background: var(--elev); border: 1px solid var(--line); }
+.fb-opt > div { display: grid; gap: 2px; min-width: 0; } .fb-opt span { font-size: .78em; color: var(--muted); }
+.fb-opt.mine { border-color: var(--accent); }
+.fb-opt.win { border-color: #e6bd62; background: color-mix(in srgb, #e6bd62 14%, var(--elev)); }
+.fun-bet .fp-f { gap: 10px; } .fun-bet .fp-f .link { margin-left: auto; }
+.fb-won { color: #ffd36b; }
+.fun-bet.st-cancelada { opacity: .75; }
+
+/* ---- apelidos ---- */
+.fun-nick { margin-left: 6px; font-size: .8em; font-style: italic; color: var(--warn); font-weight: 600; }
+.fun-nickvote { margin-top: 6px; max-width: 480px; display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 11px 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); }
+.fun-nickvote > div { display: grid; gap: 2px; } .fun-nickvote span { font-size: .8em; color: var(--muted); }
+.fun-nickvote.done { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+
+/* ---- Porteiro ---- */
+.fun-port .sys-t b { color: var(--accent); margin-right: 4px; }
+.fun-port-av { width: 26px; height: 26px; flex: none; display: grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--accent) 22%, var(--panel)); font-size: 15px; }
+
+/* ---- som de entrada ---- */
+.fun-sounds { display: grid; gap: 6px; }
+.fun-snd { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+.fun-snd span { flex: 1; } .fun-snd.on { border-color: var(--accent); }
+
+/* ---- loja da semana ---- */
+.fun-shopgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.fun-item { display: grid; gap: 8px; justify-items: center; text-align: center; padding: 14px 10px; border-radius: 14px; background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--rc, var(--accent)) 18%, transparent), transparent 70%), var(--panel); border: 1px solid color-mix(in srgb, var(--rc, var(--accent)) 45%, var(--line)); }
+.fun-itier { font-size: .72em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--rc, var(--muted)); }
+.fun-iprev { min-height: 64px; display: grid; place-items: center; max-width: 100%; overflow: hidden; }
+.fun-item b { font-size: .9em; }
+
+/* abas do Inventário: com Conquistas e Loja não cabem numa linha só */
+.iv-tabs { flex-wrap: wrap; height: auto !important; }
+.iv-tabs > button { flex: 1 1 auto; }
+
+/* ---- fila do DJ ---- */
+.fun-djv { display: inline-flex; gap: 2px; margin-left: auto; }
+.fun-djv button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 1px 6px; font-size: 12px; cursor: pointer; }
+.fun-djv button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--panel)); }
+
 @media (prefers-reduced-motion: reduce) { .fun-bomb.closed, .iv-daily, .fun-achpop, .fun-achpop > i { animation: none !important; } }

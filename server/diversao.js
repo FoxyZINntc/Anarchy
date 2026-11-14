@@ -26,15 +26,22 @@ const ACH = [
   ['destino', '🎡', 'Destino', 'Girou a roleta da call', 'spins', 1, 50],
   ['organizador', '📅', 'Organizador', 'Criou um evento no grupo', 'events', 1, 100],
   ['reator', '😂', 'Reage a tudo', 'Deu 100 reações', 'reacts', 100, 150],
-  ['rico', '💰', 'Rico', 'Juntou 5.000 AnarchyPoints no total', 'pointsTotal', 5000, 500]
+  ['rico', '💰', 'Rico', 'Juntou 5.000 AnarchyPoints no total', 'pointsTotal', 5000, 500],
+  ['apostador', '🎲', 'Apostador', 'Ganhou uma aposta', 'betWins', 1, 100],
+  ['apelidado', '🏷️', 'Apelidado', 'O grupo votou um apelido para você', 'nicked', 1, 50],
+  ['comprador', '🛒', 'Cliente fiel', 'Comprou algo na loja da semana', 'buys', 1, 100]
 ];
+// conquistas que o Porteiro anuncia no grupo (as grandes)
+const BIG = new Set(['tagarela', 'call100', 'lenda', 'rico', 'sortudo', 'caixa50']);
+// Loja da semana: preço por raridade (efeitos de foto) e das placas de nome
+const PRICE = { comum: 400, raro: 900, epico: 2000, lendario: 5000, mitico: 12000 }, PLATE_PRICE = 6000;
 const PRENDAS = ['Cantar um trecho de música 🎤', 'Imitar alguém da call 🎭', 'Contar uma piada (ruim vale) 😂', 'Falar com sotaque até a próxima rodada 🗣️', 'Elogiar cada pessoa da call 💐',
   'Mandar o último meme que salvou 🖼️', 'Fazer barulho de animal 🐔', 'Contar uma vergonha leve 🙈', 'Ficar 1 minuto sem rir 😐', 'Escolher a próxima música do DJ 🎵',
   'Falar só rimando por 2 minutos 📜', 'Narrar o que acontece como locutor de futebol ⚽'];
 // dia no horário de Brasília (a caixa diária vira à meia-noite daqui)
 const day = ts => new Date(ts - 3 * 3600e3).toISOString().slice(0, 10);
 
-function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, rollAvfx, AVFX, REFUND }) {
+function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, sockets, rollAvfx, AVFX, REFUND, PLATES }) {
   const txt = (v, n) => str(v, n).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim();
   const int = (v, lo, hi, d) => { const n = Math.round(+v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
   const findMsg = (cid, id) => (db.messages[cid] || []).find(m => m.id === id);
@@ -55,6 +62,7 @@ function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAc
         u.points = (u.points || 0) + reward; u.pointsTotal = (u.pointsTotal || 0) + reward;
         toUser(u.id, 'ach:new', { id, reward, points: u.points });
         log(`   Conquista: @${u.username} ganhou "${name}".`);
+        if (BIG.has(id)) for (const g of Object.values(db.groups)) if (g.members.includes(u.id)) porteiro(g, `${u.displayName} acabou de ganhar a conquista **${name}** ${ACH.find(a => a[0] === id)[1]}! Respeita. 🫡`, 'ach:' + u.id + ':' + id, 0);
       }
     }
     return any;
@@ -66,7 +74,55 @@ function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAc
     if (check(u)) toUser(uid, 'me:update', selfUser(u));
   }
 
+  /* ---------- Porteiro: comenta o que acontece no grupo (dá para desligar em cada grupo) ---------- */
+  const portLast = new Map(); // chave -> última vez que falou disso
+  const groupChan = g => (g.channels.find(c => c.id === g.welcomeCid && c.type === 'text') || g.channels.find(c => c.type === 'text'));
+  function porteiro(g, text, key, cooldown = 2 * 3600e3) {
+    if (!g || g.porteiro === false) return null;
+    const k = g.id + ':' + key, t = now();
+    if (cooldown && t - (portLast.get(k) || 0) < cooldown) return null;
+    if (!cooldown && portLast.has(k)) return null;
+    portLast.set(k, t);
+    const ch = groupChan(g); if (!ch) return null;
+    const msg = { id: newId(), cid: ch.id, authorId: null, content: text, image: null, ts: t, edited: null, reactions: {}, replyTo: null, system: 'porteiro' };
+    const l = db.messages[ch.id] || (db.messages[ch.id] = []); l.push(msg); if (l.length > 3000) l.splice(0, l.length - 3000);
+    toUsers(g.members, 'message:new', msg); save();
+    return msg;
+  }
+  // hora de Brasília (0-23)
+  const brHour = ts => (new Date(ts).getUTCHours() + 21) % 24;
+  // alguém entrou numa call: som de entrada da pessoa (Central de Áudio do grupo) e o Porteiro contando as entradas do dia
+  function onVoiceJoin(socket, uid, roomId, info) {
+    const u = db.users[uid]; if (!u || u.bot || !info || info.kind !== 'group') return;
+    const g = info.group, sid = u.joinSounds && u.joinSounds[g.id], snd = sid && g.sounds.find(s => s.id === sid);
+    if (snd && !limited('joinsound:' + uid, 1, 20e3)) {
+      const ev = { roomId, uid, id: snd.id, url: snd.url, name: snd.name, emoji: snd.emoji, volume: snd.volume, duration: snd.duration, entrance: true };
+      setTimeout(() => { for (const s of (voice.get(roomId) || new Map()).keys()) { const sk = sockets.get(s); if (sk) sk.emit('sound:played', ev); } }, 900);
+    }
+    const today = day(now()); u.stats = u.stats || {};
+    if (!u.stats.joins || u.stats.joins.d !== today) u.stats.joins = { d: today, n: 0 };
+    const n = ++u.stats.joins.n;
+    if (n === 5 || n === 10 || n === 20) porteiro(g, `${u.displayName} entrou na call pela ${n}ª vez hoje 👀`, 'joins:' + uid + ':' + n, 0);
+  }
+  // mensagem nova: o Porteiro manda dormir quem está acordado de madrugada
+  function onMessage(uid, info) {
+    const u = db.users[uid]; if (!u || u.bot || !info || info.kind !== 'group') return;
+    const h = brHour(now());
+    if (h >= 3 && h < 5) porteiro(info.group, `${u.displayName}, são ${h} da manhã. Vai dormir! 😴`, 'sono:' + uid, 20 * 3600e3);
+  }
+
   /* ---------- varredura: enquetes vencidas, bombas velhas, avisos de eventos ---------- */
+  // grupo silencioso à noite: o Porteiro chama o pessoal
+  setInterval(() => {
+    const t = now(), h = brHour(t); if (h < 19 || h > 22) return;
+    for (const g of Object.values(db.groups)) {
+      if (g.porteiro === false || g.members.length < 3) continue;
+      const ch = groupChan(g); if (!ch) continue;
+      const l = db.messages[ch.id] || []; const lastTs = l.length ? l[l.length - 1].ts : 0;
+      const on = g.members.filter(m => db.users[m] && !db.users[m].bot && sockets && [...sockets.values()].some(s => s.data.uid === m)).length;
+      if (on >= 2 && lastTs && t - lastTs > 6 * 3600e3) porteiro(g, `Faz ${Math.round((t - lastTs) / 3600e3)} horas que ninguém fala aqui... tem alguém vivo? 👀 Bora uma call?`, 'quieto', 24 * 3600e3);
+    }
+  }, 10 * 60e3).unref();
   setInterval(() => {
     let changed = false; const t = now();
     for (const [cid, list] of Object.entries(db.messages)) {
@@ -98,6 +154,18 @@ function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAc
     }
     if (changed) save();
   }, 30e3).unref();
+
+  /* ---------- loja da semana (a mesma para todo mundo; troca toda segunda à meia-noite de Brasília) ---------- */
+  function shopNow() {
+    const t = now() - 3 * 3600e3, monday = 4 * 864e5; // 1/1/1970 foi quinta: +4 dias acerta a semana na segunda
+    const week = Math.floor((t - monday) / (7 * 864e5)), ends = (week + 1) * 7 * 864e5 + monday + 3 * 3600e3;
+    let s = (week * 2654435761) >>> 0; const r = () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
+    const pickTier = tier => { const pool = Object.keys(AVFX).filter(k => AVFX[k] === tier).sort(); return pool[Math.floor(r() * pool.length)]; };
+    const avs = [...new Set(['raro', 'epico', 'epico', 'lendario', r() < .35 ? 'mitico' : 'lendario'].map(pickTier))];
+    const plate = PLATES[Math.floor(r() * PLATES.length)];
+    return { week, ends, items: [...avs.map(id => ({ kind: 'av', id, tier: AVFX[id], price: PRICE[AVFX[id]] })), { kind: 'plate', id: plate, tier: 'placa', price: PLATE_PRICE }] };
+  }
+  const owns = (u, it) => (u.items || []).some(x => x.item === (it.kind === 'av' ? 'av:' + it.id : it.id));
 
   /* ---------- eventos do Socket.IO ---------- */
   function bind(socket, uid, on, ok, fail) {
@@ -236,6 +304,115 @@ function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAc
       track(uid, 'spins'); save(); ok(cb);
     });
 
+    /* ----- apostas amistosas: cada um aposta AnarchyPoints numa opção; quem criou decide quem ganhou ----- */
+    const betOf = d => { const info = canAccess(uid, str(d.cid, 40)); const m = info && findMsg(d.cid, str(d.id, 40)); return m && m.bet ? { info, m } : null; };
+    const pushBet = (info, m) => { save(); toUsers(info.members, 'message:update', m); };
+    on('bet:create', (d, cb) => {
+      const info = canAccess(uid, str(d.cid, 40)); if (!info) return fail(cb, 'Sem acesso.');
+      if (limited('bet:' + uid, 6, 60e3)) return fail(cb, 'Calma! Muitas apostas seguidas.');
+      const q = txt(d.q, 160); if (!q) return fail(cb, 'Sobre o que é a aposta?');
+      const opts = [...new Set((Array.isArray(d.opts) ? d.opts : []).map(o => txt(o, 60)).filter(Boolean))].slice(0, 6);
+      if (opts.length < 2) return fail(cb, 'Coloque pelo menos 2 opções.');
+      const msg = newMsg(info, d.cid, { bet: { q, opts: opts.map(t => ({ t, s: {} })), st: 'aberta', win: null } });
+      save(); ok(cb, { id: msg.id });
+    });
+    on('bet:join', (d, cb) => {
+      const b = betOf(d); if (!b) return fail(cb, 'Aposta não encontrada.');
+      const { info, m } = b, bet = m.bet, u = me();
+      if (bet.st !== 'aberta') return fail(cb, 'As apostas desta rodada já fecharam.');
+      const k = int(d.opt, 0, bet.opts.length - 1, -1); if (k < 0) return fail(cb, 'Opção inválida.');
+      const other = bet.opts.findIndex((o, i) => i !== k && o.s[uid]); if (other >= 0) return fail(cb, 'Você já apostou em outra opção.');
+      const amt = int(d.amount, 10, 5000, 0); if (!amt) return fail(cb, 'Aposte de 10 a 5.000 pontos.');
+      if ((u.points || 0) < amt) return fail(cb, `Você só tem ${(u.points || 0).toLocaleString('pt-BR')} pontos.`);
+      u.points -= amt; bet.opts[k].s[uid] = (bet.opts[k].s[uid] || 0) + amt;
+      toUser(uid, 'me:update', selfUser(u)); pushBet(info, m); ok(cb, { points: u.points });
+    });
+    const betJudge = (info, m) => m.authorId === uid || (info.kind === 'group' && can(info.group, uid, 'manageMessages'));
+    on('bet:lock', (d, cb) => {
+      const b = betOf(d); if (!b) return fail(cb, 'Aposta não encontrada.');
+      if (!betJudge(b.info, b.m)) return fail(cb, 'Só quem criou a aposta pode fechar.');
+      if (b.m.bet.st !== 'aberta') return fail(cb, 'Já está fechada.');
+      b.m.bet.st = 'fechada'; pushBet(b.info, b.m); ok(cb);
+    });
+    // devolve tudo (cancelada ou ninguém acertou) ou divide o pote entre quem acertou, na proporção do que cada um apostou
+    function payout(m, winIdx) {
+      const bet = m.bet, all = bet.opts.flatMap(o => Object.entries(o.s)), pot = all.reduce((a, [, v]) => a + v, 0);
+      const winners = winIdx === null ? [] : Object.entries(bet.opts[winIdx].s), wsum = winners.reduce((a, [, v]) => a + v, 0);
+      const back = {};
+      if (!wsum) for (const [u2, v] of all) back[u2] = (back[u2] || 0) + v;
+      else for (const [u2, v] of winners) back[u2] = (back[u2] || 0) + Math.floor(pot * v / wsum);
+      for (const [u2, v] of Object.entries(back)) { const x = db.users[u2]; if (!x) continue; x.points = (x.points || 0) + v; toUser(u2, 'me:update', selfUser(x)); }
+      if (wsum) for (const [u2] of winners) track(u2, 'betWins');
+      return { pot, back };
+    }
+    on('bet:resolve', (d, cb) => {
+      const b = betOf(d); if (!b) return fail(cb, 'Aposta não encontrada.');
+      if (!betJudge(b.info, b.m)) return fail(cb, 'Só quem criou a aposta decide quem ganhou.');
+      const bet = b.m.bet; if (bet.st === 'paga' || bet.st === 'cancelada') return fail(cb, 'Essa aposta já acabou.');
+      const cancel = !!d.cancel, k = cancel ? null : int(d.opt, 0, bet.opts.length - 1, -1);
+      if (!cancel && k < 0) return fail(cb, 'Escolha a opção vencedora.');
+      const r = payout(b.m, k);
+      bet.st = cancel ? 'cancelada' : 'paga'; bet.win = k; bet.paid = r.back; bet.pot = r.pot;
+      pushBet(b.info, b.m); ok(cb, r);
+    });
+
+    /* ----- apelidos votados: alguém sugere, o grupo vota; aprovado, vale por 7 dias ----- */
+    on('nick:propose', (d, cb) => {
+      const g = db.groups[str(d.gid, 40)]; if (!g || !g.members.includes(uid)) return fail(cb, 'Grupo não encontrado.');
+      const target = str(d.uid, 40); if (!g.members.includes(target) || !db.users[target] || db.users[target].bot) return fail(cb, 'Essa pessoa não está no grupo.');
+      const nick = txt(d.nick, 30); if (!nick) return fail(cb, 'Escreva o apelido.');
+      if (limited('nick:' + uid, 5, 3600e3)) return fail(cb, 'Muitas sugestões seguidas. Espere um pouco.');
+      const ch = groupChan(g); if (!ch) return fail(cb, 'O grupo não tem canal de texto.');
+      const humans = g.members.filter(m => db.users[m] && !db.users[m].bot).length;
+      const need = Math.max(2, Math.min(5, Math.ceil(humans * 0.34)));
+      const info = canAccess(uid, ch.id);
+      const msg = newMsg(info, ch.id, { nick: { target, nick, votes: [uid], need, done: false, at: now() } });
+      save(); ok(cb, { id: msg.id, cid: ch.id });
+    });
+    on('nick:vote', (d, cb) => {
+      const info = canAccess(uid, str(d.cid, 40)); const m = info && findMsg(d.cid, str(d.id, 40));
+      if (!m || !m.nick || info.kind !== 'group') return fail(cb, 'Votação não encontrada.');
+      const n = m.nick; if (n.done) return fail(cb, 'Essa votação já acabou.');
+      if (now() - n.at > 2 * 864e5) return fail(cb, 'Essa votação expirou.');
+      n.votes = n.votes.includes(uid) ? n.votes.filter(x => x !== uid) : [...n.votes, uid];
+      if (n.votes.length >= n.need) {
+        n.done = true; const g = info.group;
+        g.nicks = g.nicks && typeof g.nicks === 'object' ? g.nicks : {};
+        g.nicks[n.target] = { nick: n.nick, until: now() + 7 * 864e5 };
+        track(n.target, 'nicked');
+        pushGroup(g);
+        porteiro(g, `O grupo decidiu: ${(db.users[n.target] || {}).displayName} agora é **“${n.nick}”** por 7 dias. 🏷️`, 'nick:' + m.id, 0);
+      }
+      save(); toUsers(info.members, 'message:update', m); ok(cb);
+    });
+
+    /* ----- som de entrada: um som da Central de Áudio do grupo toca quando você entra numa call dele ----- */
+    on('joinsound:set', (d, cb) => {
+      const g = db.groups[str(d.gid, 40)], u = me(); if (!g || !g.members.includes(uid)) return fail(cb, 'Grupo não encontrado.');
+      const id = d.id ? str(d.id, 40) : null; if (id && !g.sounds.some(s => s.id === id)) return fail(cb, 'Som não encontrado.');
+      u.joinSounds = { ...(u.joinSounds || {}) }; if (id) u.joinSounds[g.id] = id; else delete u.joinSounds[g.id];
+      save(); toUser(uid, 'me:update', selfUser(u)); ok(cb);
+    });
+    // ligar/desligar os comentários do Porteiro no grupo
+    on('porteiro:set', (d, cb) => {
+      const g = db.groups[str(d.gid, 40)]; if (!g || !can(g, uid, 'manageServer')) return fail(cb, 'Só quem gerencia o grupo.');
+      g.porteiro = d.on !== false; save(); pushGroup(g); ok(cb);
+    });
+
+    /* ----- loja da semana: efeitos e uma placa que só ficam à venda até domingo ----- */
+    on('shop:get', (_, cb) => { const s = shopNow(), u = me(); ok(cb, { ...s, items: s.items.map(it => ({ ...it, owned: owns(u, it) })) }); });
+    on('shop:buy', (d, cb) => {
+      const s = shopNow(), it = s.items.find(x => x.id === str(d.id, 60)), u = me();
+      if (!it) return fail(cb, 'Esse item não está mais à venda.');
+      if (owns(u, it)) return fail(cb, 'Você já tem esse item.');
+      if ((u.points || 0) < it.price) return fail(cb, `Faltam ${(it.price - (u.points || 0)).toLocaleString('pt-BR')} pontos.`);
+      u.points -= it.price; u.items = u.items || [];
+      u.items.push({ id: newId(), item: it.kind === 'av' ? 'av:' + it.id : it.id, from: 'loja', at: now(), seen: it.kind === 'av' });
+      u.stats = u.stats || {}; u.stats.buys = (u.stats.buys || 0) + 1; check(u);
+      save(); pushUser(uid); log(`   Loja: @${u.username} comprou ${it.id} por ${it.price}.`);
+      ok(cb, { points: u.points });
+    });
+
     // retrospectiva do mês de um grupo: quem mais falou, mensagem com mais reações, emoji preferido, dia mais agitado...
     on('retro:get', (d, cb) => {
       const g = groupOf(d.gid); if (!g) return fail(cb, 'Grupo não encontrado.');
@@ -261,7 +438,7 @@ function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAc
     });
   }
 
-  return { bind, pubMsg, track, check, ACH: ACH.map(([id, emoji, name, desc, , goal, reward]) => ({ id, emoji, name, desc, goal, reward })), day };
+  return { bind, pubMsg, track, check, onVoiceJoin, onMessage, porteiro, ACH: ACH.map(([id, emoji, name, desc, , goal, reward]) => ({ id, emoji, name, desc, goal, reward })), day };
 }
 
 module.exports = { createDiversao };

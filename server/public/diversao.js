@@ -83,10 +83,111 @@ setInterval(() => {
   }
 }, 250);
 
+/* =============== apostas =============== */
+function betHtml(m) {
+  const b = m.bet, pot = b.opts.reduce((a, o) => a + Object.values(o.s).reduce((x, y) => x + y, 0), 0);
+  const mine = b.opts.findIndex(o => o.s[me()]), myAmt = mine >= 0 ? b.opts[mine].s[me()] : 0;
+  const g = H.S.view.kind === 'group' ? H.S.groups[H.S.view.gid] : null;
+  const judge = m.authorId === me() || (g && H.gCan(g, 'manageMessages'));
+  const st = { aberta: '🟢 Apostas abertas', fechada: '🔒 Apostas fechadas: esperando o resultado', paga: '🏆 Resultado saiu', cancelada: '↩️ Cancelada: pontos devolvidos' }[b.st];
+  return `<div class="fun-bet st-${b.st}"><div class="fb-h"><b>🎲 ${esc(b.q)}</b><span>${st}</span></div>
+    ${b.opts.map((o, i) => { const n = Object.values(o.s).reduce((x, y) => x + y, 0), who = Object.keys(o.s), odds = n ? (pot / n) : 0; return `<div class="fb-opt ${b.win === i ? 'win' : ''} ${mine === i ? 'mine' : ''}"><div><b>${b.win === i ? '🏆 ' : ''}${esc(o.t)}</b><span>${n.toLocaleString('pt-BR')} pontos${who.length ? ` · ${esc(who.map(H.nameOf).join(', '))}` : ''}${odds && b.st === 'aberta' ? ` · paga ${odds.toFixed(1)}×` : ''}</span></div>
+      ${b.st === 'aberta' && (mine < 0 || mine === i) ? `<button class="btn sm" data-fun="betIn" data-cid="${m.cid}" data-id="${m.id}" data-i="${i}">${mine === i ? '+ Apostar mais' : 'Apostar'}</button>` : ''}${judge && b.st === 'fechada' ? `<button class="btn sm primary" data-fun="betWin" data-cid="${m.cid}" data-id="${m.id}" data-i="${i}">Venceu</button>` : ''}</div>`; }).join('')}
+    <div class="fp-f"><span>🪙 Pote: <b>${pot.toLocaleString('pt-BR')}</b> pontos${myAmt ? ` · você apostou ${myAmt.toLocaleString('pt-BR')}` : ''}${b.st === 'paga' && b.paid && b.paid[me()] ? ` · você ganhou <b class="fb-won">+${b.paid[me()].toLocaleString('pt-BR')}</b>` : ''}</span>
+      ${judge && b.st === 'aberta' ? `<button class="link" data-fun="betLock" data-cid="${m.cid}" data-id="${m.id}">Fechar apostas</button>` : ''}${judge && (b.st === 'aberta' || b.st === 'fechada') ? `<button class="link" data-fun="betCancel" data-cid="${m.cid}" data-id="${m.id}">Cancelar</button>` : ''}</div></div>`;
+}
+function betModal(cid) {
+  H.modal(`<div class="modal-h"><h2>🎲 Nova aposta</h2><p>Cada um aposta AnarchyPoints numa opção. Você decide quem ganhou e o pote é dividido entre quem acertou.</p></div>
+    <div class="modal-b fun-form"><label class="field">Sobre o quê?<input class="input" id="fbQ" maxlength="160" placeholder="Quem ganha a próxima partida?"></label>
+      <div class="field">Opções<div id="fbOpts"></div><button type="button" class="btn sm ghost" id="fbAdd">+ Opção</button></div></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="fbGo">Abrir apostas</button></div>`, (md, close) => {
+    const box = md.querySelector('#fbOpts'), opts = ['', ''];
+    const draw = () => { box.innerHTML = opts.map((o, i) => `<div class="fun-optrow"><input class="input" data-i="${i}" maxlength="60" value="${esc(o)}" placeholder="Opção ${i + 1}">${opts.length > 2 ? `<button type="button" class="icon-btn" data-del="${i}" aria-label="Tirar opção">✕</button>` : ''}</div>`).join(''); md.querySelector('#fbAdd').hidden = opts.length >= 6; };
+    draw();
+    box.oninput = e => { const i = e.target.dataset.i; if (i !== undefined) opts[+i] = e.target.value; };
+    box.onclick = e => { const d = e.target.closest('[data-del]'); if (d) { opts.splice(+d.dataset.del, 1); draw(); } };
+    md.querySelector('#fbAdd').onclick = () => { opts.push(''); draw(); };
+    md.querySelector('#fbGo').onclick = async () => { const r = await call('bet:create', { cid, q: md.querySelector('#fbQ').value, opts }); if (r.ok) close(); };
+    setTimeout(() => md.querySelector('#fbQ').focus(), 50);
+  });
+}
+function betJoinModal(cid, id, i) {
+  const pts = H.S.me.points || 0; let amt = Math.min(100, pts);
+  H.modal(`<div class="modal-h"><h2>🎲 Quanto você aposta?</h2><p>Você tem <b>${pts.toLocaleString('pt-BR')}</b> AnarchyPoints. Se perder, perde o que apostou.</p></div>
+    <div class="modal-b fun-form"><div class="fun-chips">${[50, 100, 250, 500, 1000].filter(v => v <= pts).map(v => `<button type="button" class="fun-chip ${v === amt ? 'on' : ''}" data-v="${v}">${v}</button>`).join('')}</div>
+      <label class="field">Outro valor<input class="input" type="number" id="bjA" min="10" max="5000" value="${amt}"></label></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="bjGo">Apostar</button></div>`, (md, close) => {
+    const inp = md.querySelector('#bjA');
+    md.querySelector('.fun-chips').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; inp.value = b.dataset.v; md.querySelectorAll('.fun-chip').forEach(x => x.classList.toggle('on', x === b)); };
+    md.querySelector('#bjGo').onclick = async () => { const r = await call('bet:join', { cid, id, opt: i, amount: +inp.value }); if (r.ok) { H.tone([[660, .05], [880, .08]], 'triangle', .05); close(); } };
+  });
+}
+
+/* =============== apelidos votados =============== */
+// apelido vigente de alguém no grupo (vale 7 dias)
+function nickTag(g, uid) { const n = g && g.nicks && g.nicks[uid]; return n && n.until > Date.now() ? `<span class="fun-nick" data-tip="Apelido votado pelo grupo">“${esc(n.nick)}”</span>` : ''; }
+function nickHtml(m) {
+  const n = m.nick, voted = n.votes.includes(me()), left = Math.max(0, n.need - n.votes.length), expired = Date.now() - n.at > 2 * 864e5;
+  return `<div class="fun-nickvote ${n.done ? 'done' : ''}"><div><b>🏷️ ${esc(H.nameOf(m.authorId))} sugeriu: ${esc(H.nameOf(n.target))} vira <i>“${esc(n.nick)}”</i></b>
+    <span>${n.done ? '✅ Aprovado pelo grupo! Vale por 7 dias.' : expired ? '⌛ A votação expirou.' : `${n.votes.length} de ${n.need} votos · faltam ${left}`}</span></div>
+    ${!n.done && !expired ? `<button class="btn sm ${voted ? '' : 'primary'}" data-fun="nickVote" data-cid="${m.cid}" data-id="${m.id}">${voted ? 'Tirar meu voto' : '👍 Apoio!'}</button>` : ''}</div>`;
+}
+function nickModal(gid, uid) {
+  H.modal(`<div class="modal-h"><h2>🏷️ Apelido para ${esc(H.nameOf(uid))}</h2><p>Vai para votação no chat do grupo. Se o pessoal apoiar, o apelido aparece ao lado do nome por 7 dias.</p></div>
+    <div class="modal-b"><input class="input" id="nkT" maxlength="30" placeholder="O Rei do Lag"></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="nkGo">Pôr em votação</button></div>`, (md, close) => {
+    md.querySelector('#nkGo').onclick = async () => { const r = await call('nick:propose', { gid, uid, nick: md.querySelector('#nkT').value }, 'Votação aberta no chat!'); if (r.ok) close(); };
+    setTimeout(() => md.querySelector('#nkT').focus(), 50);
+  });
+}
+
+/* =============== som de entrada e Porteiro =============== */
+function joinSoundModal(gid) {
+  const g = H.S.groups[gid]; if (!g) return;
+  const cur = (H.S.me.joinSounds || {})[gid] || null, sounds = g.sounds || [];
+  H.modal(`<div class="modal-h"><h2>🔊 Seu som de entrada</h2><p>Toca para todo mundo quando você entra numa call de <b>${esc(g.name)}</b>. Os sons vêm da Central de Áudio do grupo.</p></div>
+    <div class="modal-b">${sounds.length ? `<div class="fun-sounds">${sounds.map(s => `<div class="fun-snd ${s.id === cur ? 'on' : ''}"><button type="button" class="icon-btn" data-play="${esc(s.url)}" aria-label="Ouvir">▶</button><span>${esc(s.emoji)} ${esc(s.name)}</span><button type="button" class="btn sm ${s.id === cur ? '' : 'primary'}" data-pick="${s.id}">${s.id === cur ? 'Escolhido' : 'Escolher'}</button></div>`).join('')}</div>` : '<div class="fun-empty">🔇<b>Este grupo ainda não tem sons</b><span>Quem gerencia o grupo adiciona na Central de Áudio (na call).</span></div>'}</div>
+    <div class="modal-f">${cur ? '<button class="btn ghost" data-pick="">Sem som de entrada</button><span style="flex:1"></span>' : ''}<button class="btn ghost" data-close>Fechar</button></div>`, (md, close) => {
+    md.addEventListener('click', async e => {
+      const pl = e.target.closest('[data-play]'); if (pl) { const a = new Audio(pl.dataset.play); a.volume = .6; a.play().catch(() => {}); return; }
+      const pk = e.target.closest('[data-pick]'); if (pk) { const r = await call('joinsound:set', { gid, id: pk.dataset.pick || null }, pk.dataset.pick ? 'Som de entrada escolhido!' : 'Sem som de entrada.'); if (r.ok) close(); }
+    });
+  });
+}
+
+/* =============== loja da semana =============== */
+async function fillShop(box) {
+  if (!box) return;
+  const r = await H.emit('shop:get', {}); if (!box.isConnected) return;
+  if (!r.ok) { box.innerHTML = `<p class="form-err">${esc(r.erro)}</p>`; return; }
+  const left = Math.max(0, r.ends - Date.now()), d = Math.floor(left / 864e5), h = Math.floor(left % 864e5 / 3600e3);
+  const pts = H.S.me.points || 0;
+  box.innerHTML = `<p class="muted small iv-note">Itens que só ficam à venda nesta semana. Troca em <b>${d ? d + ' dias e ' : ''}${h} horas</b>. Comprou, é seu para sempre.</p>
+    <div class="fun-shopgrid">${r.items.map(it => {
+      const name = it.kind === 'av' ? (H.avfx(it.id) || {}).name : (H.plate(it.id) || [it.id])[0];
+      const prev = it.kind === 'av' ? H.avWith(it.id, 64) : H.plateRow(me(), it.id, H.S.me.displayName);
+      const tier = it.kind === 'av' ? it.tier : 'placa';
+      return `<div class="fun-item r-c-${tier}"><span class="fun-itier">${it.kind === 'av' ? H.rarName(it.tier) : '🏷️ Placa exclusiva'}</span><div class="fun-iprev">${prev}</div><b>${esc(name || it.id)}</b>
+        ${it.owned ? '<button class="btn sm" disabled>✓ Já é seu</button>' : `<button class="btn sm primary" data-buy="${esc(it.id)}" ${pts < it.price ? 'disabled' : ''}><i class="pts-ic"></i> ${it.price.toLocaleString('pt-BR')}</button>`}</div>`;
+    }).join('')}</div>`;
+  box.onclick = async e => {
+    const b = e.target.closest('[data-buy]'); if (!b) return;
+    if (!await H.confirmBox('Comprar', 'Comprar este item com AnarchyPoints?', 'Comprar', false)) return;
+    const q = await call('shop:buy', { id: b.dataset.buy }, '🛒 Comprado! Já está no seu inventário.');
+    if (q.ok) { H.tone([[523, .08], [784, .2]], 'triangle', .06); fillShop(box); }
+  };
+}
+
+/* =============== fila do DJ: 👍/👎 =============== */
+function djVotes(roomId, t) {
+  const v = t.votes || {}, up = Object.values(v).filter(x => x > 0).length, down = Object.values(v).filter(x => x < 0).length, mine = v[me()] || 0;
+  return `<span class="fun-djv"><button class="${mine > 0 ? 'on' : ''}" data-fun="djVote" data-room="${roomId}" data-id="${t.id}" data-v="1" title="Quero ouvir (sobe na fila)">👍${up || ''}</button><button class="${mine < 0 ? 'on' : ''}" data-fun="djVote" data-room="${roomId}" data-id="${t.id}" data-v="-1" title="Não quero (com votos suficientes, sai da fila)">👎${down || ''}</button></span>`;
+}
+
 /* =============== menu "+" do compositor =============== */
 function composeMenu(anchor) {
   const cid = H.viewingCid(); if (!cid) return;
-  const p = H.pop(`<button data-fun="newPoll" data-cid="${cid}"><span>📊 Enquete</span></button><button data-fun="newBomb" data-cid="${cid}"><span>💣 Mensagem-bomba</span></button>`, anchor, 'menu', 'above');
+  const p = H.pop(`<button data-fun="newPoll" data-cid="${cid}"><span>📊 Enquete</span></button><button data-fun="newBet" data-cid="${cid}"><span>🎲 Aposta de pontos</span></button><button data-fun="newBomb" data-cid="${cid}"><span>💣 Mensagem-bomba</span></button>`, anchor, 'menu', 'above');
   void p;
 }
 
@@ -261,7 +362,7 @@ async function retroModal(gid) {
   });
 }
 function groupFunMenu(anchor, gid) {
-  H.pop(`<button data-fun="events" data-gid="${gid}"><span>📅 Eventos do grupo</span></button><button data-fun="retro" data-gid="${gid}"><span>✨ Retrospectiva do mês</span></button>${H.inCall() ? '<button data-fun="roulette"><span>🎡 Roleta da call</span></button>' : ''}<button data-fun="activity"><span>🎮 Minha atividade</span></button>`, anchor, 'menu', 'below');
+  H.pop(`<button data-fun="events" data-gid="${gid}"><span>📅 Eventos do grupo</span></button><button data-fun="retro" data-gid="${gid}"><span>✨ Retrospectiva do mês</span></button>${H.inCall() ? '<button data-fun="roulette"><span>🎡 Roleta da call</span></button>' : ''}<button data-fun="activity"><span>🎮 Minha atividade</span></button><button data-fun="joinSound" data-gid="${gid}"><span>🔊 Meu som de entrada</span></button>${H.gCan(H.S.groups[gid], 'manageServer') ? `<hr><button data-fun="porteiro" data-gid="${gid}"><span>🤖 Porteiro: ${H.S.groups[gid].porteiro === false ? 'desligado (ligar)' : 'comentando (desligar)'}</span></button>` : ''}`, anchor, 'menu', 'below');
 }
 
 /* =============== cliques e tempo real =============== */
@@ -281,6 +382,16 @@ document.addEventListener('click', e => {
   if (a === 'roulette') rouletteModal();
   if (a === 'activity') activityModal();
   if (a === 'groupFun') groupFunMenu(b, b.dataset.gid);
+  if (a === 'newBet') betModal(b.dataset.cid);
+  if (a === 'betIn') betJoinModal(b.dataset.cid, b.dataset.id, +b.dataset.i);
+  if (a === 'betLock') call('bet:lock', { cid: b.dataset.cid, id: b.dataset.id });
+  if (a === 'betWin') H.confirmBox('Resultado', 'Confirmar esta opção como vencedora? O pote é dividido na hora.', 'Confirmar', false).then(y => y && call('bet:resolve', { cid: b.dataset.cid, id: b.dataset.id, opt: +b.dataset.i }));
+  if (a === 'betCancel') H.confirmBox('Cancelar aposta', 'Todo mundo recebe os pontos de volta.', 'Cancelar aposta').then(y => y && call('bet:resolve', { cid: b.dataset.cid, id: b.dataset.id, cancel: true }));
+  if (a === 'nickNew') nickModal(b.dataset.gid, b.dataset.uid);
+  if (a === 'nickVote') call('nick:vote', { cid: b.dataset.cid, id: b.dataset.id });
+  if (a === 'joinSound') joinSoundModal(b.dataset.gid);
+  if (a === 'porteiro') { const g = H.S.groups[b.dataset.gid]; call('porteiro:set', { gid: b.dataset.gid, on: g.porteiro === false }, g.porteiro === false ? '🤖 O Porteiro voltou a comentar no grupo.' : '🤖 O Porteiro ficou quieto.'); }
+  if (a === 'djVote') call('music:vote', { roomId: b.dataset.room, id: b.dataset.id, v: +b.dataset.v });
 }, true);
 function attach(sock) {
   sock.on('connect', loadDefs);
@@ -293,8 +404,10 @@ function attach(sock) {
 
 window.anarchyFun = {
   init(h) { H = h; }, attach,
-  msgExtra: m => (m.poll ? pollHtml(m) : '') + (m.bomb ? bombHtml(m) : ''),
-  sysEvent: m => `<div class="msg sys fun-evmsg" id="m-${m.id}"><span class="sys-ic">🎉</span><span class="sys-t"><b>${esc(m.content)}</b> começou agora! <span class="muted">Evento marcado por ${esc(H.nameOf(m.authorId))}</span></span></div>`,
-  achRow, achPane, actLine, eventPill, activityModal, loadDefs
+  msgExtra: m => (m.poll ? pollHtml(m) : '') + (m.bomb ? bombHtml(m) : '') + (m.bet ? betHtml(m) : '') + (m.nick ? nickHtml(m) : ''),
+  sysEvent: m => m.system === 'porteiro'
+    ? `<div class="msg sys fun-port" id="m-${m.id}"><span class="fun-port-av" aria-hidden="true">🤖</span><span class="sys-t"><b>Porteiro</b> ${H.md(m.content)} <time>${new Date(m.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</time></span></div>`
+    : `<div class="msg sys fun-evmsg" id="m-${m.id}"><span class="sys-ic">🎉</span><span class="sys-t"><b>${esc(m.content)}</b> começou agora! <span class="muted">Evento marcado por ${esc(H.nameOf(m.authorId))}</span></span></div>`,
+  achRow, achPane, actLine, eventPill, activityModal, loadDefs, nickTag, djVotes, fillShop
 };
 })();

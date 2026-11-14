@@ -242,7 +242,7 @@ function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', 
   points: u.points || 0, pointsTotal: u.pointsTotal || 0, callAcc: u.callAcc || 0, ptEvery: PT_EVERY, boxes: u.boxes || 0, boxLog: (u.boxLog || []).slice(-40), ptsLog: (u.ptsLog || []).slice(-40),
   // caixa diária: pronta para pegar hoje? (vira à meia-noite de Brasília) e quantos dias seguidos
   daily: { ready: !u.daily || u.daily.last !== new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), streak: (u.daily && u.daily.streak) || 0 },
-  achAt: u.ach || {}, stats: u.stats || {} }; }
+  achAt: u.ach || {}, stats: u.stats || {}, joinSounds: u.joinSounds || {} }; }
 // bloqueio vale nos dois sentidos: quem bloqueou e quem foi bloqueado não se alcançam
 const blockedBetween = (a, b) => !!((db.users[a] && (db.users[a].blocked || []).includes(b)) || (db.users[b] && (db.users[b].blocked || []).includes(a)));
 
@@ -348,7 +348,7 @@ const card = t => ({ title: t.title, by: t.by, page: t.page, thumb: t.thumb, dur
 const mdSafe = s => String(s).replace(/([*_~`|\\])/g, '\\$1');
 function musicView(st) {
   if (!st) return null;
-  const t = x => x && { id: x.id, title: x.title, by: x.by, page: x.page, dur: x.dur, thumb: x.thumb, who: x.who };
+  const t = x => x && { id: x.id, title: x.title, by: x.by, page: x.page, dur: x.dur, thumb: x.thumb, who: x.who, votes: x.votes || {} };
   // enquanto o áudio da música atual está sendo buscado, os apps não tocam nada
   return { roomId: st.roomId, gid: st.gid, botId: st.botId, cur: st.cur && st.cur.src && !st.cur.loading ? t(st.cur) : null, loading: st.cur && (!st.cur.src || st.cur.loading) ? t(st.cur) : null, queue: st.queue.map(t), startedAt: st.startedAt, pausedAt: st.pausedAt, vol: st.vol, loop: st.loop, serverNow: now() };
 }
@@ -869,7 +869,7 @@ const rpg = require('./rpg').createRpg({
 });
 /* ---------- diversão: enquetes, bombas, conquistas, caixa diária, atividade, eventos, roleta, retrospectiva (ver diversao.js) ---------- */
 const fun = require('./diversao').createDiversao({
-  db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, rollAvfx, AVFX, REFUND
+  db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, sockets, rollAvfx, AVFX, REFUND, PLATES
 });
 
 /* ---------- Socket.IO ---------- */
@@ -1370,6 +1370,7 @@ function onConnection(socket) {
     list.push(msg); if (list.length > 3000) list.splice(0, list.length - 3000);
     fun.track(uid, 'msgs');
     save(); toUsers(info.members, 'message:new', msg);
+    fun.onMessage(uid, info);
     if (info.kind === 'dm') toUsers(info.members, 'dm:update', { ...info.dm, last: msg.ts });
     ok(cb, { message: msg });
   });
@@ -1377,7 +1378,7 @@ function onConnection(socket) {
   on('message:edit', (d, cb) => {
     const info = canAccess(uid, d.cid); const m = info && findMsg(d.cid, d.id);
     if (!m || m.authorId !== uid) return fail(cb, 'Sem permissão.');
-    if (m.bomb || m.poll) return fail(cb, 'Enquetes e mensagens-bomba não podem ser editadas.');
+    if (m.bomb || m.poll || m.bet || m.nick) return fail(cb, 'Enquetes, apostas, votações e mensagens-bomba não podem ser editadas.');
     const c = str(d.content, 4000).trim(); if (!c && !m.image) return fail(cb, 'Mensagem vazia.');
     m.content = c; m.edited = now(); save(); toUsers(info.members, 'message:update', m); ok(cb);
   });
@@ -1501,6 +1502,7 @@ function onConnection(socket) {
     voice.get(d.roomId).set(socket.id, { uid, muted: !!d.muted, deafened: !!d.deafened, screen: null, cam: null, joinedAt: now() });
     socket.data.voice = d.roomId;
     pushVoice(d.roomId);
+    fun.onVoiceJoin(socket, uid, d.roomId, info); // som de entrada e o Porteiro contando as entradas
     ok(cb, { peers: others, iceServers: cfg.iceServers });
   });
   on('voice:leave', (_, cb) => { leaveVoice(socket); ok(cb); });
@@ -1565,6 +1567,22 @@ function onConnection(socket) {
     const reply = djAction(g, uid, d.roomId, d.action, d.value);
     if (reply && !['volume'].includes(d.action)) botSay(g, st.cid, reply);
     ok(cb);
+  });
+  // 👍/👎 nas músicas da fila: as mais curtidas sobem; se a maioria da sala não quer, a música sai
+  on('music:vote', (d, cb) => {
+    const st = music.get(d.roomId); const g = st && db.groups[st.gid];
+    if (!g || roomOfUser(g, uid) !== d.roomId) return fail(cb, 'Entre na sala para votar.');
+    const t = st.queue.find(x => x.id === str(d.id, 40)); if (!t) return fail(cb, 'Essa música não está mais na fila.');
+    if (limited('djvote:' + uid, 30, 30e3)) return fail(cb, 'Calma com os votos!');
+    t.votes = t.votes || {}; const v = d.v > 0 ? 1 : d.v < 0 ? -1 : 0;
+    if (!v || t.votes[uid] === v) delete t.votes[uid]; else t.votes[uid] = v;
+    const score = x => Object.values(x.votes || {}).reduce((a, b) => a + b, 0);
+    const listeners = [...(voice.get(d.roomId) || new Map()).values()].filter(s => !isBot(s.uid)).length;
+    if (score(t) <= -Math.max(2, Math.ceil(listeners / 2))) {
+      st.queue = st.queue.filter(x => x !== t); tracks.delete(t.id);
+      botSay(g, st.cid, `🚫 A galera vetou **${mdSafe(t.title)}**. Saiu da fila.`);
+    } else st.queue = st.queue.map((x, i) => [x, i]).sort((a, b) => score(b[0]) - score(a[0]) || a[1] - b[1]).map(x => x[0]);
+    pushMusic(d.roomId); ok(cb);
   });
   // link direto sem duração conhecida: o app de quem está na sala avisa quanto o áudio dura
   on('music:dur', d => {
