@@ -96,3 +96,23 @@
   .jg-back.min { inset: auto 10px 80px auto; }
 }
 @media (prefers-reduced-motion: reduce) { .jg-music.on .jg-disc, .jg-t.low { animation: none; } }
+
+/* convite (Entrar / Agora não), sala de espera e quem só assiste */
+.jg-back.invite { inset: 76px 18px auto auto; background: none; padding: 0; display: block; }
+.jg-invite { width: min(320px, calc(100vw - 32px)); display: grid; gap: 10px; padding: 14px; border-radius: 16px; background: var(--elev); color: var(--text); border: 1px solid var(--accent); box-shadow: var(--shadow), 0 0 30px -8px var(--accent); animation: jgPop .35s cubic-bezier(.2, 1.5, .4, 1); }
+@keyframes jgPop { from { transform: translateY(20px) scale(.9); opacity: 0; } }
+.jg-inv-h { display: flex; gap: 10px; align-items: center; font-size: 13px; line-height: 1.35; }
+.jg-inv-h span { font-weight: 800; font-size: 15px; }
+.jg-inv-who { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+.jg-inv-who small { margin-left: 8px; color: var(--muted); }
+.jg-inv-acts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.jg-inv-acts .btn { flex: 1; }
+.jg-box.lobby { width: min(460px, 100%); }
+.jg-lobby { display: grid; gap: 12px; padding: 20px; text-align: center; }
+.jg-lobby h3 { margin: 0; font-size: 20px; }
+.jg-lobby p { margin: 0; }
+.jg-lob-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.jg-lob-list span { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border-radius: 99px; background: var(--panel); font-size: 13px; }
+.jg-lob-list .wait { opacity: .7; } .jg-lob-list .no { opacity: .45; }
+.jg-spect { gap: 10px; cursor: default; }
+.jg-quit { margin-right: 4px; }

@@ -43,15 +43,39 @@ function box() {
 }
 const close = () => document.querySelector('.ck-back')?.remove();
 const TITLE = g => (g.kind === 'truco' ? '🂡 Truco' : '🃏 Cartas Malucas');
+const inMesa = g => (g.players || []).some(p => p.uid === me());
 function render() {
   const g = K.g; if (!g || !H.inCall()) return close();
   const el = box();
+  // convite: cartão com Entrar / Agora não; quem entrou vê a sala de espera
+  if (g.phase === 'convite') {
+    const ins = g.invited || [], left = Math.max(0, Math.ceil((g.ends - sNow()) / 1000));
+    if ((g.declined || []).includes(me())) return close();
+    if (!ins.includes(me())) {
+      el.className = 'jg-back ck-back invite';
+      el.innerHTML = `<div class="jg-invite"><div class="jg-inv-h">${H.av(g.host, 32, false)}<div><b>${esc(H.nameOf(g.host))}</b> chamou a call para<br><span>${TITLE(g)}</span></div></div>
+        <div class="jg-inv-who">${ins.map(u => H.av(u, 22, false)).join('')}<small>${ins.length} na mesa · começa em <span class="jg-t">${left}s</span></small></div>
+        <div class="jg-inv-acts"><button class="btn primary sm" data-ck="join">🃏 Entrar</button><button class="btn ghost sm" data-ck="decline">Agora não</button></div></div>`;
+      return;
+    }
+    el.className = 'jg-back ck-back';
+    el.innerHTML = `<div class="jg-box lobby"><div class="jg-lobby"><h3>${TITLE(g)}</h3><p class="muted">Esperando a galera responder · começa em <b class="jg-t"></b></p>
+      <div class="jg-lob-list">${ins.map(u => `<span class="in">${H.av(u, 26, false)}${esc(H.nameOf(u))} ✅</span>`).join('')}${(g.declined || []).map(u => `<span class="no">${H.av(u, 26, false)}${esc(H.nameOf(u))} 💤</span>`).join('')}</div>
+      ${g.kind === 'truco' ? '<p class="muted small">O Truco é com 2 ou 4 pessoas: se entrarem 3, uma fica de fora.</p>' : ''}
+      <div class="jg-inv-acts">${g.host === me() ? `<button class="btn primary" data-ck="begin" ${ins.length < 2 ? 'disabled' : ''}>▶ Começar agora</button><button class="btn ghost" data-ck="stop">Cancelar</button>` : '<button class="btn ghost" data-ck="leave">Sair</button>'}</div></div></div>`;
+    tick(); return;
+  }
+  // partida rolando sem mim: só uma pílula para assistir (as cartas já foram dadas)
+  if (!inMesa(g) && g.phase !== 'fim' && !K.watch) {
+    if ((g.declined || []).includes(me()) && !K.pill) return close();
+    el.className = 'jg-back ck-back min'; el.innerHTML = `<div class="jg-pill jg-spect">${TITLE(g)} rolando <button class="btn ghost sm" data-ck="watch">👀 Assistir</button></div>`; return;
+  }
   if (K.min) { el.className = 'jg-back ck-back min'; el.innerHTML = `<button class="jg-pill" data-ck="max">${TITLE(g)} ${g.phase === 'jogando' ? (g.turn === me() ? '· <b>sua vez!</b>' : `· vez de ${esc(H.nameOf(g.turn))}`) : ''} <span class="jg-t"></span> ▲</button>`; tick(); return; }
   el.className = 'jg-back ck-back';
   const body = g.phase === 'fim' ? endHtml(g) : g.kind === 'truco' ? trucoHtml(g) : malucasHtml(g);
   el.innerHTML = `<div class="jg-box ck-box ${g.kind}">
     <div class="jg-head"><b>${TITLE(g)}</b><span class="jg-rd">${g.phase === 'fim' ? 'Fim de jogo' : g.me ? (g.turn === me() ? '👉 Sua vez!' : `Vez de ${esc(H.nameOf(g.turn))}`) : '👀 Assistindo'}</span><span class="jg-t"></span><span class="jg-hsp"></span>
-      ${g.phase !== 'fim' && (g.host === me() || !(H.S.voice[g.room] || []).some(p => p.uid === g.host)) ? '<button class="jg-ib" data-ck="stop" data-tip="Encerrar o jogo">⏹</button>' : ''}<button class="jg-ib" data-ck="min" data-tip="Minimizar">▁</button>${g.phase === 'fim' ? '<button class="jg-ib" data-ck="close" data-tip="Fechar">✕</button>' : ''}</div>
+      ${g.phase !== 'fim' && inMesa(g) ? '<button class="btn ghost sm jg-quit" data-ck="leave" data-tip="Sair da mesa">🚪 Sair</button>' : ''}${g.phase !== 'fim' && (g.host === me() || !(H.S.voice[g.room] || []).some(p => p.uid === g.host)) ? '<button class="jg-ib" data-ck="stop" data-tip="Encerrar o jogo">⏹</button>' : ''}<button class="jg-ib" data-ck="min" data-tip="Minimizar">▁</button>${g.phase === 'fim' ? '<button class="jg-ib" data-ck="close" data-tip="Fechar">✕</button>' : ''}</div>
     <div class="jg-bar"><i></i></div>
     <div class="ck-body">${body}<div class="ck-log">${(g.log || []).map(t => `<div>${esc(t)}</div>`).join('')}</div></div></div>`;
   tick();
@@ -96,7 +120,7 @@ function endHtml(g) {
 }
 function tick() {
   const g = K.g, el = document.querySelector('.ck-back'); if (!g || !el) return;
-  const left = Math.max(0, Math.ceil((g.ends - sNow()) / 1000)), on = g.phase === 'jogando' && g.ends;
+  const left = Math.max(0, Math.ceil((g.ends - sNow()) / 1000)), on = (g.phase === 'jogando' || g.phase === 'convite') && g.ends;
   el.querySelectorAll('.jg-t').forEach(t => { t.textContent = on ? `⏱ ${left}s` : ''; t.classList.toggle('low', on && left <= 8 && g.turn === me()); });
   const bar = el.querySelector('.jg-bar i'); if (bar) bar.style.width = on ? `${Math.min(100, left / (g.kind === 'truco' ? 40 : 30) * 100)}%` : '0%';
 }
@@ -113,8 +137,8 @@ function onState(g) {
   K.skew = (g.serverNow || Date.now()) - Date.now();
   if (prev && prev.phase !== 'fim' && g.phase === 'fim') { H.tone([[523, .1], [659, .1], [784, .1], [1047, .35]], 'triangle', .06); if ((g.winner || []).includes(me()) && H.confetti) H.confetti(); }
   else if (g.phase === 'jogando' && g.turn === me() && (!prev || prev.turn !== me())) H.tone([[660, .06], [990, .12]], 'triangle', .05);
-  else if (prev && (g.kind === 'truco' ? g.table.length !== prev.table.length : prev.top && g.top && prev.top.id !== g.top.id)) H.tone([[300 + Math.random() * 120, .03]], 'square', .02);
-  if (!prev || prev.phase === 'fim') K.min = false;
+  else if (prev && prev.phase === 'jogando' && g.phase === 'jogando' && (g.kind === 'truco' ? g.table.length !== prev.table.length : prev.top && g.top && prev.top.id !== g.top.id)) H.tone([[300 + Math.random() * 120, .03]], 'square', .02);
+  if (!prev || prev.phase === 'fim') { K.min = false; K.watch = false; K.pill = false; if (g.phase === 'convite' && g.host !== me()) H.tone([[660, .08], [880, .08], [1100, .15]], 'triangle', .05); }
   K.g = g; if (g.turn !== me()) K.pick = null;
   render();
 }
@@ -123,7 +147,12 @@ async function onClick(e) {
   const a = b.dataset.ck, g = K.g; if (!g) return;
   if (a === 'min') { K.min = true; render(); }
   if (a === 'max') { K.min = false; render(); }
-  if (a === 'close') { K.g = null; close(); }
+  if (a === 'close') { K.g = null; K.watch = false; close(); }
+  if (a === 'join') call('cards:join', {});
+  if (a === 'decline') { call('cards:decline', {}); close(); }
+  if (a === 'begin') call('cards:begin', {});
+  if (a === 'leave') H.confirmBox('Sair da mesa', g.kind === 'truco' && g.phase === 'jogando' ? 'No Truco, se você sair a partida acaba para todo mundo.' : 'Você sai da mesa e o jogo continua para os outros.', 'Sair', false).then(y => y && call('cards:leave', {}));
+  if (a === 'watch') { K.watch = true; K.min = false; render(); }
   if (a === 'stop') H.confirmBox('Encerrar o jogo', 'O jogo acaba agora, sem prêmios.', 'Encerrar', false).then(y => y && call('cards:stop', {}));
   if (a === 'again') start(g.kind);
   if (a === 'draw') call('cards:draw', {});
@@ -142,7 +171,7 @@ async function onClick(e) {
 }
 function attach(sock) {
   sock.on('cards:state', onState);
-  sock.on('cards:info', d => { if (K.min || !document.querySelector('.ck-back')) H.toast('🃏 ' + d.text, false, 4000); });
+  sock.on('cards:info', d => { if ((K.min || !document.querySelector('.ck-back .jg-box')) && K.g && K.g.phase !== 'convite' && inMesa(K.g)) H.toast('🃏 ' + d.text, false, 4000); });
 }
-window.anarchyCards = { init(h) { H = h; }, attach, start, running: () => !!(K.g && K.g.phase !== 'fim'), open: () => { K.min = false; render(); } };
+window.anarchyCards = { init(h) { H = h; }, attach, start, running: () => !!(K.g && K.g.phase !== 'fim'), open: () => { K.min = false; K.pill = true; if (K.g && K.g.phase !== 'convite' && !inMesa(K.g)) K.watch = true; render(); } };
 })();
