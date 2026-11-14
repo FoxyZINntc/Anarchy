@@ -1223,6 +1223,13 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-13-caixas-fundos', date: '13/11/2026', title: 'Caixas mais emocionantes e fundos animados', emoji: '🌌', items: [
+    'A Caixa Anarchy agora abre de <b>9 jeitos</b>: roleta, caça-níquel, baú, cartas, cápsula, portal, meteoro, roda da sorte e ovo surpresa.',
+    'Escolha a sua animação no Inventário ou deixe em <b>Surpresa</b>. Tem também o botão de pular.',
+    'Prêmio raro tem festa: raios, clarão, chuva de moedas e o letreiro <b>MÍTICO!</b>',
+    'Novidade na caixa: <b>38 fundos animados</b> para o topo do seu cartão de perfil (galáxia, sakura, synthwave, inferno, supernova...).',
+    'Veja e use os seus na aba <b>🌌 Fundos animados</b> do Inventário.'
+  ] },
   { id: '2026-11-13-diversao', date: '13/11/2026', title: 'Muita diversão nova!', emoji: '🎉', items: [
     'Botão <b>🎉</b> no chat: <b>enquetes</b>, <b>apostas de AnarchyPoints</b>, <b>mensagem-bomba</b> (some depois de lida) e <b>fofoca anônima</b> (se o grupo ligar).',
     'Botão <b>🎮</b> na call: <b>Desenha e adivinha</b>, <b>Quiz</b> de perguntas ou de música, <b>Cartas Malucas</b>, <b>Truco</b> e <b>roleta</b>. Quem ganha leva AnarchyPoints!',
