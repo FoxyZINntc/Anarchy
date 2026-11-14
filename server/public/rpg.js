@@ -275,6 +275,7 @@ function closeRoom(silent) {
   if (!R.el) return;
   if (!silent) H.emit('rpg:close', {});
   R.el.remove(); R.el = null; R.st = null; R.sel = null; R.fx = []; R.drag = null; R.paintKey = '';
+  stopSound();
 }
 const $r = s => R.el && R.el.querySelector(s);
 
@@ -358,6 +359,89 @@ function announceModal(pre = {}) {
   });
 }
 
+/* ---------- trilha sonora da cena (o Mestre escolhe; todo mundo da cena ouve em loop, no próprio volume) ---------- */
+const SND = { el: null, key: '' };
+const sndVol = () => { try { const v = localStorage.getItem('rpg:sndVol'); return v === null ? 0.7 : +v; } catch { return 0.7; } };
+function syncSound() {
+  const m = R.el && R.st && R.st.camp.music;
+  const key = m && m.url ? m.url + '|' + m.at : '';
+  if (SND.el) SND.el.volume = Math.min(1, sndVol() * ((m && m.vol) || 60) / 100);
+  if (key === SND.key) return;
+  stopSound(); SND.key = key; if (!key) return;
+  const a = new Audio(m.url); a.loop = true; a.volume = Math.min(1, sndVol() * (m.vol || 60) / 100); SND.el = a;
+  // todo mundo no mesmo ponto da música (o início é quando o Mestre escolheu)
+  a.addEventListener('loadedmetadata', () => { const d = a.duration; if (d && isFinite(d)) a.currentTime = ((Date.now() - m.at) / 1000) % d; a.play().catch(() => toast('🎵 Clique na mesa para ouvir a trilha sonora.')); }, { once: true });
+  a.addEventListener('error', () => { if (SND.el === a) SND.key = ''; }, { once: true });
+}
+function stopSound() { if (SND.el) { try { SND.el.pause(); } catch {} SND.el.src = ''; } SND.el = null; SND.key = ''; }
+document.addEventListener('pointerdown', () => { if (SND.el && SND.el.paused && SND.key) SND.el.play().catch(() => {}); }, true);
+function musicModal() {
+  const m = R.st.camp.music, master = isMaster();
+  H.modal(`<div class="modal-h"><h2>🎵 Trilha sonora</h2><p>${master ? 'Escolha uma música para a cena que você está vendo. Todo mundo nela ouve em loop.' : 'A música da cena, escolhida pelo Mestre.'}</p></div>
+    <div class="modal-b rpg-form">
+      <div class="rpg-snd-now">${m ? `<b>${m.url ? '▶' : '⏳'} ${esc(m.title)}</b>${m.url ? '' : '<span class="muted small">Carregando...</span>'}` : '<span class="muted">Nenhuma trilha tocando agora.</span>'}</div>
+      <label class="field">Seu volume (só para você)<input type="range" id="sdV" min="0" max="1" step="0.05" value="${sndVol()}"></label>
+      ${master ? `<label class="field">Música (nome ou link)<input class="input" id="sdQ" maxlength="300" placeholder="taverna medieval ambiente, chuva na floresta, batalha épica..."></label>
+        <div class="rpg-chips">${['taverna medieval ambiente', 'floresta misteriosa ambiente', 'batalha épica orquestra', 'dungeon dark ambient', 'chuva e trovão ambiente', 'cidade medieval mercado ambiente', 'boss fight epic music', 'música triste piano'].map(s => `<button type="button" class="rpg-chip" data-q="${esc(s)}">${esc(s)}</button>`).join('')}</div>
+        ${m ? `<label class="field">Volume da trilha para todos <b id="sdTv">${m.vol || 60}%</b><input type="range" id="sdT" min="5" max="100" step="5" value="${m.vol || 60}"></label>` : ''}` : ''}
+    </div>
+    <div class="modal-f">${master && m ? '<button class="btn ghost" id="sdStop">🔇 Parar</button>' : ''}<span class="spacer" style="flex:1"></span><button class="btn ghost" data-close>Fechar</button>${master ? '<button class="btn primary" id="sdGo">🎵 Tocar</button>' : ''}</div>`, (md, close) => {
+    const q = s => md.querySelector(s);
+    q('#sdV').oninput = () => { try { localStorage.setItem('rpg:sndVol', q('#sdV').value); } catch {} syncSound(); };
+    if (!master) return;
+    md.querySelector('.rpg-chips').onclick = e => { const b = e.target.closest('[data-q]'); if (b) q('#sdQ').value = b.dataset.q; };
+    const t = q('#sdT'); if (t) { t.oninput = () => { q('#sdTv').textContent = t.value + '%'; }; t.onchange = () => call('rpg:music', { cid: R.st.camp.id, vol: +t.value }); }
+    const st = q('#sdStop'); if (st) st.onclick = async () => { const r = await call('rpg:music', { cid: R.st.camp.id, stop: true }); if (r.ok) close(); };
+    q('#sdGo').onclick = async () => {
+      const v = q('#sdQ').value.trim(); if (!v) return toast('Escreva o nome da música.', true);
+      q('#sdGo').disabled = true; q('#sdGo').textContent = 'Procurando...';
+      const r = await call('rpg:music', { cid: R.st.camp.id, q: v });
+      if (r.ok) { toast('🎵 Tocando: ' + r.title); close(); } else { q('#sdGo').disabled = false; q('#sdGo').textContent = '🎵 Tocar'; }
+    };
+    setTimeout(() => q('#sdQ').focus(), 50);
+  });
+}
+
+/* ---------- diário automático da campanha ---------- */
+async function diaryModal() {
+  const r = await H.emit('rpg:diary', { cid: R.st.camp.id }); if (!r.ok) return toast(r.erro || 'Não deu para abrir o diário.', true);
+  const master = isMaster(), cid = R.st.camp.id;
+  let pages = r.pages, cur = 0, showMinor = false;
+  const day = ts => new Date(ts).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const hm = ts => new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const textOf = pg => [`📖 ${pg.title || `Dia de jogo ${pg.n}`} — ${day(pg.start)}`, pg.note, `🎲 ${pg.rolls} rolagens · 🌟 ${pg.crits} críticos · 💀 ${pg.fails} falhas`, ...pg.items.filter(i => !i.minor).map(i => `${i.ic} ${i.text}`)].filter(Boolean).join('\n');
+  H.modal(`<div class="modal-h"><h2>📖 Diário da campanha</h2><p>Escrito sozinho enquanto vocês jogam: críticos, falhas, falas, anúncios e combates de cada dia de jogo.</p></div><div class="modal-b rpg-diary"></div>
+    <div class="modal-f"><button class="btn ghost" id="dyCopy">📋 Copiar página</button><span class="spacer" style="flex:1"></span><button class="btn ghost" data-close>Fechar</button></div>`, (md) => {
+    const box = md.querySelector('.rpg-diary');
+    const draw = () => {
+      if (!pages.length) { box.innerHTML = '<div class="rpg-empty sm">📖<b>O diário ainda está em branco</b><span>Ele se escreve sozinho quando vocês jogam: rolem uns dados!</span></div>'; return; }
+      const pg = pages[cur], top = Object.entries(pg.by || {}).sort((a, b) => b[1] - a[1])[0];
+      const items = pg.items.filter(i => showMinor || !i.minor);
+      box.innerHTML = `<div class="rpg-dy-nav"><button class="btn sm ghost" data-d="prev" ${cur >= pages.length - 1 ? 'disabled' : ''}>◀ Anterior</button><select class="input" data-d="pick">${pages.map((p, i) => `<option value="${i}" ${i === cur ? 'selected' : ''}>${esc(p.title || `Dia de jogo ${p.n}`)} · ${new Date(p.start).toLocaleDateString('pt-BR')}</option>`).join('')}</select><button class="btn sm ghost" data-d="next" ${cur <= 0 ? 'disabled' : ''}>Próximo ▶</button></div>
+        <article class="rpg-dy-page">
+          <header>${master ? `<input class="rpg-dy-title" data-d="title" maxlength="80" value="${esc(pg.title)}" placeholder="Dia de jogo ${pg.n} (dê um título)">` : `<h3>${esc(pg.title || `Dia de jogo ${pg.n}`)}</h3>`}<span>${day(pg.start)} · ${hm(pg.start)} às ${hm(pg.end)}</span></header>
+          <div class="rpg-dy-stats"><span>🎲 <b>${pg.rolls}</b> rolagens</span><span>🌟 <b>${pg.crits}</b> críticos</span><span>💀 <b>${pg.fails}</b> falhas</span>${top ? `<span>🏅 Quem mais rolou: <b>${esc(H.nameOf(top[0]))}</b></span>` : ''}</div>
+          ${master ? `<textarea class="input rpg-dy-note" data-d="note" rows="3" maxlength="2000" placeholder="Resumo do Mestre (opcional): o que aconteceu de mais importante neste dia?">${esc(pg.note)}</textarea>` : pg.note ? `<p class="rpg-dy-note">${esc(pg.note)}</p>` : ''}
+          <ol class="rpg-dy-items">${items.map(i => `<li class="${i.minor ? 'minor' : ''} ${i.quote ? 'quote' : ''}"><i>${esc(i.ic)}</i><span>${esc(i.text)}</span><time>${hm(i.ts)}</time></li>`).join('') || '<li class="minor"><span>Nada marcante ainda neste dia.</span></li>'}</ol>
+          <label class="rpg-check small"><input type="checkbox" data-d="minor" ${showMinor ? 'checked' : ''}> Mostrar também os avisos pequenos do sistema</label>
+          ${master ? '<div class="rpg-row"><button class="btn sm primary" data-d="save">Salvar título e resumo</button><button class="btn sm ghost danger" data-d="del">Apagar página</button></div>' : ''}
+        </article>`;
+    };
+    draw();
+    box.onclick = async e => {
+      const b = e.target.closest('[data-d]'); if (!b) return;
+      const a = b.dataset.d;
+      if (a === 'prev') { cur = Math.min(pages.length - 1, cur + 1); draw(); }
+      if (a === 'next') { cur = Math.max(0, cur - 1); draw(); }
+      if (a === 'minor') { showMinor = b.checked; draw(); }
+      if (a === 'save') { const pg = pages[cur], title = box.querySelector('[data-d="title"]').value.trim(), note = box.querySelector('[data-d="note"]').value.trim(); const r2 = await call('rpg:diary:edit', { cid, id: pg.id, title, note }, 'Diário salvo.'); if (r2.ok) { pg.title = title; pg.note = note; draw(); } }
+      if (a === 'del' && await H.confirmBox('Apagar página', 'Esta página do diário some para todo mundo.', 'Apagar')) { const r2 = await call('rpg:diary:edit', { cid, id: pages[cur].id, del: true }); if (r2.ok) { pages.splice(cur, 1); cur = Math.min(cur, Math.max(0, pages.length - 1)); draw(); } }
+    };
+    box.onchange = e => { if (e.target.dataset.d === 'pick') { cur = +e.target.value; draw(); } };
+    md.querySelector('#dyCopy').onclick = () => { if (!pages.length) return; navigator.clipboard.writeText(textOf(pages[cur])).then(() => toast('Página copiada!'), () => toast('Não deu para copiar.', true)); };
+  });
+}
+
 /* ---------- avisos do jogador: o que aconteceu com o seu personagem ---------- */
 const NKIND = { dano: 'dano', cura: 'cura', ganho: 'ganho', perda: 'perda' };
 const myNotifs = () => (R.st ? R.st.chars.filter(c => c.ownerId === me()).flatMap(c => (c.notifs || []).map(n => ({ ...n, char: c.name }))).sort((a, b) => b.ts - a.ts) : []);
@@ -387,6 +471,7 @@ function paneAvisos(p) {
 
 function renderTop() {
   const c = R.st.camp, m = curMap();
+  syncSound();
   const stLbl = { ativa: 'Ativa', pausada: 'Pausada', encerrada: 'Encerrada' }[c.state];
   const roleLbl = { mestre: '👑 Mestre', jogador: '🎭 Jogador', convidado: '✉️ Convidado', espectador: '👀 Assistindo' }[c.role];
   $r('.rpg-top').innerHTML = `<button class="btn ghost sm rpg-back" data-a="back">${H.ic('reply')}<span>Voltar ao Anarchy</span></button>
@@ -396,6 +481,8 @@ function renderTop() {
     ${c.role === 'espectador' && c.open && c.state !== 'encerrada' && c.players.length < c.maxPlayers ? '<button class="btn sm" data-a="join">Entrar como jogador</button>' : ''}
     ${isPlayer() ? '<button class="btn sm" data-a="mysheet">📜 <span>Minha ficha</span></button>' : ''}
     ${isMaster() ? '<button class="btn sm rpg-ann-btn" data-a="announce" data-tip="Anunciar na tela de todos (chefe, perigo, narração...)">📢 <span>Anunciar</span></button>' : ''}
+    ${isMaster() || c.music ? `<button class="icon-btn rpg-top-ic2 ${c.music ? 'rpg-snd-on' : ''}" data-a="music" data-tip="${c.music ? 'Trilha: ' + esc(c.music.title) : 'Trilha sonora da cena'}" aria-label="Trilha sonora">🎵</button>` : ''}
+    <button class="icon-btn rpg-top-ic2" data-a="diary" data-tip="Diário da campanha" aria-label="Diário da campanha">📖</button>
     <button class="icon-btn rpg-top-ic2" data-a="look" data-tip="Visual: filtro da tela (só para você)" aria-label="Visual da mesa">🎬</button>
     <button class="icon-btn rpg-top-ic2" data-a="help" data-tip="Como usar a mesa" aria-label="Como usar a mesa">?</button>
     ${isMaster() ? `<button class="icon-btn" data-a="settings" data-tip="Configurações da campanha" aria-label="Configurações da campanha">${H.ic('gear')}</button>` : ''}
@@ -407,6 +494,8 @@ function renderTop() {
     if (a === 'side') R.el.classList.toggle('side-open');
     if (a === 'settings') settingsModal();
     if (a === 'look') lookModal();
+    if (a === 'music') musicModal();
+    if (a === 'diary') diaryModal();
     if (a === 'announce') announceModal();
     if (a === 'help') helpModal();
     if (a === 'mysheet') { const ch = myChar(); ch ? sheetModal(ch) : sheetModal(null); }
@@ -1850,11 +1939,19 @@ function nextFx() {
   const r = e.roll, faces = r.parts.filter(p => p.rolls).flatMap(p => p.rolls.map((v, i) => ({ v, s: p.sides, k: p.kept.includes(i) }))).slice(0, 12);
   const el = document.createElement('div'); el.className = `rpg-fx ${r.crit ? 'crit' : ''} ${r.fail ? 'fail' : ''} ${e.priv ? 'priv' : ''}`;
   el.innerHTML = `<div class="rpg-fx-h">${H.av(e.uid, 28, false)}<b>${esc(H.nameOf(e.uid))}</b><span>${e.text ? esc(e.text) + ' · ' : ''}<code>${esc(r.expr)}</code>${e.priv ? ' · secreta' : ''}</span></div>
-    <div class="rpg-fx-dice">${faces.map(f => `<i class="d${f.s} ${f.k ? '' : 'drop'}"><span>${f.v}</span></i>`).join('')}</div>
+    <div class="rpg-fx-dice rd-row">${faces.map((f, n) => die3d(f, n)).join('')}</div>
     <div class="rpg-fx-t">${r.total}</div>${r.crit ? '<div class="rpg-fx-c">CRÍTICO!</div>' : r.fail ? '<div class="rpg-fx-c">Falha crítica</div>' : ''}`;
   box.appendChild(el);
   H.tone(r.crit ? [[523, .08], [784, .08], [1047, .25]] : r.fail ? [[330, .12], [220, .3]] : [[700, .03], [900, .03], [600, .05]], 'triangle', .05);
-  setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); nextFx(); }, 300); }, R.fx.length ? 1400 : 2600);
+  // barulhinho dos dados batendo na mesa enquanto rolam
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) [0, 160, 330, 520].forEach((t, i) => setTimeout(() => H.tone([[260 + Math.random() * 300, .02]], 'square', .018 - i * .003), t));
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); nextFx(); }, 300); }, R.fx.length ? 1900 : 3300);
+}
+// dado em 3D: um cubo que cai girando e para com o resultado virado para a frente (as outras faces mostram números ao acaso)
+function die3d(f, n) {
+  const rnd = () => 1 + Math.floor(Math.random() * f.s), sp = () => (Math.random() < .5 ? -1 : 1) * (360 + Math.floor(Math.random() * 540));
+  const faces = [f.v, rnd(), rnd(), rnd(), rnd(), rnd()];
+  return `<i class="rd d${f.s} ${f.k ? '' : 'drop'}" style="--rx:${sp()}deg;--ry:${sp()}deg;--rz:${Math.round(Math.random() * 120 - 60)}deg;--dl:${n * 70}ms" aria-label="d${f.s}: ${f.v}"><span class="rd-cube">${faces.map((v, i) => `<b class="rd-f f${i}">${v}</b>`).join('')}</span><span class="rd-sh"></span></i>`;
 }
 
 /* =============== tempo real =============== */

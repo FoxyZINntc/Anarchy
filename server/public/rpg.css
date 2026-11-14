@@ -612,3 +612,57 @@
 @keyframes rpg-grain { 0% { background-position: 0 0; } 20% { background-position: -37px 21px; } 40% { background-position: 53px -18px; } 60% { background-position: -12px -49px; } 80% { background-position: 28px 44px; } }
 .rpg-tok-face { filter: drop-shadow(3px 5px 4px rgba(0, 0, 0, .6)); }
 @media (prefers-reduced-motion: reduce) { .rpg-light, .rpg-stage::before { animation: none; } }
+
+/* ---- dados 3D: cubo que cai girando e para com o resultado na frente ---- */
+.rpg-fx-dice.rd-row { gap: 12px; margin: 14px 0 8px; perspective: 600px; }
+.rpg-fx-dice i.rd { --sz: 40px; --c1: #8b5cf6; --c2: #4c1d95; position: relative; width: var(--sz); height: var(--sz); display: block; background: none; clip-path: none; border-radius: 0; box-shadow: none; padding: 0; animation: rdDrop .95s cubic-bezier(.3, 1.25, .5, 1) var(--dl) both; }
+.rpg-fx-dice i.rd.d20 { --c1: #e04a4a; --c2: #7f1d1d; } .rpg-fx-dice i.rd.d10, .rpg-fx-dice i.rd.d100 { --c1: #0ea5e9; --c2: #075985; }
+.rpg-fx-dice i.rd.d12 { --c1: #22c55e; --c2: #14532d; } .rpg-fx-dice i.rd.d8 { --c1: #f59e0b; --c2: #92400e; } .rpg-fx-dice i.rd.d4 { --c1: #ec4899; --c2: #831843; }
+.rd-cube { position: absolute; inset: 0; transform-style: preserve-3d; animation: rdSpin .95s cubic-bezier(.2, .7, .3, 1) var(--dl) both; }
+.rd-f { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 800; font-size: 16px; color: #fff; border-radius: 8px; backface-visibility: hidden; background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--c1) 70%, #fff), var(--c1) 45%, var(--c2)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25), inset 0 -4px 8px rgba(0, 0, 0, .35); text-shadow: 0 1px 2px rgba(0, 0, 0, .5); }
+.rd.d20 .rd-f { clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); border-radius: 0; }
+.rd.d12 .rd-f { clip-path: polygon(50% 0, 98% 35%, 80% 95%, 20% 95%, 2% 35%); border-radius: 0; padding-top: 4px; }
+.rd.d10 .rd-f, .rd.d100 .rd-f { clip-path: polygon(50% 0, 100% 45%, 50% 100%, 0 45%); border-radius: 0; font-size: 14px; }
+.rd.d8 .rd-f { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); border-radius: 0; }
+.rd.d4 .rd-f { clip-path: polygon(50% 4%, 98% 92%, 2% 92%); border-radius: 0; padding-top: 12px; font-size: 14px; }
+.rd-f.f0 { transform: translateZ(calc(var(--sz) / 2)); }
+.rd-f.f1 { transform: rotateY(180deg) translateZ(calc(var(--sz) / 2)); }
+.rd-f.f2 { transform: rotateY(90deg) translateZ(calc(var(--sz) / 2)); }
+.rd-f.f3 { transform: rotateY(-90deg) translateZ(calc(var(--sz) / 2)); }
+.rd-f.f4 { transform: rotateX(90deg) translateZ(calc(var(--sz) / 2)); }
+.rd-f.f5 { transform: rotateX(-90deg) translateZ(calc(var(--sz) / 2)); }
+.rd-sh { position: absolute; left: 10%; right: 10%; bottom: -9px; height: 7px; border-radius: 50%; background: rgba(0, 0, 0, .55); filter: blur(3px); animation: rdShadow .95s ease-out var(--dl) both; }
+.rpg-fx-dice i.rd.drop { opacity: .35; }
+@keyframes rdSpin { from { transform: rotateX(var(--rx)) rotateY(var(--ry)) rotateZ(var(--rz)); } to { transform: none; } }
+@keyframes rdDrop { 0% { transform: translateY(-70px) scale(.7); opacity: 0; } 15% { opacity: 1; } 60% { transform: translateY(4px) scale(1); } 80% { transform: translateY(-6px); } 100% { transform: none; } }
+@keyframes rdShadow { 0% { transform: scale(.3); opacity: 0; } 60% { transform: scale(1.1); opacity: 1; } 100% { transform: none; } }
+.rpg-fx .rpg-fx-t { animation: rdTotal .45s cubic-bezier(.2, 1.6, .4, 1) .8s both; }
+.rpg-fx .rpg-fx-c { animation: rdTotal .45s ease .95s both; }
+@keyframes rdTotal { from { opacity: 0; transform: scale(.4); } }
+@media (prefers-reduced-motion: reduce) { .rd-cube, .rpg-fx-dice i.rd, .rd-sh, .rpg-fx .rpg-fx-t, .rpg-fx .rpg-fx-c { animation: none !important; } }
+
+/* ---- trilha sonora ---- */
+.rpg-snd-on { color: var(--rg-gold2); text-shadow: 0 0 10px rgba(243, 213, 142, .7); }
+.rpg-snd-now { padding: 10px 12px; border-radius: 10px; background: var(--rg-panel2, rgba(0, 0, 0, .2)); border: 1px solid var(--rg-line, rgba(255, 255, 255, .1)); display: grid; gap: 2px; }
+.rpg-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rpg-chips .rpg-chip { border: 1px solid var(--rg-line2, var(--line)); background: var(--rg-panel2, var(--panel)); color: inherit; border-radius: 99px; padding: 4px 10px; font: inherit; font-size: .82em; cursor: pointer; }
+.rpg-chips .rpg-chip:hover { border-color: var(--rg-gold, var(--accent)); }
+
+/* ---- diário da campanha (janela do app: usa as cores do tema) ---- */
+.rpg-diary { display: grid; gap: 12px; }
+.rpg-dy-nav { display: flex; gap: 8px; align-items: center; }
+.rpg-dy-nav select { flex: 1; min-width: 0; }
+.rpg-dy-page { display: grid; gap: 10px; padding: 16px 18px; border-radius: 12px; background: linear-gradient(180deg, #f6ecd2, #ead9b0); color: #3b2a17; box-shadow: inset 0 0 40px rgba(120, 80, 30, .25), 0 6px 18px rgba(0, 0, 0, .3); font-family: Georgia, serif; }
+.rpg-dy-page header { display: grid; gap: 2px; border-bottom: 1px solid rgba(90, 60, 25, .3); padding-bottom: 8px; }
+.rpg-dy-page h3, .rpg-dy-title { margin: 0; font-family: 'Cinzel', Georgia, serif; font-size: 20px; font-weight: 800; color: #5a3a12; background: none; border: 0; border-bottom: 1px dashed transparent; padding: 0; width: 100%; }
+.rpg-dy-title:focus, .rpg-dy-title:hover { outline: none; border-bottom-color: rgba(90, 60, 25, .5); }
+.rpg-dy-page header span { font-size: 12px; color: #7a5a35; }
+.rpg-dy-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.rpg-dy-note { margin: 0; font-style: italic; line-height: 1.5; background: rgba(255, 255, 255, .35); color: #3b2a17; border-color: rgba(90, 60, 25, .25); }
+.rpg-dy-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 340px; overflow: auto; }
+.rpg-dy-items li { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: baseline; line-height: 1.45; }
+.rpg-dy-items li time { font-size: 11px; color: #8a6a45; font-family: system-ui, sans-serif; }
+.rpg-dy-items li.quote span { font-style: italic; }
+.rpg-dy-items li.minor { opacity: .6; font-size: 13px; }
+.rpg-dy-page .rpg-check { color: #5a3a12; font-family: system-ui, sans-serif; font-size: 12px; display: flex; gap: 6px; align-items: center; }
+.rpg-dy-page .rpg-row { display: flex; gap: 8px; }

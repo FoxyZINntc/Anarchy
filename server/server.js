@@ -863,7 +863,7 @@ function sendRange(req, res, buf, type) {
 }
 app.get('/api/music/:id', auth, async (req, res) => {
   const t = tracks.get(req.params.id);
-  if (!t || !t.src || !canAccess(req.uid, t.roomId)) return res.status(404).end();
+  if (!t || !t.src || !(t.acc ? t.acc(req.uid) : canAccess(req.uid, t.roomId))) return res.status(404).end();
   if (t.src.hls) {
     try { return sendRange(req, res, await hlsBuffer(t.src), t.src.mime); }
     catch { return res.headersSent ? res.destroy() : res.status(502).end(); }
@@ -888,8 +888,13 @@ app.get('/api/music/:id', auth, async (req, res) => {
 /* ---------- RPG de Mesa (atividade opcional dos grupos e conversas; ver rpg.js) ---------- */
 const rpg = require('./rpg').createRpg({
   db, save, newId, now, str, log, toUser, toUsers, can, pushGroup, limited, users: db.users,
-  isUpload: u => store.isUpload(u)
+  isUpload: u => store.isUpload(u),
+  // trilha sonora das cenas: o DJ busca o áudio; quem pode ouvir é quem tem papel na campanha (acc)
+  soundtrack: async (q, acc) => { const r = await dj.resolve(q); hlsWarm(r.src); const t = { id: newId(), ...r, who: null, q, acc, at: now() }; tracks.set(t.id, t); return { id: t.id, title: r.title, dur: r.dur || 0 }; },
+  soundAlive: id => { const t = tracks.get(id); return !!(t && t.src && now() - (t.at || 0) < 4 * 3600e3); }
 });
+// trilhas velhas do RPG (o endereço do áudio vence em algumas horas; a mesa busca de novo quando precisar)
+setInterval(() => { for (const [id, t] of tracks) if (t.acc && now() - (t.at || 0) > 5 * 3600e3) tracks.delete(id); }, 30 * 60e3).unref();
 /* ---------- diversão: enquetes, bombas, conquistas, caixa diária, atividade, eventos, roleta, retrospectiva (ver diversao.js) ---------- */
 const fun = require('./diversao').createDiversao({
   db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, sockets, rollAvfx, AVFX, REFUND, PLATES
