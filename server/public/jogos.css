@@ -1,5 +1,6 @@
 /* Anarchy — Jogos da call (Desenha e adivinha e Quiz). Usa as variáveis do tema (style.css). */
-.jg-back { position: fixed; inset: 0; z-index: 900; display: grid; place-items: center; background: rgba(0, 0, 0, .45); padding: 16px; animation: jgIn .18s ease; }
+/* camada 58: acima da mesa de RPG (56), abaixo das janelas de confirmação (60), menus (70) e avisos (100) */
+.jg-back { position: fixed; inset: 0; z-index: 58; display: grid; place-items: center; background: rgba(0, 0, 0, .45); padding: 16px; animation: jgIn .18s ease; }
 .jg-back.min { inset: auto 18px 92px auto; background: none; padding: 0; display: block; }
 @keyframes jgIn { from { opacity: 0; } }
 .jg-pill { border: 1px solid var(--accent); background: var(--elev); color: var(--text); border-radius: 99px; padding: 9px 16px; font: inherit; font-weight: 700; cursor: pointer; box-shadow: var(--shadow); display: flex; gap: 8px; align-items: center; }

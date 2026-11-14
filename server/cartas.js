@@ -195,7 +195,8 @@ function createCartas({ db, save, now, str, toUser, voice, sockets, limited, tra
     on('cards:get', (_, cb) => { const g = games.get(room()); ok(cb, { game: g ? view(g, uid) : null }); });
     on('cards:stop', (_, cb) => {
       const g = games.get(room()); if (!g || g.phase === 'fim') return fail(cb, 'Nenhum jogo nesta call.');
-      if (g.host !== uid) return fail(cb, 'Só quem começou pode encerrar.');
+      // quem começou encerra; se essa pessoa já saiu da call, qualquer um da call pode encerrar
+      if (g.host !== uid && humansIn(g.room).includes(g.host)) return fail(cb, `Só ${name(g.host)} (quem começou) pode encerrar. Você pode minimizar no ▁.`);
       end(g, null, `${name(uid)} encerrou o jogo.`); ok(cb);
     });
     const mine = cb => { const g = games.get(room()); if (!g || g.phase !== 'jogando' || !g.players.includes(uid)) { fail(cb, 'Você não está jogando agora.'); return null; } if (limited('cardsact:' + uid, 60, 10e3)) { fail(cb, 'Calma!'); return null; } return g; };

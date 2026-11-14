@@ -184,8 +184,9 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
     });
     on('game:get', (_, cb) => { const g = games.get(room()); ok(cb, { game: g ? view(g) : null }); if (g && g.kind === 'desenho' && g.cur && g.cur.drawer === uid && g.phase === 'jogando') toUser(uid, 'game:word', { room: g.room, word: g.cur.word }); });
     on('game:stop', (_, cb) => {
-      const g = games.get(room()); if (!g) return fail(cb, 'Nenhum jogo nesta call.');
-      if (g.host !== uid) return fail(cb, 'Só quem começou pode encerrar.');
+      const g = games.get(room()); if (!g || g.phase === 'fim') return fail(cb, 'Nenhum jogo nesta call.');
+      // quem começou encerra; se essa pessoa já saiu da call, qualquer um da call pode encerrar
+      if (g.host !== uid && humansIn(g.room).includes(g.host)) return fail(cb, `Só ${name(g.host)} (quem começou) pode encerrar. Você pode minimizar no ▁.`);
       end(g, `${name(uid)} encerrou o jogo.`); ok(cb);
     });
     // traço do desenho (só quem está desenhando); pontos de 0 a 1
