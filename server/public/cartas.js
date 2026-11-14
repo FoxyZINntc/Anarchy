@@ -51,7 +51,7 @@ function render() {
   const body = g.phase === 'fim' ? endHtml(g) : g.kind === 'truco' ? trucoHtml(g) : malucasHtml(g);
   el.innerHTML = `<div class="jg-box ck-box ${g.kind}">
     <div class="jg-head"><b>${TITLE(g)}</b><span class="jg-rd">${g.phase === 'fim' ? 'Fim de jogo' : g.me ? (g.turn === me() ? '👉 Sua vez!' : `Vez de ${esc(H.nameOf(g.turn))}`) : '👀 Assistindo'}</span><span class="jg-t"></span><span class="jg-hsp"></span>
-      ${g.host === me() && g.phase !== 'fim' ? '<button class="jg-ib" data-ck="stop" data-tip="Encerrar o jogo">⏹</button>' : ''}<button class="jg-ib" data-ck="min" data-tip="Minimizar">▁</button>${g.phase === 'fim' ? '<button class="jg-ib" data-ck="close" data-tip="Fechar">✕</button>' : ''}</div>
+      ${g.phase !== 'fim' && (g.host === me() || !(H.S.voice[g.room] || []).some(p => p.uid === g.host)) ? '<button class="jg-ib" data-ck="stop" data-tip="Encerrar o jogo">⏹</button>' : ''}<button class="jg-ib" data-ck="min" data-tip="Minimizar">▁</button>${g.phase === 'fim' ? '<button class="jg-ib" data-ck="close" data-tip="Fechar">✕</button>' : ''}</div>
     <div class="jg-bar"><i></i></div>
     <div class="ck-body">${body}<div class="ck-log">${(g.log || []).map(t => `<div>${esc(t)}</div>`).join('')}</div></div></div>`;
   tick();

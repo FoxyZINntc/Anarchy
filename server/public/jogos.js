@@ -12,6 +12,14 @@ const sNow = () => Date.now() + J.skew;
 async function call(ev, data) { const r = await H.emit(ev, data); if (!r.ok) H.toast(r.erro || 'Algo deu errado.', true); return r; }
 const COLORS = ['#111111', '#ffffff', '#e53935', '#fb8c00', '#fdd835', '#43a047', '#1e88e5', '#8e24aa', '#6d4c41', '#ec407a', '#26c6da', '#9e9e9e'];
 const SIZES = [3, 6, 12, 24];
+// quem começou encerra; se essa pessoa saiu da call, qualquer um pode
+const canStop = g => g.phase !== 'fim' && (g.host === me() || !(H.S.voice[g.room] || []).some(p => p.uid === g.host));
+// Esc minimiza a janela do jogo (sem atrapalhar quem está digitando ou com uma janela de confirmação aberta)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || document.querySelector('.modal-back')) return;
+  const jg = document.querySelector('.jg-back:not(.min) [data-jg="min"], .jg-back:not(.min) [data-ck="min"]');
+  if (jg) { e.preventDefault(); jg.click(); }
+});
 const KIND = g => g.kind === 'desenho' ? '🎨 Desenha e adivinha' : g.mode === 'musica' ? '🎵 Quiz de música' : '🧠 Quiz';
 
 /* ---------- menu do botão 🎮 ---------- */
@@ -69,7 +77,7 @@ function render() {
   const chatOn = g.kind === 'desenho' || g.clip || g.phase === 'fim';
   el.innerHTML = `<div class="jg-box ${g.kind}">
     <div class="jg-head"><b>${KIND(g)}</b><span class="jg-rd">${g.phase === 'fim' ? 'Fim de jogo' : `Rodada ${Math.min(g.round, g.total)} de ${g.total}`}</span><span class="jg-t"></span>
-      <span class="jg-hsp"></span>${g.host === me() && g.phase !== 'fim' ? '<button class="jg-ib" data-jg="stop" data-tip="Encerrar o jogo">⏹</button>' : ''}<button class="jg-ib" data-jg="min" data-tip="Minimizar">▁</button>${g.phase === 'fim' ? '<button class="jg-ib" data-jg="close" data-tip="Fechar">✕</button>' : ''}</div>
+      <span class="jg-hsp"></span>${canStop(g) ? '<button class="jg-ib" data-jg="stop" data-tip="Encerrar o jogo">⏹</button>' : ''}<button class="jg-ib" data-jg="min" data-tip="Minimizar">▁</button>${g.phase === 'fim' ? '<button class="jg-ib" data-jg="close" data-tip="Fechar">✕</button>' : ''}</div>
     <div class="jg-bar"><i></i></div>
     <div class="jg-body"><div class="jg-main">${main}</div>
       <aside class="jg-side"><div class="jg-scores">${scoresHtml(g)}</div>
