@@ -44,7 +44,7 @@ const PRENDAS = ['Cantar um trecho de música 🎤', 'Imitar alguém da call �
 // dia no horário de Brasília (a caixa diária vira à meia-noite daqui)
 const day = ts => new Date(ts - 3 * 3600e3).toISOString().slice(0, 10);
 
-function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, sockets, rollAvfx, AVFX, REFUND, PLATES }) {
+function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, sockets, rollAvfx, AVFX, REFUND, PLATES, prizeTier, prizeItem }) {
   const txt = (v, n) => str(v, n).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim();
   const int = (v, lo, hi, d) => { const n = Math.round(+v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
   const findMsg = (cid, id) => (db.messages[cid] || []).find(m => m.id === id);
@@ -251,10 +251,10 @@ function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAc
       if (u.daily.last === today) return fail(cb, 'Você já pegou a caixa de hoje. Volte amanhã!');
       const streak = u.daily.last === yest ? (u.daily.streak || 0) + 1 : 1;
       u.daily = { last: today, streak, max: Math.max(u.daily.max || 0, streak) };
-      const item = rollAvfx(), tier = AVFX[item];
+      const item = rollAvfx(), tier = prizeTier(item); // efeito de foto ou fundo animado
       u.items = u.items || [];
-      const dup = u.items.some(x => x.item === 'av:' + item), refund = dup ? REFUND[tier] : 0;
-      if (!dup) u.items.push({ id: newId(), item: 'av:' + item, from: 'diaria', at: now(), seen: true });
+      const dup = u.items.some(x => x.item === prizeItem(item)), refund = dup ? REFUND[tier] : 0;
+      if (!dup) u.items.push({ id: newId(), item: prizeItem(item), from: 'diaria', at: now(), seen: true });
       const bonus = Math.min(100, streak * 10);
       u.points = (u.points || 0) + refund + bonus; u.pointsTotal = (u.pointsTotal || 0) + bonus;
       u.boxLog = [...(u.boxLog || []), { item, at: now(), dup, daily: true }].slice(-60);

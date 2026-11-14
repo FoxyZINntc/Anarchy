@@ -1595,6 +1595,8 @@ const ownedFx = () => new Set((S.me.items || []).filter(x => String(x.item).star
 async function openCase(daily) {
   const r = await emit(daily ? 'daily:claim' : 'box:open');
   if (!r.ok) return toast(r.erro, true);
+  // animações variadas e fundos animados ficam em caixas.js; o código abaixo é a roleta antiga (reserva)
+  if (window.anarchyBox) return window.anarchyBox.open(r, daily);
   const N = 60, WIN = 52, W = 130; // 124 de carta + 6 de espaço
   const pick = () => { const roll = Math.random() * 100; const t = roll < 70 ? 'comum' : roll < 90 ? 'raro' : roll < 97 ? 'epico' : roll < 99.5 ? 'lendario' : 'mitico'; const pool = AVFX_IDS.filter(k => AVFX[k].tier === t); return pool[Math.floor(Math.random() * pool.length)]; };
   const items = Array.from({ length: N }, (_, i) => i === WIN ? r.item : pick());
@@ -1644,7 +1646,7 @@ async function openCase(daily) {
 const INV = { tab: null, sel: null, item: null, people: null, q: '', rar: 'todos', amt: 500, msg: '' };
 const PT_PRESETS = [100, 300, 500, 1000, 5000];
 // "assinatura" do que a tela mostra: só redesenha quando algo disso muda (não a cada minuto de call)
-const invSig = u => [u.points, (u.items || []).length, u.plate, u.avfx, (u.boxLog || []).length, (u.given || []).length, (u.ptsLog || []).length, (u.lost || []).length, (u.items || []).filter(x => x.seen === false).length, u.daily && u.daily.ready, Object.keys(u.achAt || {}).length].join('|');
+const invSig = u => [u.points, (u.items || []).length, u.plate, u.avfx, u.bgfx, (u.boxLog || []).length, (u.given || []).length, (u.ptsLog || []).length, (u.lost || []).length, (u.items || []).filter(x => x.seen === false).length, u.daily && u.daily.ready, Object.keys(u.achAt || {}).length].join('|');
 const ptsAmt = () => Math.max(1, Math.min(1e6, Math.round(+INV.amt || 0)));
 const ptsPick = () => `<div class="pts-pick">${PT_PRESETS.map(n => `<button type="button" data-amt="${n}" class="${INV.amt === n ? 'on' : ''}"><i class="pts-ic"></i>${n.toLocaleString('pt-BR')}</button>`).join('')}
   <input class="input" type="number" min="1" max="1000000" data-amt-in placeholder="Outro valor" value="${PT_PRESETS.includes(INV.amt) ? '' : esc(String(INV.amt))}"></div>`;
@@ -1687,14 +1689,16 @@ function drawInventory(b) {
   if (INV.tab === 'dar' && !me.admin) INV.tab = 'efeitos';
   drawInventory.sig = invSig(me);
   const every = me.ptEvery || 1800000, prog = Math.min(100, Math.round((me.callAcc || 0) / every * 100)), left = Math.max(1, Math.ceil((every - (me.callAcc || 0)) / 60000));
-  const tabs = [['efeitos', '✨ Efeitos de foto', `${own.size}/${AVFX_IDS.length}`], ['placas', '🏷️ Placas de nome', `${owned.size}/${PLATE_IDS.length}`], ['conquistas', '🏆 Conquistas', `${Object.keys(me.achAt || {}).length}`], ['loja', '🛒 Loja da semana', ''], ['historico', '📜 Histórico', ''], ...(me.admin ? [['dar', '🎁 Dar presentes', '']] : [])];
+  const BX = window.anarchyBox, ownBg = new Set((me.items || []).filter(x => String(x.item).startsWith('bg:')).map(x => x.item.slice(3))), eqB = BX && me.bgfx && BX.BG[me.bgfx] ? me.bgfx : null;
+  const tabs = [['efeitos', '✨ Efeitos de foto', `${own.size}/${AVFX_IDS.length}`], ...(BX ? [['fundos', '🌌 Fundos animados', `${ownBg.size}/${BX.BG_IDS.length}`]] : []), ['placas', '🏷️ Placas de nome', `${owned.size}/${PLATE_IDS.length}`], ['conquistas', '🏆 Conquistas', `${Object.keys(me.achAt || {}).length}`], ['loja', '🛒 Loja da semana', ''], ['historico', '📜 Histórico', ''], ...(me.admin ? [['dar', '🎁 Dar presentes', '']] : [])];
   b.innerHTML = `<h2>Inventário</h2>
     <div class="iv-hero">
       <div class="iv-look"><span class="iv-k">Seu visual</span>
-        <div class="iv-look-av">${av(me.id, 84)}</div>
+        <div class="iv-look-av ${eqB ? 'bgx-host' : ''}" style="${eqB ? 'border-radius:14px;padding:10px 30px' : ''}">${eqB ? BX.bgLayer(eqB) : ''}<span style="position:relative">${av(me.id, 84)}</span></div>
         ${eqP ? plateRow(me.id, eqP, me.displayName) : `<div class="inv-prev">${av(me.id, 32)}<span class="np-name">${esc(me.displayName)}</span></div>`}
         <div class="iv-eq"><span>✨ ${eqF ? `<b>${esc(AVFX[eqF].name)}</b> <button class="link" data-off="fx">tirar</button>` : '<span class="muted">Sem efeito na foto</span>'}</span>
-          <span>🏷️ ${eqP ? `<b>${esc(PLATES[eqP][0])}</b> <button class="link" data-off="plate">tirar</button>` : '<span class="muted">Sem placa no nome</span>'}</span></div>
+          <span>🏷️ ${eqP ? `<b>${esc(PLATES[eqP][0])}</b> <button class="link" data-off="plate">tirar</button>` : '<span class="muted">Sem placa no nome</span>'}</span>
+          ${BX ? `<span>🌌 ${eqB ? `<b>${esc(BX.BG[eqB][0])}</b> <button class="link" data-off="bg">tirar</button>` : '<span class="muted">Sem fundo animado</span>'}</span>` : ''}</div>
       </div>
       <div class="iv-wallet"><div class="crate" aria-hidden="true"></div><div class="iv-wal-in">
         <span class="iv-k">Carteira</span>
@@ -1705,6 +1709,7 @@ function drawInventory(b) {
         <button class="btn primary iv-open" id="boxGo" ${pts < BOX_COST ? 'disabled' : ''}>🎁 Abrir Caixa Anarchy · <i class="pts-ic"></i> ${BOX_COST}</button>
         ${pts < BOX_COST ? `<span class="muted small">Faltam ${BOX_COST - pts} pontos para a próxima caixa.</span>` : ''}
         <div class="box-odds">${Object.entries(AVR).map(([k, v]) => `<span class="r-c-${k}">${v[0]} ${v[2]}</span>`).join('')}</div>
+        ${BX ? `<span class="muted small">Sai um efeito de foto ou um fundo animado de perfil.</span>${BX.pickHtml()}` : ''}
       </div></div>
     </div>
     <div class="iv-tabs" role="tablist">${tabs.map(([k, l, n]) => `<button type="button" role="tab" data-tab="${k}" class="${INV.tab === k ? 'on' : ''}">${l}${n ? `<small>${n}</small>` : ''}${k === 'placas' && fresh ? '<i class="iv-dot"></i>' : ''}</button>`).join('')}</div>
@@ -1715,7 +1720,9 @@ function drawInventory(b) {
     const t = e.target.closest('[data-tab]'); if (t) { INV.tab = t.dataset.tab; return drawInventory(b); }
     const r = e.target.closest('[data-rar]'); if (r) { INV.rar = r.dataset.rar; return drawInventory(b); }
     const off = e.target.closest('[data-off]');
-    if (off) { const q = await emit(off.dataset.off === 'fx' ? 'avfx:equip' : 'inv:equip', { item: null }); if (!q.ok) toast(q.erro, true); return; }
+    if (off) { const q = await emit(off.dataset.off === 'fx' ? 'avfx:equip' : off.dataset.off === 'bg' ? 'bg:equip' : 'inv:equip', { item: null }); if (!q.ok) toast(q.erro, true); return; }
+    const bgc = e.target.closest('[data-bg]');
+    if (bgc && !bgc.disabled) { const q = await emit('bg:equip', { item: me.bgfx === bgc.dataset.bg ? null : bgc.dataset.bg }); if (!q.ok) toast(q.erro, true); return; }
     const fx = e.target.closest('[data-fx]');
     if (fx && !fx.disabled) { const q = await emit('avfx:equip', { item: me.avfx === fx.dataset.fx ? null : fx.dataset.fx }); if (!q.ok) toast(q.erro, true); return; }
     const c = e.target.closest('[data-inv]');
@@ -1728,6 +1735,15 @@ function drawInventory(b) {
 function invPane(me, own, owned, eqP) {
   if (INV.tab === 'conquistas') return window.anarchyFun ? window.anarchyFun.achPane() : '';
   if (INV.tab === 'loja') return '<div class="fun-shop"><p class="muted small">Abrindo a loja...</p></div>';
+  if (INV.tab === 'fundos' && window.anarchyBox) {
+    const BX = window.anarchyBox, ownBg = new Set((me.items || []).filter(x => String(x.item).startsWith('bg:')).map(x => x.item.slice(3)));
+    const filt = [['todos', 'Todos'], ['meus', 'Meus'], ...Object.entries(AVR).map(([k, v]) => [k, v[0]])];
+    const ids = BX.BG_IDS.filter(id => INV.rar === 'todos' || (INV.rar === 'meus' ? ownBg.has(id) : BX.BG[id][1] === INV.rar)).sort((a, b) => AVR[BX.BG[b][1]][1] - AVR[BX.BG[a][1]][1]);
+    return `<div class="iv-filter">${filt.map(([k, l]) => `<button type="button" data-rar="${k}" class="${INV.rar === k ? 'on' : ''} ${AVR[k] ? 'r-c-' + k : ''}">${l}</button>`).join('')}</div>
+      <p class="muted small iv-note">Fundos que se mexem no topo do seu cartão de perfil (todo mundo vê). Saem na Caixa Anarchy junto com os efeitos de foto. Clique em um que é seu para usar.</p>
+      ${ids.length ? `<div class="bgx-grid">${ids.map(id => { const [n, t] = BX.BG[id], has = ownBg.has(id), on = me.bgfx === id; return `<button class="bgx-card r-c-${t} ${has ? '' : 'locked'} ${on ? 'on' : ''}" data-bg="${id}" ${has ? '' : 'disabled'} title="${has ? (on ? 'Clique para tirar' : 'Clique para usar') : 'Ainda não saiu para você'}">${on ? '<span class="inv-tag">USANDO</span>' : ''}<div class="bgx-prev">${BX.bgLayer(id)}${has ? '' : '<span class="bgx-tag">🔒</span>'}</div><b>${esc(n)}</b><small>${AVR[t][0]}</small></button>`; }).join('')}</div>`
+        : `<div class="iv-empty">🌌<b>Nenhum fundo aqui ainda</b><span>Abra uma Caixa Anarchy para ganhar o primeiro.</span></div>`}`;
+  }
   if (INV.tab === 'efeitos') {
     const filt = [['todos', 'Todos'], ['meus', 'Meus'], ...Object.entries(AVR).map(([k, v]) => [k, v[0]])];
     const ids = AVFX_IDS.filter(id => INV.rar === 'todos' || (INV.rar === 'meus' ? own.has(id) : AVFX[id].tier === INV.rar));
@@ -1754,7 +1770,7 @@ function invPane(me, own, owned, eqP) {
     const log = [
       ...(me.items || []).filter(x => PLATES[x.item]).map(x => ({ at: x.at, ic: '🏷️', t: `Você ganhou a placa <b>${pn(x.item)}</b> de ${esc(nameOf(x.from))}${x.msg ? ` — “${esc(x.msg)}”` : ''}` })),
       ...(me.lost || []).map(x => ({ at: x.at, ic: '💨', t: `A placa <b>${pn(x.item)}</b> foi tirada da sua conta` })),
-      ...(me.boxLog || []).map(x => ({ at: x.at, ic: '🎲', rc: AVFX[x.item]?.tier, t: `Caixa: <b style="color:var(--rc)">${esc(AVFX[x.item]?.name || x.item)}</b>${x.dup ? ' <span class="muted">(repetido, virou pontos)</span>' : ''}` })),
+      ...(me.boxLog || []).map(x => ({ at: x.at, ic: String(x.item).startsWith('bg:') ? '🌌' : '🎲', rc: window.anarchyBox ? window.anarchyBox.pTier(x.item) : AVFX[x.item]?.tier, t: `Caixa: <b style="color:var(--rc)">${esc(window.anarchyBox ? window.anarchyBox.pName(x.item) : AVFX[x.item]?.name || x.item)}</b>${x.dup ? ' <span class="muted">(repetido, virou pontos)</span>' : ''}` })),
       ...(me.ptsLog || []).map(x => ({ at: x.at, ic: '🪙', t: x.amount > 0 ? `Você ganhou <b style="color:#ffd36b">+${x.amount.toLocaleString('pt-BR')} pontos</b> de ${esc(nameOf(x.from))}${x.msg ? ` — “${esc(x.msg)}”` : ''}` : `${esc(nameOf(x.from))} tirou <b>${(-x.amount).toLocaleString('pt-BR')} pontos</b> seus` })),
       ...(me.given || []).map(x => ({ at: x.at, ic: x.points ? '📤' : x.revoked ? '🗑️' : '📤',
         t: x.points ? (x.points > 0 ? `Você deu <b style="color:#ffd36b">${x.points.toLocaleString('pt-BR')} pontos</b> para ${esc(nameOf(x.to))}` : `Você tirou <b>${(-x.points).toLocaleString('pt-BR')} pontos</b> de ${esc(nameOf(x.to))}`)
@@ -1828,13 +1844,15 @@ function bannerStyle(u) {
   return u.banner ? (isImg(u.banner) ? `background-image:url('${esc(u.banner)}')` : `background:${safeC(u.banner)}`) : `background:linear-gradient(135deg, ${safeC(u.color)}, color-mix(in srgb, ${safeC(u.color)} 55%, #000))`;
 }
 const badgeRow = u => (u.badges || []).filter(b => BADGES[b]).map(b => `<span class="pf-badge" data-tip="${esc(BADGES[b][1] + ': ' + BADGES[b][2])}">${BADGES[b][0]}</span>`).join('');
+// fundo animado do banner (prêmio da caixa; visual em caixas.css)
+const bgFx = u => (u.bgfx && window.anarchyBox ? window.anarchyBox.bgLayer(u.bgfx) : '');
 const fxLayer = u => (u.effect && EFFECTS[u.effect] ? `<div class="pf-fx fx-${esc(u.effect)}" aria-hidden="true"></div>` : '');
 const profileCard = (id, g) => profileCardOf(user(id), g);
 function profileCardOf(u, g) {
   const id = u.id; const cv = cardVars(u);
   const roles = g && g.members.includes(id) ? gRoles(g, id) : [];
   const badges = badgeRow(u);
-  return `<div class="profile-prev ${cv.th ? 'themed' : ''}" style="${cv.style}">${fxLayer(u)}<div class="banner" style="${bannerStyle(u)}"></div><div class="pbody">
+  return `<div class="profile-prev ${cv.th ? 'themed' : ''}" style="${cv.style}">${fxLayer(u)}<div class="banner ${u.bgfx ? 'bgx-host' : ''}" style="${bannerStyle(u)}">${bgFx(u)}</div><div class="pbody">
     <div class="pf-top">${av(id, 80, true, '', u)}${badges ? `<div class="pf-badges">${badges}</div>` : ''}</div>
     <h3>${esc(u.displayName)}${u.bot ? '<span class="bot-tag">BOT</span>' : ''}</h3><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}</div>
     ${u.activity ? `<div class="pf-status pf-act">${esc(u.activity.emoji)} ${esc(u.activity.text)}</div>` : ''}${window.anarchyFun ? window.anarchyFun.joinWith(id) : ''}${u.customStatus ? `<div class="pf-status">${esc(u.customStatus)}</div>` : ''}
@@ -1871,7 +1889,7 @@ async function openFullProfile(id, tab = 'sobre', uo = null) {
          ${(u.badges || []).length ? `<div class="pf-sec"><h4>Insígnias</h4><div class="pf-blist">${u.badges.filter(b => BADGES[b]).map(b => `<div class="pf-bitem"><span>${BADGES[b][0]}</span><div><b>${BADGES[b][1]}</b><span class="muted small">${BADGES[b][2]}</span></div></div>`).join('')}</div></div>` : ''}
          ${g && g.members.includes(id) ? `<div class="pf-sec"><h4>Cargos em ${esc(g.name)}${g.ownerId === id ? ' · 👑 dono' : ''}</h4><div>${roles.length ? roles.map(r => `<span class="role-chip"><i style="background:${esc(r.color || 'var(--muted)')}"></i>${esc(r.name)}</span>`).join('') : '<span class="muted">Sem cargos.</span>'}</div></div>` : ''}`;
     back.innerHTML = `<div class="pf-full ${cv.th ? 'themed' : ''}" style="${cv.style}" role="dialog" aria-modal="true" aria-label="Perfil de ${esc(u.displayName)}">
-      ${fxLayer(u)}<div class="pf-banner" style="${bannerStyle(u)}"><button class="icon-btn pf-x" data-close aria-label="Fechar">${ic('x')}</button></div>
+      ${fxLayer(u)}<div class="pf-banner ${u.bgfx ? 'bgx-host' : ''}" style="${bannerStyle(u)}">${bgFx(u)}<button class="icon-btn pf-x" data-close aria-label="Fechar">${ic('x')}</button></div>
       <div class="pf-main">
         <div class="pf-head">${av(id, 120, true, '', u)}<div class="pf-acts">${uo ? '<span class="pf-tag">Prévia: ainda não salvo</span>' : profileActs(id, true)}</div></div>
         <div class="pf-names"><h2>${esc(u.displayName)}${u.bot ? '<span class="bot-tag">BOT</span>' : ''}</h2><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}<span class="pf-st"><i class="st-dot ${esc(u.status || 'offline')}"></i>${esc(STATUS[u.status] || 'Offline')}</span></div>
@@ -4404,6 +4422,7 @@ window.addEventListener('beforeunload', () => { if (V.room) socket?.emit('voice:
 
 /* =============== RPG de Mesa (rpg.js): o que ele usa do app =============== */
 if (window.anarchyRpg) window.anarchyRpg.init({ S, esc, ic, av, user, nameOf, emit, toast, modal, confirmBox, pickFile, readFile, api, tone, gCan, openGroupSettings, get socket() { return socket; } });
+if (window.anarchyBox) window.anarchyBox.init({ esc, avWith, tone, reduceMotion, emit, toast, giftSparks, AVFX, AVFX_IDS, AVR, BOX_COST, openCase: () => openCase() });
 if (window.anarchyFun) window.anarchyFun.init({ S, esc, av, nameOf, emit, toast, modal, confirmBox, pop, closePops, tone, confetti, md, gCan, reduceMotion, viewingCid: () => viewingCid(), renderMessages: () => renderMessages(), inCall: () => !!V.room,
   avfx: id => AVFX[id], avWith, rarName: t => (AVR[t] || [t])[0], plate: id => PLATES[id], plateRow, renderStage: () => renderStageSlot(),
   djPos: roomId => (S.music[roomId] ? djPos(S.music[roomId]) : 0), joinVoice: roomId => joinVoice(roomId), room: () => V.room, go: v => go(v) });

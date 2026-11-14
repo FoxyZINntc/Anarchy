@@ -144,6 +144,7 @@ function publicUser(u) {
     status: on ? (u.status || 'online') : 'offline', createdAt: u.createdAt,
     plate: u.plate && PLATES.includes(u.plate) ? u.plate : null,
     avfx: u.avfx && AVFX[u.avfx] ? u.avfx : null,
+    bgfx: u.bgfx && BGFX[u.bgfx] ? u.bgfx : null,
     // conquistas (ids) e o que está fazendo agora (some depois de 12 horas)
     ach: u.ach ? Object.keys(u.ach) : [],
     activity: u.activity && Date.now() - u.activity.at < 12 * 3600e3 ? { text: u.activity.text, emoji: u.activity.emoji } : null
@@ -184,9 +185,22 @@ const AVFX = {}; // 'estilo-cor' -> raridade (a cor Prisma sobe uma raridade)
 for (const [s, r] of Object.entries(AVFX_STYLES)) for (const p of AVFX_PALS) AVFX[`${s}-${p}`] = p === 'prisma' ? RAR_UP[r] : r;
 const DROP = [['comum', 7000], ['raro', 2000], ['epico', 700], ['lendario', 250], ['mitico', 50]]; // chance em 10.000
 const REFUND = { comum: 30, raro: 60, epico: 150, lendario: 400, mitico: 1000 }; // repetida: devolve pontos
+// Fundos animados do perfil (o banner do cartão ganha vida). Também saem na caixa. O visual fica no app (caixas.js/caixas.css).
+const BGFX = {
+  aurora: 'comum', nuvens: 'comum', ondas: 'comum', bolhas: 'comum', chuva: 'comum', listras: 'comum', poeira: 'comum', degrade: 'comum', grade: 'comum', confete: 'comum',
+  sakura: 'raro', neve: 'raro', vagalumes: 'raro', oceano: 'raro', por_do_sol: 'raro', hexagonos: 'raro', radar: 'raro', pixels: 'raro', plasma: 'raro', fumaca: 'raro',
+  galaxia: 'epico', matrix: 'epico', synthwave: 'epico', lava: 'epico', tempestade: 'epico', holograma: 'epico', vortice: 'epico', cristais: 'epico',
+  inferno: 'lendario', cosmos: 'lendario', glitch: 'lendario', dragao: 'lendario', ouro: 'lendario', abismo: 'lendario',
+  arco_iris: 'mitico', supernova: 'mitico', anarquia: 'mitico', dimensao: 'mitico'
+};
+const prizeTier = id => (String(id).startsWith('bg:') ? BGFX[id.slice(3)] : AVFX[id]);
+const prizeItem = id => (String(id).startsWith('bg:') ? id : 'av:' + id); // como fica guardado em u.items
+// sorteia a raridade e depois o prêmio dela: efeito de foto ou fundo animado (fundo em ~40% das vezes)
 function rollAvfx() {
   let n = crypto.randomInt(0, 10000), tier = 'comum';
   for (const [t, w] of DROP) { if (n < w) { tier = t; break; } n -= w; }
+  const bgs = Object.keys(BGFX).filter(k => BGFX[k] === tier).map(k => 'bg:' + k);
+  if (bgs.length && crypto.randomInt(0, 100) < 40) return bgs[crypto.randomInt(0, bgs.length)];
   const pool = Object.keys(AVFX).filter(k => AVFX[k] === tier);
   return pool[crypto.randomInt(0, pool.length)];
 }
@@ -898,7 +912,7 @@ const rpg = require('./rpg').createRpg({
 setInterval(() => { for (const [id, t] of tracks) if (t.acc && now() - (t.at || 0) > 5 * 3600e3) tracks.delete(id); }, 30 * 60e3).unref();
 /* ---------- diversão: enquetes, bombas, conquistas, caixa diária, atividade, eventos, roleta, retrospectiva (ver diversao.js) ---------- */
 const fun = require('./diversao').createDiversao({
-  db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, sockets, rollAvfx, AVFX, REFUND, PLATES
+  db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, sockets, rollAvfx, AVFX, REFUND, PLATES, prizeTier, prizeItem
 });
 /* ---------- jogos da call: Desenha e adivinha e Quiz (ver jogos.js) ---------- */
 const jogos = require('./jogos').createJogos({
@@ -1025,12 +1039,12 @@ function onConnection(socket) {
     if (limited('box:' + uid, 30, 60e3)) return fail(cb, 'Calma! Muitas caixas seguidas.');
     if ((u.points || 0) < BOX_COST) return fail(cb, `Faltam ${BOX_COST - (u.points || 0)} AnarchyPoints para abrir uma caixa.`);
     u.points -= BOX_COST;
-    const item = rollAvfx(), tier = AVFX[item];
+    const item = rollAvfx(), tier = prizeTier(item);
     u.items = u.items || [];
-    const dup = u.items.some(x => x.item === 'av:' + item);
+    const dup = u.items.some(x => x.item === prizeItem(item));
     const refund = dup ? REFUND[tier] : 0;
     if (dup) u.points += refund;
-    else u.items.push({ id: newId(), item: 'av:' + item, from: 'caixa', at: now(), seen: true });
+    else u.items.push({ id: newId(), item: prizeItem(item), from: 'caixa', at: now(), seen: true });
     u.boxes = (u.boxes || 0) + 1;
     u.boxLog = [...(u.boxLog || []), { item, at: now(), dup }].slice(-60);
     if (tier === 'lendario' || tier === 'mitico') { u.stats = u.stats || {}; u.stats.luck = (u.stats.luck || 0) + 1; }
@@ -1043,6 +1057,12 @@ function onConnection(socket) {
     const m = me(), item = d.item ? str(d.item, 40) : null;
     if (item && !(m.items || []).some(x => x.item === 'av:' + item)) return fail(cb, 'Você não tem esse efeito.');
     m.avfx = item; save(); pushUser(uid); ok(cb, {});
+  });
+  // fundo animado do cartão de perfil (sai na caixa)
+  on('bg:equip', (d, cb) => {
+    const m = me(), id = d.item ? str(d.item, 40) : null;
+    if (id && (!BGFX[id] || !(m.items || []).some(x => x.item === 'bg:' + id))) return fail(cb, 'Você não tem esse fundo.');
+    m.bgfx = id; save(); pushUser(uid); toUser(uid, 'me:update', selfUser(m)); ok(cb, {});
   });
   // o dono pode dar pontos (eventos, prêmios)
   on('points:give', (d, cb) => {
