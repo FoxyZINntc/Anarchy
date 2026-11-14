@@ -1,0 +1,226 @@
+/* Anarchy — Fundos animados do perfil (prêmio das caixas) e as animações de abrir caixa (caixas.js).
+   Cada fundo é um <div class="bgx bgx-NOME"> dentro do banner do cartão; tudo em CSS, sem imagens. */
+.bgx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; border-radius: inherit; isolation: isolate; }
+.bgx::before, .bgx::after { content: ''; position: absolute; inset: 0; }
+.bgx-host { position: relative; overflow: hidden; }
+@keyframes bgxDown { to { background-position: 0 var(--t, 200px); } }
+@keyframes bgxDiag { to { background-position: var(--t, 200px) var(--t, 200px); } }
+@keyframes bgxUp { to { background-position: 0 calc(var(--t, 200px) * -1); } }
+@keyframes bgxRight { to { background-position: var(--t, 200px) 0; } }
+@keyframes bgxPan { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+@keyframes bgxSpin { to { transform: rotate(360deg); } }
+@keyframes bgxSlide { to { transform: translateX(-50%); } }
+@keyframes bgxBreath { 0%, 100% { transform: scale(1); opacity: .85; } 50% { transform: scale(1.15); opacity: 1; } }
+@keyframes bgxTwinkle { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@keyframes bgxHue { to { filter: hue-rotate(360deg); } }
+@keyframes bgxDrift { 0% { transform: translate(-6%, -4%) rotate(0); } 50% { transform: translate(6%, 4%) rotate(8deg); } 100% { transform: translate(-6%, -4%) rotate(0); } }
+@keyframes bgxZoom { from { transform: scale(.3); opacity: 1; } to { transform: scale(2.2); opacity: 0; } }
+@keyframes bgxSweep { from { transform: translateX(-120%) skewX(-20deg); } to { transform: translateX(220%) skewX(-20deg); } }
+@keyframes bgxFlash { 0%, 89%, 93%, 100% { opacity: 0; } 90%, 92% { opacity: .85; } 91% { opacity: .2; } }
+@keyframes bgxFlicker { 0%, 100% { transform: scaleY(1); } 25% { transform: scaleY(1.08) skewX(1deg); } 50% { transform: scaleY(.95); } 75% { transform: scaleY(1.05) skewX(-1deg); } }
+@keyframes bgxScan { to { background-position: 0 8px; } }
+@keyframes bgxGlitch { 0%, 100% { clip-path: inset(10% 0 80% 0); transform: translateX(-4px); } 20% { clip-path: inset(60% 0 20% 0); transform: translateX(5px); } 40% { clip-path: inset(30% 0 50% 0); transform: translateX(-3px); } 60% { clip-path: inset(80% 0 5% 0); transform: translateX(4px); } 80% { clip-path: inset(5% 0 70% 0); transform: translateX(-5px); } }
+@keyframes bgxRise { to { transform: translateY(-50%); } }
+
+/* ---------- comuns ---------- */
+.bgx-aurora { background: linear-gradient(180deg, #03111f, #071f2e); }
+.bgx-aurora::before { inset: -40%; background: radial-gradient(40% 25% at 30% 45%, #2dff9e88, transparent 70%), radial-gradient(35% 20% at 65% 40%, #29c6ff77, transparent 70%), radial-gradient(30% 22% at 50% 60%, #b066ff66, transparent 70%); filter: blur(14px); animation: bgxDrift 12s ease-in-out infinite; }
+.bgx-aurora::after { --t: 160px; background-image: radial-gradient(1px 1px at 20px 30px, #fff, transparent), radial-gradient(1px 1px at 110px 90px, #fff, transparent), radial-gradient(1.5px 1.5px at 70px 140px, #cfe, transparent); background-size: 160px 160px; animation: bgxTwinkle 3s ease-in-out infinite; }
+.bgx-nuvens { background: linear-gradient(180deg, #5fb8ff, #bfe6ff); }
+.bgx-nuvens::before { width: 200%; background: radial-gradient(60px 26px at 15% 35%, #fff 60%, transparent 62%), radial-gradient(40px 20px at 22% 30%, #fff 60%, transparent 62%), radial-gradient(70px 28px at 40% 70%, #ffffffdd 60%, transparent 62%), radial-gradient(50px 22px at 70% 40%, #fff 60%, transparent 62%), radial-gradient(36px 18px at 77% 35%, #fff 60%, transparent 62%), radial-gradient(64px 26px at 90% 75%, #ffffffcc 60%, transparent 62%); background-size: 50% 100%; animation: bgxSlide 40s linear infinite; }
+.bgx-ondas { background: linear-gradient(180deg, #0f5c86, #073a57); }
+.bgx-ondas::before, .bgx-ondas::after { --t: 120px; top: auto; height: 60%; background: radial-gradient(70px 40px at 60px 0, transparent 70%, #ffffff22 72%, transparent 80%); background-size: 120px 30px; animation: bgxRight 5s linear infinite; }
+.bgx-ondas::after { height: 40%; opacity: .7; animation-duration: 3.5s; animation-direction: reverse; }
+.bgx-bolhas { background: linear-gradient(160deg, #0b3b5c, #13809e); }
+.bgx-bolhas::before { --t: 180px; background-image: radial-gradient(circle at 30px 40px, transparent 7px, #ffffff66 8px, transparent 10px), radial-gradient(circle at 120px 100px, transparent 11px, #ffffff55 12px, transparent 14px), radial-gradient(circle at 80px 160px, transparent 4px, #ffffff77 5px, transparent 7px); background-size: 180px 180px; animation: bgxUp 9s linear infinite; }
+.bgx-chuva { background: linear-gradient(180deg, #1b2333, #2b364a); }
+.bgx-chuva::before, .bgx-chuva::after { --t: 90px; background-image: radial-gradient(1px 12px at 10px 20px, #b9d0ffcc, transparent), radial-gradient(1px 10px at 45px 65px, #b9d0ffaa, transparent), radial-gradient(1px 14px at 75px 35px, #b9d0ffbb, transparent); background-size: 90px 90px; transform: rotate(12deg) scale(1.4); animation: bgxDown .5s linear infinite; }
+.bgx-chuva::after { background-position: 30px 40px; opacity: .55; animation-duration: .8s; }
+.bgx-listras { --t: 56.57px; background: repeating-linear-gradient(45deg, #ff6b6b 0 20px, #ffd166 20px 40px); background-size: 56.57px 56.57px; animation: bgxRight 2s linear infinite; }
+.bgx-listras::after { background: linear-gradient(180deg, transparent, #0006); }
+.bgx-poeira { background: radial-gradient(ellipse at 50% 120%, #2a1a5e, #0a0b1e 70%); }
+.bgx-poeira::before { --t: 140px; background-image: radial-gradient(1.5px 1.5px at 10px 20px, #fff, transparent), radial-gradient(1px 1px at 60px 80px, #ffd, transparent), radial-gradient(2px 2px at 110px 40px, #bdf, transparent), radial-gradient(1px 1px at 40px 120px, #fff, transparent); background-size: 140px 140px; animation: bgxDiag 20s linear infinite; }
+.bgx-poeira::after { background-image: radial-gradient(1px 1px at 30px 50px, #fff, transparent), radial-gradient(1.5px 1.5px at 90px 10px, #fdf, transparent); background-size: 100px 100px; animation: bgxTwinkle 2.4s ease-in-out infinite; }
+.bgx-degrade { background: linear-gradient(120deg, #ff5f6d, #ffc371, #47c9a2, #4f8cff, #b06cff); background-size: 400% 400%; animation: bgxPan 10s ease infinite; }
+.bgx-grade { --t: 24px; background-color: #14061f; background-image: linear-gradient(#ff3ec955 1px, transparent 1px), linear-gradient(90deg, #ff3ec955 1px, transparent 1px); background-size: 24px 24px; animation: bgxDown 1.5s linear infinite; }
+.bgx-grade::after { background: radial-gradient(ellipse at 50% 100%, #ff3ec944, transparent 70%); }
+.bgx-confete { background: linear-gradient(180deg, #221a3a, #3a2460); }
+.bgx-confete::before, .bgx-confete::after { --t: 130px; background-image: radial-gradient(3px 5px at 20px 20px, #ff5f6d 50%, transparent 52%), radial-gradient(4px 3px at 70px 50px, #ffd166 50%, transparent 52%), radial-gradient(3px 4px at 110px 100px, #47c9a2 50%, transparent 52%), radial-gradient(4px 4px at 40px 90px, #4f8cff 50%, transparent 52%), radial-gradient(3px 5px at 95px 15px, #ff8ac6 50%, transparent 52%); background-size: 130px 130px; animation: bgxDown 5s linear infinite; }
+.bgx-confete::after { background-position: 60px 40px; transform: scale(1.4) rotate(12deg); opacity: .7; animation-duration: 7s; }
+
+/* ---------- raros ---------- */
+.bgx-sakura { background: linear-gradient(180deg, #ffd6e7, #f7a8c8 60%, #c86b98); }
+.bgx-sakura::before, .bgx-sakura::after { --t: 160px; background-image: radial-gradient(6px 3px at 20px 30px, #ff7aa8 60%, transparent 62%), radial-gradient(4px 6px at 90px 70px, #ffb3cd 60%, transparent 62%), radial-gradient(5px 3px at 130px 130px, #ff8fb5 60%, transparent 62%), radial-gradient(3px 5px at 50px 120px, #fff0f6 60%, transparent 62%); background-size: 160px 160px; animation: bgxDiag 10s linear infinite; }
+.bgx-sakura::after { transform: scale(1.5) rotate(-15deg); opacity: .6; animation-duration: 14s; }
+.bgx-neve { background: linear-gradient(180deg, #0d1b33, #2a4570); }
+.bgx-neve::before { --t: 120px; background-image: radial-gradient(1.5px 1.5px at 15px 20px, #fff, transparent), radial-gradient(2px 2px at 70px 60px, #fff, transparent), radial-gradient(1px 1px at 100px 100px, #fff, transparent), radial-gradient(1.5px 1.5px at 40px 95px, #fff, transparent); background-size: 120px 120px; animation: bgxDown 6s linear infinite; }
+.bgx-neve::after { --t: 220px; background-image: radial-gradient(3px 3px at 50px 40px, #ffffffdd, transparent), radial-gradient(2.5px 2.5px at 170px 150px, #ffffffcc, transparent); background-size: 220px 220px; animation: bgxDiag 11s linear infinite; }
+.bgx-vagalumes { background: radial-gradient(ellipse at 50% 120%, #1f3a1f, #08130a 70%); }
+.bgx-vagalumes::before, .bgx-vagalumes::after { background-image: radial-gradient(3px 3px at 30px 40px, #fff59d, #ffee5844 60%, transparent 70%), radial-gradient(2px 2px at 120px 90px, #fff59d, #ffee5844 60%, transparent 70%), radial-gradient(3px 3px at 80px 140px, #f4ff81, #ffee5844 60%, transparent 70%); background-size: 160px 160px; filter: drop-shadow(0 0 4px #ffee58); animation: bgxTwinkle 2.2s ease-in-out infinite, bgxDrift 14s ease-in-out infinite; }
+.bgx-vagalumes::after { background-position: 70px 30px; animation-delay: -1.1s, -6s; }
+.bgx-oceano { background: linear-gradient(180deg, #0d6e9e, #053149 70%, #021a28); }
+.bgx-oceano::before { inset: -20%; background: repeating-radial-gradient(circle at 30% 20%, #ffffff14 0 6px, transparent 6px 22px), repeating-radial-gradient(circle at 70% 30%, #ffffff10 0 5px, transparent 5px 26px); animation: bgxDrift 9s ease-in-out infinite; }
+.bgx-oceano::after { --t: 160px; background-image: radial-gradient(circle at 40px 50px, transparent 3px, #ffffff66 4px, transparent 5px), radial-gradient(circle at 120px 120px, transparent 5px, #ffffff55 6px, transparent 7px); background-size: 160px 160px; animation: bgxUp 7s linear infinite; }
+.bgx-por_do_sol { background: linear-gradient(180deg, #2b1055 0%, #d53a9d 50%, #ff9a44 100%); }
+.bgx-por_do_sol::before { width: 46%; height: 80%; left: 27%; top: 45%; border-radius: 50%; background: linear-gradient(180deg, #ffe66d, #ff6b6b); box-shadow: 0 0 40px #ff9a44; animation: bgxBreath 5s ease-in-out infinite; }
+.bgx-por_do_sol::after { --t: 14px; top: 55%; background: repeating-linear-gradient(180deg, transparent 0 8px, #2b1055 8px 14px); background-size: 100% 14px; animation: bgxDown 1.2s linear infinite; mask-image: linear-gradient(180deg, transparent, #000 40%); }
+.bgx-hexagonos { background: #07121c; }
+.bgx-hexagonos::before { background: repeating-linear-gradient(60deg, transparent 0 18px, #29e3ff44 18px 19px), repeating-linear-gradient(-60deg, transparent 0 18px, #29e3ff44 18px 19px), repeating-linear-gradient(0deg, transparent 0 18px, #29e3ff22 18px 19px); animation: bgxTwinkle 3s ease-in-out infinite; }
+.bgx-hexagonos::after { background: radial-gradient(circle at 30% 50%, #29e3ff55, transparent 40%); animation: bgxDrift 6s ease-in-out infinite; }
+.bgx-radar { background: radial-gradient(circle, #06331a, #021209 75%); }
+.bgx-radar::before { inset: -60%; background: conic-gradient(from 0deg, #39ff8a88, transparent 25%); animation: bgxSpin 3s linear infinite; }
+.bgx-radar::after { background: repeating-radial-gradient(circle, transparent 0 22px, #39ff8a44 22px 23px), linear-gradient(#39ff8a33, #39ff8a33) 50% 0 / 1px 100% no-repeat, linear-gradient(#39ff8a33, #39ff8a33) 0 50% / 100% 1px no-repeat; }
+.bgx-pixels { background: conic-gradient(#ff3ec9 25%, #29e3ff 0 50%, #ffe14d 0 75%, #39ff8a 0) 0 0 / 22px 22px; animation: bgxHue 4s steps(8) infinite; }
+.bgx-pixels::after { background: linear-gradient(180deg, #0005, #000a); }
+.bgx-plasma { background: radial-gradient(circle at 20% 30%, #ff2bd6, transparent 45%), radial-gradient(circle at 80% 60%, #2b9bff, transparent 45%), radial-gradient(circle at 50% 90%, #ffb02b, transparent 45%), #1a0533; background-size: 200% 200%; animation: bgxPan 8s ease-in-out infinite, bgxHue 12s linear infinite; }
+.bgx-fumaca { background: linear-gradient(180deg, #2b2f36, #14161a); }
+.bgx-fumaca::before, .bgx-fumaca::after { inset: -30%; background: radial-gradient(30% 25% at 30% 60%, #ffffff30, transparent 70%), radial-gradient(25% 20% at 70% 40%, #ffffff24, transparent 70%); filter: blur(10px); animation: bgxDrift 10s ease-in-out infinite; }
+.bgx-fumaca::after { animation-duration: 15s; animation-direction: reverse; }
+
+/* ---------- épicos ---------- */
+.bgx-galaxia { background: #05030f; }
+.bgx-galaxia::before { inset: -60%; background: radial-gradient(ellipse 30% 8% at 50% 50%, #ffffffcc, transparent 60%), conic-gradient(from 0deg at 50% 50%, #5b2dff55, #ff2bd655, #2bc4ff55, #5b2dff55); border-radius: 50%; filter: blur(8px); animation: bgxSpin 30s linear infinite; mask-image: radial-gradient(circle, #000 20%, transparent 60%); }
+.bgx-galaxia::after { background-image: radial-gradient(1px 1px at 20px 30px, #fff, transparent), radial-gradient(1.5px 1.5px at 90px 80px, #fff, transparent), radial-gradient(1px 1px at 140px 20px, #cdf, transparent); background-size: 160px 110px; animation: bgxTwinkle 2.5s ease-in-out infinite; }
+.bgx-matrix { background: #000; }
+.bgx-matrix::before { --t: 200px; background-image: radial-gradient(1.5px 40px at 10px 40px, #00ff46, transparent), radial-gradient(1.5px 30px at 50px 130px, #00ff46cc, transparent), radial-gradient(1.5px 50px at 90px 80px, #00ff46, transparent), radial-gradient(1.5px 25px at 130px 170px, #b3ffcb, transparent); background-size: 160px 200px; animation: bgxDown 2.2s linear infinite; opacity: .8; }
+.bgx-matrix::after { content: 'ア0カ1サタ7ナハ0マヤラ1ワ9イキ0シチ1ニヒミ4リ0ウク1スツヌフムユル8エケ0セテネ1ヘメレ6オコソト0ノホモヨロヲ1ン'; inset: -100% 0 0; color: #00ff46; font: 700 13px/15px monospace; letter-spacing: 6px; word-break: break-all; opacity: .5; text-shadow: 0 0 6px #00ff46; animation: bgxRise 8s linear infinite reverse; }
+.bgx-synthwave { background: linear-gradient(180deg, #120024 0%, #5a0f6e 45%, #ff2fa0 55%, #120024 56%); }
+.bgx-synthwave::before { --t: 30px; top: 56%; background-image: linear-gradient(#ff2fa0 2px, transparent 2px), linear-gradient(90deg, #ff2fa0 2px, transparent 2px); background-size: 30px 30px; transform: perspective(120px) rotateX(55deg); transform-origin: top; animation: bgxDown .9s linear infinite; }
+.bgx-synthwave::after { width: 30%; height: 50%; left: 35%; top: 12%; border-radius: 50%; background: linear-gradient(180deg, #ffe14d, #ff2fa0 80%); -webkit-mask: repeating-linear-gradient(180deg, #000 0 7px, transparent 7px 10px); mask: repeating-linear-gradient(180deg, #000 0 7px, transparent 7px 10px); box-shadow: 0 0 30px #ff2fa0; }
+.bgx-lava { background: #2a0500; }
+.bgx-lava::before, .bgx-lava::after { inset: -25%; background: radial-gradient(18% 22% at 25% 70%, #ff6a00, transparent 70%), radial-gradient(14% 18% at 65% 40%, #ffb300, transparent 70%), radial-gradient(22% 16% at 80% 80%, #ff3d00, transparent 70%); filter: blur(6px) contrast(1.4); animation: bgxDrift 7s ease-in-out infinite; }
+.bgx-lava::after { animation-duration: 11s; animation-direction: reverse; mix-blend-mode: screen; }
+.bgx-tempestade { background: linear-gradient(180deg, #1a1f2b, #2d3446); }
+.bgx-tempestade::before { --t: 80px; background-image: radial-gradient(1px 14px at 8px 20px, #c9d7ffcc, transparent), radial-gradient(1px 12px at 38px 60px, #c9d7ffaa, transparent), radial-gradient(1.2px 16px at 62px 30px, #c9d7ffbb, transparent); background-size: 80px 80px; transform: rotate(20deg) scale(1.5); animation: bgxDown .35s linear infinite; }
+.bgx-tempestade::after { background: radial-gradient(ellipse at 60% 10%, #fff, #c9d7ff 30%, transparent 70%); animation: bgxFlash 5s linear infinite; }
+.bgx-holograma { background: linear-gradient(115deg, #7af8ff, #c08cff, #ff8ae2, #8affc1, #7af8ff); background-size: 300% 300%; animation: bgxPan 6s linear infinite; }
+.bgx-holograma::before { background: repeating-linear-gradient(180deg, #ffffff22 0 1px, transparent 1px 4px); animation: bgxScan .4s linear infinite; --t: 8px; }
+.bgx-holograma::after { background: linear-gradient(90deg, transparent, #ffffff88, transparent); width: 40%; animation: bgxSweep 3s ease-in-out infinite; }
+.bgx-vortice { background: #0a0018; }
+.bgx-vortice::before { inset: -80%; background: repeating-conic-gradient(from 0deg, #7c3aff 0 10deg, #0a0018 10deg 20deg, #ff3ec9 20deg 30deg, #0a0018 30deg 40deg); animation: bgxSpin 4s linear infinite; }
+.bgx-vortice::after { background: radial-gradient(circle, #0a0018 5%, transparent 45%, #0a0018cc 90%); }
+.bgx-cristais { background: conic-gradient(from 45deg at 30% 40%, #5ee7ff, #2a4cff, #b06cff, #5ee7ff 25%, #1b2a80 25% 50%, #6d8bff 50% 75%, #2b1d70 75%); background-size: 80px 80px; }
+.bgx-cristais::after { width: 35%; background: linear-gradient(90deg, transparent, #ffffffaa, transparent); animation: bgxSweep 2.6s ease-in-out infinite; }
+
+/* ---------- lendários ---------- */
+.bgx-inferno { background: linear-gradient(0deg, #ff3d00 0%, #8a0d00 40%, #120000 100%); }
+.bgx-inferno::before { top: 20%; background: radial-gradient(18% 70% at 15% 100%, #ffb300, transparent 70%), radial-gradient(15% 60% at 40% 100%, #ff6a00, transparent 70%), radial-gradient(20% 80% at 65% 100%, #ffd54f, transparent 70%), radial-gradient(16% 65% at 88% 100%, #ff6a00, transparent 70%); transform-origin: bottom; filter: blur(3px); animation: bgxFlicker .5s ease-in-out infinite; }
+.bgx-inferno::after { --t: 150px; background-image: radial-gradient(2px 2px at 20px 30px, #ffd54f, transparent), radial-gradient(1.5px 1.5px at 90px 100px, #ff9100, transparent), radial-gradient(2px 2px at 130px 60px, #ffecb3, transparent); background-size: 150px 150px; animation: bgxUp 3s linear infinite; }
+.bgx-cosmos { background: radial-gradient(ellipse at 30% 40%, #3b0d6b, transparent 60%), radial-gradient(ellipse at 75% 65%, #0d3b6b, transparent 60%), #030208; animation: bgxHue 20s linear infinite; }
+.bgx-cosmos::before { --t: 200px; background-image: radial-gradient(1px 1px at 20px 30px, #fff, transparent), radial-gradient(2px 2px at 150px 80px, #fff, transparent), radial-gradient(1px 1px at 90px 160px, #fdf, transparent), radial-gradient(1.5px 1.5px at 60px 110px, #dff, transparent); background-size: 200px 200px; animation: bgxDiag 40s linear infinite; }
+.bgx-cosmos::after { inset: -50%; background: radial-gradient(circle at 50% 50%, #ff7af655, transparent 30%); animation: bgxDrift 10s ease-in-out infinite; }
+.bgx-glitch { background: repeating-linear-gradient(90deg, #111 0 30px, #1c1c1c 30px 60px); }
+.bgx-glitch::before { background: linear-gradient(90deg, #ff004c, #00e1ff, #fffb00, #ff004c); opacity: .55; animation: bgxGlitch 1.2s steps(1) infinite; }
+.bgx-glitch::after { background: repeating-linear-gradient(180deg, #00e1ff66 0 2px, transparent 2px 5px); animation: bgxGlitch .8s steps(1) infinite reverse; }
+.bgx-dragao { background: radial-gradient(circle at 0 0, #5a0000, #1a0000 70%); }
+.bgx-dragao::before { background-image: radial-gradient(circle at 50% 0, #ff4d2e 0 40%, #7a0b00 42% 55%, transparent 57%); background-size: 20px 14px; opacity: .55; animation: bgxTwinkle 2s ease-in-out infinite; }
+.bgx-dragao::after { width: 70%; background: linear-gradient(90deg, transparent, #ff9100cc, #ffd54fee, transparent); filter: blur(6px); animation: bgxSweep 2.8s ease-in infinite; }
+.bgx-ouro { background: linear-gradient(120deg, #7a5200, #ffd54f, #b8860b, #fff1a8, #7a5200); background-size: 300% 300%; animation: bgxPan 6s ease infinite; }
+.bgx-ouro::before { --t: 140px; background-image: radial-gradient(5px 5px at 20px 20px, #fff8d6, #ffc107 60%, transparent 70%), radial-gradient(4px 4px at 90px 70px, #fff8d6, #ffb300 60%, transparent 70%), radial-gradient(6px 6px at 60px 120px, #fff8d6, #ffca28 60%, transparent 70%); background-size: 140px 140px; animation: bgxDown 3.5s linear infinite; }
+.bgx-ouro::after { width: 30%; background: linear-gradient(90deg, transparent, #fff, transparent); opacity: .7; animation: bgxSweep 2.2s ease-in-out infinite; }
+.bgx-abismo { background: radial-gradient(circle, #000 10%, #1a0033 60%, #000 100%); }
+.bgx-abismo::before, .bgx-abismo::after { inset: -20%; border-radius: 50%; background: repeating-radial-gradient(circle, transparent 0 14px, #8b3dff55 14px 16px); animation: bgxZoom 4s linear infinite; }
+.bgx-abismo::after { animation-delay: -2s; }
+
+/* ---------- míticos ---------- */
+.bgx-arco_iris { background: linear-gradient(90deg, #ff004c, #ff8a00, #ffe600, #00e676, #00b0ff, #7c4dff, #ff004c); background-size: 300% 100%; animation: bgxPan 4s linear infinite; }
+.bgx-arco_iris::before { background-image: radial-gradient(2px 2px at 20px 20px, #fff, transparent), radial-gradient(3px 3px at 100px 70px, #fff, transparent), radial-gradient(2px 2px at 60px 110px, #fff, transparent); background-size: 130px 130px; animation: bgxTwinkle 1.2s ease-in-out infinite; }
+.bgx-arco_iris::after { width: 40%; background: linear-gradient(90deg, transparent, #ffffffcc, transparent); animation: bgxSweep 2s ease-in-out infinite; }
+.bgx-supernova { background: #0a0010; }
+.bgx-supernova::before { inset: -40%; background: radial-gradient(circle, #fff 0 4%, #fff59d 8%, #ff9100 18%, #d50000 30%, #4a0072 45%, transparent 60%); animation: bgxBreath 2.4s ease-in-out infinite; }
+.bgx-supernova::after { inset: -100%; background: repeating-conic-gradient(from 0deg, #ffffff33 0 4deg, transparent 4deg 18deg); animation: bgxSpin 14s linear infinite; mask-image: radial-gradient(circle, #000 10%, transparent 50%); }
+.bgx-anarquia { background: repeating-linear-gradient(-45deg, #120000 0 14px, #2a0000 14px 28px); background-size: 39.6px 39.6px; --t: 39.6px; animation: bgxRight 1.6s linear infinite; }
+.bgx-anarquia::before { content: 'Ⓐ'; display: grid; place-items: center; font: 900 min(110px, 70cqh)/1 system-ui, sans-serif; color: #ff1744; text-shadow: 0 0 18px #ff1744, 0 0 40px #ff1744; animation: bgxBreath 1.8s ease-in-out infinite; container-type: size; }
+.bgx-anarquia::after { background: linear-gradient(90deg, #ff1744, #000, #ff1744); opacity: .25; animation: bgxGlitch 1.5s steps(1) infinite; }
+.bgx-dimensao { background: conic-gradient(from 0deg, #ff004c, #ffe600, #00e676, #00b0ff, #d500f9, #ff004c); animation: bgxHue 6s linear infinite; }
+.bgx-dimensao::before { inset: -30%; border-radius: 50%; background: repeating-radial-gradient(circle, #0009 0 10px, transparent 10px 22px); animation: bgxZoom 2.5s linear infinite; }
+.bgx-dimensao::after { background: radial-gradient(circle, #000 0 8%, transparent 40%); }
+@media (prefers-reduced-motion: reduce) { .bgx, .bgx::before, .bgx::after { animation: none !important; } }
+
+/* prévia do fundo (inventário, caixa) */
+.bgx-prev { position: relative; width: 100%; aspect-ratio: 16 / 7; border-radius: 10px; overflow: hidden; box-shadow: inset 0 0 0 1px #ffffff22; }
+.bgx-prev.big { width: min(360px, 80vw); border-radius: 14px; box-shadow: 0 0 0 2px var(--rc, #fff), 0 0 40px -6px var(--rc, #fff); }
+.bgx-tag { position: absolute; left: 6px; bottom: 6px; z-index: 2; font-size: 10px; font-weight: 800; background: #000a; color: #fff; padding: 1px 6px; border-radius: 99px; }
+.bgx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.bgx-card { display: grid; gap: 6px; padding: 8px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); color: var(--text); font: inherit; text-align: left; cursor: pointer; position: relative; box-shadow: inset 0 -3px 0 var(--rc); }
+.bgx-card b { font-size: 13px; } .bgx-card small { color: var(--rc); font-weight: 700; font-size: 11px; }
+.bgx-card.locked { cursor: default; } .bgx-card.locked .bgx-prev { filter: grayscale(1) brightness(.35); }
+.bgx-card.on { outline: 2px solid var(--accent); }
+
+/* ================= animações de abrir caixa ================= */
+.cx-stage { position: relative; width: 100%; height: 300px; display: grid; place-items: center; }
+.cx-skip { position: absolute; right: 0; bottom: -6px; font-size: 12px; color: #fff9; background: none; border: 0; cursor: pointer; }
+.cx-skip:hover { color: #fff; }
+.cx-hint { color: #fffa; font-size: 13px; min-height: 18px; text-align: center; }
+.cx-shake { animation: cxShake .12s linear infinite; }
+@keyframes cxShake { 0% { transform: translate(0, 0) rotate(0); } 25% { transform: translate(-3px, 1px) rotate(-1deg); } 50% { transform: translate(2px, -2px) rotate(1deg); } 75% { transform: translate(-1px, 2px) rotate(0); } }
+/* baú */
+.cx-bau { position: relative; width: 170px; height: 130px; filter: drop-shadow(0 20px 20px #000c); }
+.cx-bau .lid, .cx-bau .base { position: absolute; left: 0; right: 0; border-radius: 12px; background: linear-gradient(180deg, #8d5a2b, #5a3414); border: 4px solid #2b1a0a; box-shadow: inset 0 0 0 4px #c9a227; }
+.cx-bau .base { bottom: 0; height: 80px; border-radius: 4px 4px 12px 12px; }
+.cx-bau .lid { top: 0; height: 56px; border-radius: 40px 40px 6px 6px; transform-origin: 50% 100%; transition: transform .5s cubic-bezier(.3, 1.8, .5, 1); z-index: 2; }
+.cx-bau .lock { position: absolute; left: 50%; top: 42px; width: 26px; height: 30px; margin-left: -13px; border-radius: 6px; background: linear-gradient(#ffe082, #c9a227); z-index: 3; box-shadow: 0 0 12px var(--glow, transparent); transition: opacity .3s; }
+.cx-bau .glow { position: absolute; left: 10%; right: 10%; top: 46px; height: 12px; background: var(--glow, #fff); filter: blur(6px); opacity: 0; transition: opacity .3s, background .3s; z-index: 1; }
+.cx-bau.open .lid { transform: rotateX(70deg) translateY(-60px) rotate(-12deg); }
+.cx-bau.open .lock { opacity: 0; }
+/* cartas viradas */
+.cx-cards { display: flex; gap: 14px; perspective: 900px; }
+.cx-card { width: 104px; height: 150px; position: relative; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.3, 1.4, .5, 1), translate .4s; cursor: default; }
+.cx-card > div { position: absolute; inset: 0; border-radius: 12px; backface-visibility: hidden; display: grid; place-items: center; align-content: center; gap: 6px; text-align: center; font-size: 11px; padding: 6px; }
+.cx-card .back { background: repeating-linear-gradient(45deg, #2b2f6b 0 8px, #1d2050 8px 16px); border: 3px solid #c9a227; box-shadow: 0 10px 20px #000a; }
+.cx-card .back::after { content: '?'; font-size: 44px; font-weight: 900; color: #ffd54f; text-shadow: 0 0 12px #ffd54f; }
+.cx-card .front { background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--rc) 45%, #1a1d26), #11141a); border: 3px solid var(--rc); transform: rotateY(180deg); color: #fff; box-shadow: 0 0 24px -4px var(--rc); }
+.cx-card.flip { transform: rotateY(180deg); }
+/* opacidade/filtro no próprio .cx-card achatam o 3D (a carta não vira): vão nas faces */
+.cx-card.dim > div { opacity: .35; }
+.cx-card.chosen .back { box-shadow: 0 0 26px var(--cg, #fff), 0 10px 20px #000a; }
+.cx-card.chosen { translate: 0 -16px; }
+/* cápsula */
+.cx-capsule { position: relative; width: 120px; height: 120px; }
+.cx-capsule .top, .cx-capsule .bot { position: absolute; left: 0; right: 0; height: 60px; transition: transform .6s cubic-bezier(.3, 1.6, .5, 1); }
+.cx-capsule .top { top: 0; border-radius: 60px 60px 0 0; background: radial-gradient(circle at 35% 30%, #fff8, transparent 40%), var(--cap, #4b69ff); border-bottom: 4px solid #0006; }
+.cx-capsule .bot { bottom: 0; border-radius: 0 0 60px 60px; background: radial-gradient(circle at 35% 10%, #fff6, transparent 40%), #eef0f4; }
+.cx-capsule.drop { animation: cxDrop 1.1s cubic-bezier(.3, 0, .4, 1) both; }
+@keyframes cxDrop { 0% { transform: translateY(-260px) rotate(-200deg); } 55% { transform: translateY(0) rotate(0); } 70% { transform: translateY(-50px) rotate(20deg); } 85% { transform: translateY(0) rotate(-6deg); } 93% { transform: translateY(-12px); } 100% { transform: none; } }
+.cx-capsule.spin { animation: cxWobble .35s ease-in-out infinite; }
+@keyframes cxWobble { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
+.cx-capsule.open .top { transform: translate(-70px, -90px) rotate(-60deg); }
+.cx-capsule.open .bot { transform: translate(70px, 90px) rotate(50deg); opacity: 0; transition-delay: .05s; }
+/* portal */
+.cx-portal { width: 240px; height: 240px; border-radius: 50%; background: repeating-conic-gradient(from 0deg, var(--glow, #4b69ff) 0 15deg, #05060a 15deg 30deg); animation: bgxSpin var(--spd, 2s) linear infinite; mask-image: radial-gradient(circle, transparent 12%, #000 14%, #000 66%, transparent 70%); box-shadow: 0 0 60px var(--glow, #4b69ff); transition: box-shadow .3s; }
+/* meteoro */
+.cx-meteor { position: absolute; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle, #fff, var(--glow, #ffb020) 60%); box-shadow: 0 0 30px 10px var(--glow, #ffb020); left: 90%; top: -10%; }
+.cx-meteor::after { content: ''; position: absolute; right: 12px; top: 6px; width: 180px; height: 14px; transform-origin: right center; transform: rotate(-35deg); background: linear-gradient(90deg, transparent, var(--glow, #ffb020)); border-radius: 99px; filter: blur(2px); }
+.cx-meteor.fall { animation: cxFall 1.4s cubic-bezier(.6, 0, 1, .6) forwards; }
+@keyframes cxFall { to { left: 50%; top: 55%; transform: translate(-50%, -50%) scale(1.4); } }
+.cx-ring { position: absolute; left: 50%; top: 55%; width: 40px; height: 40px; margin: -20px; border-radius: 50%; border: 4px solid var(--glow, #ffb020); animation: cxRing 1s ease-out forwards; }
+@keyframes cxRing { to { transform: scale(12); opacity: 0; } }
+/* roda */
+.cx-wheel { position: relative; width: 260px; height: 260px; }
+.cx-wheel .w { position: absolute; inset: 0; border-radius: 50%; border: 6px solid #ffd54f; box-shadow: 0 0 30px #ffd54f66; overflow: hidden; }
+.cx-wheel .w span { position: absolute; left: 50%; top: 50%; width: 50%; height: 0; transform-origin: 0 0; transform: rotate(var(--a)); display: flex; justify-content: flex-end; align-items: center; padding-right: 10px; }
+.cx-wheel .w span i { transform: rotate(90deg); font-style: normal; }
+.cx-wheel .pin { position: absolute; left: 50%; top: -14px; margin-left: -12px; border: 12px solid transparent; border-top: 22px solid #fff; z-index: 2; filter: drop-shadow(0 2px 2px #000); }
+/* ovo */
+.cx-egg { position: relative; width: 130px; height: 170px; border-radius: 50% 50% 46% 46% / 60% 60% 40% 40%; background: radial-gradient(circle at 35% 30%, #fff, transparent 35%), radial-gradient(circle at 30% 70%, #ffd54f88 0 8px, transparent 9px), radial-gradient(circle at 70% 40%, #4fc3f788 0 10px, transparent 11px), radial-gradient(circle at 60% 80%, #ff8ac688 0 7px, transparent 8px), linear-gradient(180deg, #fff6e0, #f0d9a8); box-shadow: 0 0 40px var(--glow, transparent), inset -10px -12px 24px #0002; transition: box-shadow .3s; }
+.cx-egg svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cx-egg.hatch { animation: cxHatch .5s ease-in forwards; }
+@keyframes cxHatch { to { transform: scale(1.4); opacity: 0; filter: brightness(3); } }
+/* slot vertical */
+.cx-slot { position: relative; width: 200px; height: 260px; overflow: hidden; border-radius: 16px; background: #11141a; border: 4px solid #ffd54f; box-shadow: inset 0 0 40px #000, 0 0 30px #ffd54f44; }
+.cx-slot .col { position: absolute; left: 0; right: 0; top: 0; }
+.cx-slot .it { height: 120px; display: grid; place-items: center; align-content: center; gap: 4px; font-size: 11px; color: #fff; text-align: center; padding: 6px; border-bottom: 1px solid #ffffff11; }
+.cx-slot::before, .cx-slot::after { content: ''; position: absolute; left: 0; right: 0; height: 70px; z-index: 2; pointer-events: none; }
+.cx-slot::before { top: 0; background: linear-gradient(#11141a, transparent); } .cx-slot::after { bottom: 0; background: linear-gradient(transparent, #11141a); }
+.cx-slot .line { position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: #ffd54f; z-index: 3; box-shadow: 0 0 10px #ffd54f; }
+/* flash e raios na revelação */
+.cx-flash { position: fixed; inset: 0; z-index: 96; background: var(--rc, #fff); pointer-events: none; animation: cxFlash .7s ease-out forwards; }
+@keyframes cxFlash { from { opacity: .9; } to { opacity: 0; } }
+.cx-rays { position: absolute; left: 50%; top: 0; width: 600px; height: 600px; margin-left: -300px; margin-top: -170px; border-radius: 50%; background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--rc) 55%, transparent) 0 6deg, transparent 6deg 20deg); mask-image: radial-gradient(circle, #000 10%, transparent 60%); animation: bgxSpin 18s linear infinite; pointer-events: none; z-index: -1; }
+.cx-coin { position: fixed; top: -30px; z-index: 97; width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff8d6, #ffc107 50%, #b8860b); box-shadow: 0 0 8px #ffc107; pointer-events: none; }
+.cx-shake-screen { animation: cxShake .1s linear 6; }
+.case-res .cx-big { font-size: 28px; font-weight: 900; letter-spacing: .12em; background: linear-gradient(90deg, #ff004c, #ffe600, #00e676, #00b0ff, #d500f9, #ff004c); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: bgxPan 2s linear infinite; }
+.case-res { position: relative; }
+.cx-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; font-size: 12px; }
+.cx-pick select { max-width: 200px; }
+@media (prefers-reduced-motion: reduce) { .cx-shake, .cx-shake-screen, .cx-portal, .cx-rays, .cx-capsule.spin { animation: none !important; } }
