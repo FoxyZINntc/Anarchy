@@ -1223,6 +1223,13 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-13-caixas-fundos', date: '13/11/2026', title: 'Caixas mais emocionantes e fundos animados', emoji: '🌌', items: [
+    'A Caixa Anarchy agora abre de <b>9 jeitos</b>: roleta, caça-níquel, baú, cartas, cápsula, portal, meteoro, roda da sorte e ovo surpresa.',
+    'Escolha a sua animação no Inventário ou deixe em <b>Surpresa</b>. Tem também o botão de pular.',
+    'Prêmio raro tem festa: raios, clarão, chuva de moedas e o letreiro <b>MÍTICO!</b>',
+    'Novidade na caixa: <b>38 fundos animados</b> para o topo do seu cartão de perfil (galáxia, sakura, synthwave, inferno, supernova...).',
+    'Veja e use os seus na aba <b>🌌 Fundos animados</b> do Inventário.'
+  ] },
   { id: '2026-11-13-diversao', date: '13/11/2026', title: 'Muita diversão nova!', emoji: '🎉', items: [
     'Botão <b>🎉</b> no chat: <b>enquetes</b>, <b>apostas de AnarchyPoints</b>, <b>mensagem-bomba</b> (some depois de lida) e <b>fofoca anônima</b> (se o grupo ligar).',
     'Botão <b>🎮</b> na call: <b>Desenha e adivinha</b>, <b>Quiz</b> de perguntas ou de música, <b>Cartas Malucas</b>, <b>Truco</b> e <b>roleta</b>. Quem ganha leva AnarchyPoints!',
@@ -1484,7 +1491,24 @@ const PLATES = {
   oni: ['Máscara Oni', 'epico', '👹', 'Fumaça roxa de demônio subindo pelo nome.'],
   aura: ['Aura Dourada', 'lendario', '💛', 'Energia dourada de quem passou do limite. Poder máximo.'],
   dragao: ['Dragão Celestial', 'lendario', '🐉', 'Escamas de jade com o brilho de um dragão lendário.'],
-  anarquia: ['Caos da Anarquia', 'lendario', '🏴', 'A placa da casa: listras do caos e o A da anarquia girando.']
+  anarquia: ['Caos da Anarquia', 'lendario', '🏴', 'A placa da casa: listras do caos e o A da anarquia girando.'],
+  // estas saem na Caixa Anarchy (BOX_PLATES no servidor)
+  pizza: ['Hora da Pizza', 'comum', '🍕', 'Pizza quentinha e queijo derretendo.', 1],
+  gato: ['Gatinho Fofo', 'comum', '🐱', 'Patinhas de gato passeando pela placa.', 1],
+  cafe: ['Café Quentinho', 'comum', '☕', 'Fumacinha subindo de uma xícara de café.', 1],
+  arcoiris: ['Arco-íris', 'comum', '🌈', 'Cores do arco-íris correndo sem parar.', 1],
+  outono: ['Outono', 'comum', '🍂', 'Folhas secas caindo devagar.', 1],
+  arcade: ['Fliperama', 'raro', '👾', 'Invasores de pixel e a tela de um fliperama antigo.', 1],
+  gelo: ['Cristal de Gelo', 'raro', '❄️', 'Neve caindo e o nome congelado.', 1],
+  colmeia: ['Colmeia', 'raro', '🐝', 'Favo de mel brilhando e uma abelha voando.', 1],
+  foguete: ['Decolagem', 'raro', '🚀', 'Um foguete atravessando as estrelas.', 1],
+  batida: ['Batida', 'raro', '🎧', 'Barras de som dançando no ritmo.', 1],
+  vampiro: ['Noite Vampira', 'epico', '🦇', 'Morcegos voando sob a lua de sangue.', 1],
+  fantasma: ['Assombração', 'epico', '👻', 'Névoa fantasma e um nome que some e volta.', 1],
+  samurai: ['Lâmina Samurai', 'epico', '⚔️', 'O corte da espada atravessa a placa.', 1],
+  alien: ['Abdução', 'epico', '🛸', 'Um disco voador puxando o seu nome para cima.', 1],
+  fenix: ['Fênix Renascida', 'lendario', '🔥', 'Asas de fogo e brasas que sobem para o céu.', 1],
+  rei: ['Coroa do Rei', 'lendario', '👑', 'Ouro, joias e o brilho de quem manda.', 1]
 };
 const PLATE_IDS = Object.keys(PLATES).sort((a, b) => RAR[PLATES[b][1]][1] - RAR[PLATES[a][1]][1]);
 // classe da placa de alguém (lista de membros, conversas)
@@ -1576,7 +1600,10 @@ const AV_STYLES = {
   anel: ['Anel Tracejado', 'comum'], brilho: ['Brilho', 'comum'], pontos: ['Três Luas', 'comum'], duplo: ['Anéis Gêmeos', 'comum'], pulso: ['Pulsar', 'comum'], arco: ['Lâmina Giratória', 'comum'], respiro: ['Respiração', 'comum'],
   cometa: ['Cometa', 'raro'], faiscas: ['Faíscas', 'raro'], bolhas: ['Bolhas', 'raro'], eletrico: ['Choque', 'raro'], radar: ['Radar', 'raro'], petalas: ['Pétalas', 'raro'],
   chamas: ['Coroa de Chamas', 'epico'], galaxia: ['Galáxia', 'epico'], glitch: ['Glitch', 'epico'], runas: ['Runas', 'epico'],
-  aura: ['Aura Suprema', 'lendario'], coroa: ['Estrelas Reais', 'lendario'], portal: ['Portal', 'lendario']
+  aura: ['Aura Suprema', 'lendario'], coroa: ['Estrelas Reais', 'lendario'], portal: ['Portal', 'lendario'],
+  gotas: ['Gotas', 'comum'], moldura: ['Moldura Giratória', 'comum'], pontilhado: ['Pontilhado', 'comum'],
+  notas: ['Notas Musicais', 'raro'], coracoes: ['Corações', 'raro'], orbita: ['Órbita', 'raro'],
+  tornado: ['Tornado', 'epico'], hexa: ['Escudo Hexagonal', 'epico'], eclipse: ['Eclipse', 'lendario'], tempestade: ['Tempestade', 'lendario']
 };
 const AV_PALS = { fogo: 'Inferno', gelo: 'Gélido', veneno: 'Tóxico', realeza: 'Real', prisma: 'Prisma' };
 const AVR = { comum: ['Comum', 0, '70%'], raro: ['Raro', 1, '20%'], epico: ['Épico', 2, '7%'], lendario: ['Lendário', 3, '2,5%'], mitico: ['Mítico', 4, '0,5%'] };
@@ -1760,15 +1787,15 @@ function invPane(me, own, owned, eqP) {
         <span class="inv-rar">${RAR[r][0]}</span>
         ${plateRow(me.id, id, me.displayName)}
         <span class="inv-name">${e} ${has ? esc(n) : '???'}</span>
-        <span class="inv-desc">${has ? `${esc(d)}<br>De ${esc(nameOf(has.from))} · ${fmtWhen(has.at)}` : 'Ainda não é sua. Só dá para ganhar de presente.'}</span></button>`;
+        <span class="inv-desc">${has ? `${esc(d)}<br>${has.from === 'caixa' ? '🎁 Saiu na caixa' : has.from === 'diaria' ? '🎁 Saiu na caixa diária' : `De ${esc(nameOf(has.from))}`} · ${fmtWhen(has.at)}` : PLATES[id][4] ? 'Ainda não é sua. Sai na Caixa Anarchy!' : 'Ainda não é sua. Só dá para ganhar de presente.'}</span></button>`;
     };
-    return `<p class="muted small iv-note">Placas animadas aparecem para todo mundo na lista de membros. Não saem em caixa: só de presente do dono do Anarchy.</p>
+    return `<p class="muted small iv-note">Placas animadas aparecem para todo mundo na lista de membros. As novas saem na Caixa Anarchy; as clássicas, só de presente do dono do Anarchy.</p>
       <div class="inv-grid">${PLATE_IDS.map(card).join('')}</div>`;
   }
   if (INV.tab === 'historico') {
     const pn = id => esc(PLATES[id]?.[0] || id);
     const log = [
-      ...(me.items || []).filter(x => PLATES[x.item]).map(x => ({ at: x.at, ic: '🏷️', t: `Você ganhou a placa <b>${pn(x.item)}</b> de ${esc(nameOf(x.from))}${x.msg ? ` — “${esc(x.msg)}”` : ''}` })),
+      ...(me.items || []).filter(x => PLATES[x.item] && x.from !== 'caixa' && x.from !== 'diaria').map(x => ({ at: x.at, ic: '🏷️', t: `Você ganhou a placa <b>${pn(x.item)}</b> de ${esc(nameOf(x.from))}${x.msg ? ` — “${esc(x.msg)}”` : ''}` })),
       ...(me.lost || []).map(x => ({ at: x.at, ic: '💨', t: `A placa <b>${pn(x.item)}</b> foi tirada da sua conta` })),
       ...(me.boxLog || []).map(x => ({ at: x.at, ic: String(x.item).startsWith('bg:') ? '🌌' : '🎲', rc: window.anarchyBox ? window.anarchyBox.pTier(x.item) : AVFX[x.item]?.tier, t: `Caixa: <b style="color:var(--rc)">${esc(window.anarchyBox ? window.anarchyBox.pName(x.item) : AVFX[x.item]?.name || x.item)}</b>${x.dup ? ' <span class="muted">(repetido, virou pontos)</span>' : ''}` })),
       ...(me.ptsLog || []).map(x => ({ at: x.at, ic: '🪙', t: x.amount > 0 ? `Você ganhou <b style="color:#ffd36b">+${x.amount.toLocaleString('pt-BR')} pontos</b> de ${esc(nameOf(x.from))}${x.msg ? ` — “${esc(x.msg)}”` : ''}` : `${esc(nameOf(x.from))} tirou <b>${(-x.amount).toLocaleString('pt-BR')} pontos</b> seus` })),
@@ -4422,7 +4449,7 @@ window.addEventListener('beforeunload', () => { if (V.room) socket?.emit('voice:
 
 /* =============== RPG de Mesa (rpg.js): o que ele usa do app =============== */
 if (window.anarchyRpg) window.anarchyRpg.init({ S, esc, ic, av, user, nameOf, emit, toast, modal, confirmBox, pickFile, readFile, api, tone, gCan, openGroupSettings, get socket() { return socket; } });
-if (window.anarchyBox) window.anarchyBox.init({ esc, avWith, tone, reduceMotion, emit, toast, giftSparks, AVFX, AVFX_IDS, AVR, BOX_COST, openCase: () => openCase() });
+if (window.anarchyBox) window.anarchyBox.init({ S, esc, avWith, tone, reduceMotion, emit, toast, giftSparks, AVFX, AVFX_IDS, AVR, BOX_COST, PLATES, plateRow, openCase: () => openCase() });
 if (window.anarchyFun) window.anarchyFun.init({ S, esc, av, nameOf, emit, toast, modal, confirmBox, pop, closePops, tone, confetti, md, gCan, reduceMotion, viewingCid: () => viewingCid(), renderMessages: () => renderMessages(), inCall: () => !!V.room,
   avfx: id => AVFX[id], avWith, rarName: t => (AVR[t] || [t])[0], plate: id => PLATES[id], plateRow, renderStage: () => renderStageSlot(),
   djPos: roomId => (S.music[roomId] ? djPos(S.music[roomId]) : 0), joinVoice: roomId => joinVoice(roomId), room: () => V.room, go: v => go(v) });

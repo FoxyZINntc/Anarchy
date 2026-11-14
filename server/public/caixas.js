@@ -20,15 +20,21 @@ const BG_IDS = Object.keys(BG);
 const TIERS = ['comum', 'raro', 'epico', 'lendario', 'mitico'];
 const TCOL = { comum: '#4b69ff', raro: '#8847ff', epico: '#d32ce6', lendario: '#eb4b4b', mitico: '#e4ae39' };
 const bgLayer = id => (id && BG[id] ? `<div class="bgx bgx-${id}" aria-hidden="true"></div>` : '');
+// prêmio: 'estilo-cor' (efeito de foto), 'bg:ID' (fundo animado) ou 'np:ID' (placa de nome)
 const isBg = id => String(id).startsWith('bg:');
-const pTier = id => (isBg(id) ? (BG[id.slice(3)] || [, 'comum'])[1] : (H.AVFX[id] || { tier: 'comum' }).tier);
-const pName = id => (isBg(id) ? (BG[id.slice(3)] || [id])[0] : (H.AVFX[id] || { name: id }).name);
-const pKind = id => (isBg(id) ? 'Fundo animado do perfil' : 'Efeito da foto');
-const pView = (id, size = 64) => (isBg(id) ? `<div class="bgx-prev" style="width:${Math.round(size * 1.9)}px">${bgLayer(id.slice(3))}</div>` : H.avWith(id, size));
+const isNp = id => String(id).startsWith('np:');
+const pTier = id => (isBg(id) ? (BG[id.slice(3)] || [, 'comum'])[1] : isNp(id) ? (H.PLATES[id.slice(3)] || [, 'comum'])[1] : (H.AVFX[id] || { tier: 'comum' }).tier);
+const pName = id => (isBg(id) ? (BG[id.slice(3)] || [id])[0] : isNp(id) ? (H.PLATES[id.slice(3)] || [id])[0] : (H.AVFX[id] || { name: id }).name);
+const pKind = id => (isBg(id) ? 'Fundo animado do perfil' : isNp(id) ? 'Placa de nome' : 'Efeito da foto');
+const npView = id => `<div class="cx-np">${H.plateRow(H.S.me.id, id.slice(3), H.S.me.displayName)}</div>`;
+const pView = (id, size = 64) => (isBg(id) ? `<div class="bgx-prev" style="width:${Math.round(size * 1.9)}px">${bgLayer(id.slice(3))}</div>` : isNp(id) ? npView(id) : H.avWith(id, size));
+const BOX_NP = () => Object.keys(H.PLATES).filter(k => H.PLATES[k][4]);
 // prêmio de mentira para encher as animações (mesmas chances da caixa)
 function fake() {
   const roll = Math.random() * 100, t = roll < 70 ? 'comum' : roll < 90 ? 'raro' : roll < 97 ? 'epico' : roll < 99.5 ? 'lendario' : 'mitico';
-  if (Math.random() < .4) { const p = BG_IDS.filter(k => BG[k][1] === t); return 'bg:' + p[Math.floor(Math.random() * p.length)]; }
+  const k = Math.random();
+  if (k < .15) { const p = BOX_NP().filter(x => H.PLATES[x][1] === t); if (p.length) return 'np:' + p[Math.floor(Math.random() * p.length)]; }
+  if (k < .5) { const p = BG_IDS.filter(x => BG[x][1] === t); return 'bg:' + p[Math.floor(Math.random() * p.length)]; }
   const p = H.AVFX_IDS.filter(k => H.AVFX[k].tier === t); return p[Math.floor(Math.random() * p.length)];
 }
 
@@ -184,26 +190,26 @@ async function open(r, daily) {
   const stage = el.querySelector('.cx-stage'); if (kind !== 'roleta') stage.style.height = 'auto'; if (!['roleta', 'cartas', 'roda', 'slot'].includes(kind)) stage.innerHTML = '';
   const out = el.querySelector('.case-out');
   out.className = `case-out case-res r-c-${tier}`;
-  const bg = isBg(r.item);
+  const bg = isBg(r.item), np = isNp(r.item);
   out.innerHTML = `${lvl === 4 ? '<div class="cx-big">✦ MÍTICO! ✦</div>' : ''}<div class="gift-rar">${H.AVR[tier][0]} · ${pKind(r.item)}</div>
-    ${bg ? `<div class="bgx-prev big">${bgLayer(r.item.slice(3))}</div>` : H.avWith(r.item, 96)}<div class="gift-title">${esc(pName(r.item))}</div>
-    ${r.dup ? `<div class="muted">Você já tinha esse. Ganhou <b style="color:#ffd36b">+${r.refund} pontos</b> de volta.</div>` : `<div class="muted">${bg ? 'Novo fundo animado para o seu cartão de perfil!' : 'Novo efeito para a sua foto de perfil!'}</div>`}
+    ${bg ? `<div class="bgx-prev big">${bgLayer(r.item.slice(3))}</div>` : np ? `<div class="cx-np big">${H.plateRow(H.S.me.id, r.item.slice(3), H.S.me.displayName)}</div>` : H.avWith(r.item, 96)}<div class="gift-title">${esc(pName(r.item))}</div>
+    ${r.dup ? `<div class="muted">Você já tinha esse. Ganhou <b style="color:#ffd36b">+${r.refund} pontos</b> de volta.</div>` : `<div class="muted">${bg ? 'Novo fundo animado para o seu cartão de perfil!' : np ? 'Nova placa para o seu nome! Todo mundo vê na lista de membros.' : 'Novo efeito para a sua foto de perfil!'}</div>`}
     ${daily ? `<div class="muted">Bônus da sequência: <b style="color:#ffd36b">+${r.bonus} pontos</b>. Volte amanhã para a sequência continuar!</div>` : ''}
     <div class="gift-acts">${r.dup ? '' : '<button class="btn primary" data-c="eq">Usar agora</button>'}<button class="btn" data-c="again" ${r.points < H.BOX_COST ? 'disabled' : ''}>Abrir outra · ${H.BOX_COST}</button><button class="btn ghost" data-c="x" style="color:#fff">Fechar</button></div>
     ${pickHtml()}<div class="muted small">Saldo: ${r.points.toLocaleString('pt-BR')} pontos</div>`;
   revealFx(el, tier);
-  if (lvl >= 2) H.giftSparks(out.querySelector('.bgx-prev, .av'), TCOL[tier], 30 + lvl * 20);
+  if (lvl >= 2) H.giftSparks(out.querySelector('.bgx-prev, .cx-np, .av'), TCOL[tier], 30 + lvl * 20);
   out.onclick = async e => {
     const b = e.target.closest('[data-c]'); if (!b) return;
     if (b.dataset.c === 'eq') {
-      const q = await H.emit(bg ? 'bg:equip' : 'avfx:equip', { item: bg ? r.item.slice(3) : r.item });
+      const q = await H.emit(bg ? 'bg:equip' : np ? 'inv:equip' : 'avfx:equip', { item: bg || np ? r.item.slice(3) : r.item });
       if (!q.ok) return H.toast(q.erro, true);
-      H.toast(bg ? `🌌 ${pName(r.item)} no seu perfil!` : `${pName(r.item)} na sua foto!`);
+      H.toast(bg ? `🌌 ${pName(r.item)} no seu perfil!` : np ? `🏷️ ${pName(r.item)} no seu nome!` : `${pName(r.item)} na sua foto!`);
     }
     el.remove();
     if (b.dataset.c === 'again') H.openCase();
   };
 }
 
-window.anarchyBox = { init(h) { H = h; }, open, BG, BG_IDS, bgLayer, isBg, pTier, pName, pView, pickHtml, TCOL };
+window.anarchyBox = { init(h) { H = h; }, open, BG, BG_IDS, bgLayer, isBg, isNp, pTier, pName, pView, pickHtml, TCOL };
 })();
