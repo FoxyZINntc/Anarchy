@@ -327,6 +327,7 @@ function leaveVoice(socket) {
   socket.data.voice = null;
   pushVoice(roomId);
   if (typeof jogos !== 'undefined') jogos.onLeave(roomId, socket.data.uid); // quem desenhava saiu: a rodada acaba
+  if (typeof cartas !== 'undefined') cartas.onLeave(roomId, socket.data.uid); // saiu da mesa de cartas
   // todo mundo saiu: o DJ para
   if (!voice.get(roomId) && music.has(roomId)) stopMusic(roomId, 'vazia');
   // avisa se a call de DM terminou
@@ -901,9 +902,13 @@ const fun = require('./diversao').createDiversao({
 });
 /* ---------- jogos da call: Desenha e adivinha e Quiz (ver jogos.js) ---------- */
 const jogos = require('./jogos').createJogos({
-  db, save, now, str, toUser, voice, sockets, limited, selfUser, log, track: (uid, k) => fun.track(uid, k),
+  db, save, now, str, toUser, voice, sockets, limited, selfUser, log, track: (uid, k) => fun.track(uid, k), otherBusy: r => cartas.busy(r),
   // trecho de música para o Quiz: o DJ busca o áudio, o app toca por /api/music/:id (o nome fica só aqui)
   clip: async (q, roomId) => { const r = await dj.resolve(q); hlsWarm(r.src); const t = { id: newId(), ...r, who: null, q, roomId }; tracks.set(t.id, t); setTimeout(() => tracks.delete(t.id), 15 * 60e3).unref(); return { url: '/api/music/' + t.id, dur: r.dur || 0 }; }
+});
+/* ---------- jogos de cartas da call: Cartas Malucas e Truco (ver cartas.js) ---------- */
+const cartas = require('./cartas').createCartas({
+  db, save, now, str, toUser, voice, sockets, limited, selfUser, log, track: (uid, k) => fun.track(uid, k), otherBusy: r => jogos.busy(r)
 });
 
 /* ---------- Socket.IO ---------- */
@@ -923,6 +928,7 @@ function onConnection(socket) {
   rpg.bind(socket, uid, on, ok, fail);
   fun.bind(socket, uid, on, ok, fail);
   jogos.bind(socket, uid, on, ok, fail);
+  cartas.bind(socket, uid, on, ok, fail);
   on('ach:list', (_, cb) => ok(cb, { list: fun.ACH }));
 
   on('init', (_, cb) => {

@@ -18,13 +18,17 @@ const KIND = g => g.kind === 'desenho' ? '🎨 Desenha e adivinha' : g.mode === 
 function menu(anchor) {
   if (!H.inCall()) return H.toast('Entre numa call para jogar.', true);
   if (J.g && J.g.phase !== 'fim') { J.min = false; render(); return; }
+  if (window.anarchyCards && window.anarchyCards.running()) { window.anarchyCards.open(); return; }
   H.pop(`<button data-game="desenho"><span>🎨 Desenha e adivinha</span></button>
     <button data-game="quiz"><span>🧠 Quiz de perguntas</span></button>
     <button data-game="musica"><span>🎵 Quiz de música (adivinhe a música)</span></button>
+    <button data-game="malucas"><span>🃏 Cartas Malucas (2 a 10 pessoas)</span></button>
+    <button data-game="truco"><span>🂡 Truco paulista (2 ou 4 pessoas)</span></button>
     <hr><button data-fun="roulette"><span>🎡 Roleta da call</span></button>`, anchor, 'menu', 'above');
 }
 async function start(kind) {
   H.closePops();
+  if ((kind === 'malucas' || kind === 'truco') && window.anarchyCards) return window.anarchyCards.start(kind);
   const r = await call('game:start', kind === 'desenho' ? { kind } : { kind: 'quiz', mode: kind === 'musica' ? 'musica' : 'perguntas', rounds: 8 });
   if (r.ok) { J.min = false; J.chat = []; }
 }

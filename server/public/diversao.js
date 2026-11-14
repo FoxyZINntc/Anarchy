@@ -477,8 +477,8 @@ function attach(sock) {
 }
 
 window.anarchyFun = {
-  init(h) { H = h; if (window.anarchyGames) window.anarchyGames.init(h); },
-  attach(sock) { attach(sock); if (window.anarchyGames) window.anarchyGames.attach(sock); },
+  init(h) { H = h; if (window.anarchyGames) window.anarchyGames.init(h); if (window.anarchyCards) window.anarchyCards.init(h); },
+  attach(sock) { attach(sock); if (window.anarchyGames) window.anarchyGames.attach(sock); if (window.anarchyCards) window.anarchyCards.attach(sock); },
   msgExtra: m => (m.poll ? pollHtml(m) : '') + (m.bomb ? bombHtml(m) : '') + (m.bet ? betHtml(m) : '') + (m.nick ? nickHtml(m) : ''),
   sysEvent: m => m.system === 'fofoca' ? gossipHtml(m) : m.system === 'porteiro'
     ? `<div class="msg sys fun-port" id="m-${m.id}"><span class="fun-port-av" aria-hidden="true">🤖</span><span class="sys-t"><b>Porteiro</b> ${H.md(m.content)} <time>${new Date(m.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</time></span></div>`

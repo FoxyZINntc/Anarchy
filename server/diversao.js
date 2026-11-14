@@ -31,7 +31,8 @@ const ACH = [
   ['apelidado', '🏷️', 'Apelidado', 'O grupo votou um apelido para você', 'nicked', 1, 50],
   ['comprador', '🛒', 'Cliente fiel', 'Comprou algo na loja da semana', 'buys', 1, 100],
   ['artista', '🎨', 'Picasso da call', 'Ganhou uma partida de Desenha e adivinha', 'drawWins', 1, 150],
-  ['sabichao', '🧠', 'Sabichão', 'Ganhou um Quiz na call', 'quizWins', 1, 150]
+  ['sabichao', '🧠', 'Sabichão', 'Ganhou um Quiz na call', 'quizWins', 1, 150],
+  ['carteado', '🃏', 'Rei do carteado', 'Ganhou 5 jogos de cartas na call', 'cardWins', 5, 300]
 ];
 // conquistas que o Porteiro anuncia no grupo (as grandes)
 const BIG = new Set(['tagarela', 'call100', 'lenda', 'rico', 'sortudo', 'caixa50']);

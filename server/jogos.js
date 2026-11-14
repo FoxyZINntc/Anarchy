@@ -61,7 +61,7 @@ const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = crypto
 const PRIZE = [150, 75, 30], DAY_CAP = 600; // AnarchyPoints para os 3 primeiros; teto por pessoa por dia
 const DRAW_SECS = 80, QUIZ_SECS = 15, CLIP_SECS = 15;
 
-function createJogos({ db, save, now, str, toUser, voice, sockets, limited, track, clip, selfUser, log }) {
+function createJogos({ db, save, now, str, toUser, voice, sockets, limited, track, clip, selfUser, log, otherBusy }) {
   const games = new Map(); // roomId -> partida
   const humansIn = room => [...new Set([...(voice.get(room) || new Map()).values()].map(s => s.uid))].filter(id => db.users[id] && !db.users[id].bot);
   const roomEmit = (room, ev, data) => { for (const sid of (voice.get(room) || new Map()).keys()) { const sk = sockets.get(sid); if (sk) sk.emit(ev, data); } };
@@ -169,7 +169,7 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
     const room = () => socket.data.voice;
     on('game:start', (d, cb) => {
       const r = room(); if (!r) return fail(cb, 'Entre numa call para jogar.');
-      if (games.has(r) && games.get(r).phase !== 'fim') return fail(cb, 'Já tem um jogo rolando nesta call.');
+      if ((games.has(r) && games.get(r).phase !== 'fim') || (otherBusy && otherBusy(r))) return fail(cb, 'Já tem um jogo rolando nesta call.');
       if (limited('game:' + r, 3, 60e3)) return fail(cb, 'Espere um pouco para começar outro jogo.');
       const people = humansIn(r), kind = d.kind === 'quiz' ? 'quiz' : 'desenho';
       if (kind === 'desenho' && people.length < 2) return fail(cb, 'O Desenha e adivinha precisa de pelo menos 2 pessoas na call.');
@@ -241,7 +241,7 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
     if (g.kind === 'desenho' && g.cur && g.cur.drawer === uid) { roomEmit(room, 'game:info', { text: `${name(uid)} saiu da call enquanto desenhava.` }); drawReveal(g); }
     if (!humansIn(room).length) end(g);
   }
-  return { bind, onLeave, _games: games, _norm: norm };
+  return { bind, onLeave, busy: r => games.has(r) && games.get(r).phase !== 'fim', _games: games, _norm: norm };
 }
 
 module.exports = { createJogos, WORDS, QUESTIONS, SONGS };
