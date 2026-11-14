@@ -68,12 +68,16 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
   const name = id => (db.users[id] && db.users[id].displayName) || 'alguém';
   const day = () => new Date(now() - 3 * 3600e3).toISOString().slice(0, 10);
   const mask = (w, shown) => [...w].map((ch, i) => (ch === ' ' || ch === '-' ? ch : shown.has(i) ? ch : '_')).join('');
+  // quem está jogando e continua na call (ninguém é obrigado: só entra quem aceitou o convite)
+  const inGame = g => humansIn(g.room).filter(p => g.players.has(p));
+  const minOf = g => (g.kind === 'desenho' ? 2 : 1);
+  const LOBBY_SECS = 20, READY_SECS = 8;
 
   // o que todo mundo da sala vê (sem a palavra/resposta enquanto a rodada está valendo)
   function view(g) {
     const r = g.cur || {};
-    const v = { room: g.room, kind: g.kind, mode: g.mode, host: g.host, phase: g.phase, round: g.round + 1, total: g.total, scores: [...g.scores.entries()].sort((a, b) => b[1] - a[1]),
-      ends: r.ends || 0, guessed: r.guessed ? [...r.guessed] : [], serverNow: now() };
+    const v = { room: g.room, kind: g.kind, mode: g.mode, host: g.host, phase: g.phase, round: g.round + 1, total: g.total, scores: [...g.scores.entries()].filter(([u]) => g.players.has(u)).sort((a, b) => b[1] - a[1]),
+      ends: g.phase === 'convite' ? g.lobbyEnds : r.ends || 0, guessed: r.guessed ? [...r.guessed] : [], serverNow: now(), players: [...g.players], declined: [...g.declined], min: minOf(g) };
     if (g.kind === 'desenho') Object.assign(v, { drawer: r.drawer, mask: r.word ? (g.phase === 'jogando' ? mask(r.word, r.shown) : r.word) : '', strokes: r.strokes || [] });
     if (g.kind === 'quiz') Object.assign(v, { q: r.q || null, opts: r.opts || null, clip: r.clip || null, answered: r.answers ? [...r.answers.keys()] : [], reveal: g.phase === 'revelando' ? r.reveal : null });
     if (g.phase === 'fim') v.prizes = g.prizes || {};
@@ -93,7 +97,7 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
       u.stats.gameCap.n += give; u.points = (u.points || 0) + give; u.pointsTotal = (u.pointsTotal || 0) + give;
       g.prizes[uid] = give; toUser(uid, 'me:update', selfUser(u));
     });
-    if (top.length && humansIn(g.room).length >= 2) track(top[0][0], g.kind === 'desenho' ? 'drawWins' : 'quizWins');
+    if (top.length && g.players.size >= 2) track(top[0][0], g.kind === 'desenho' ? 'drawWins' : 'quizWins');
     save(); push(g);
     if (reason) roomEmit(g.room, 'game:info', { text: reason });
     setTimeout(() => { if (games.get(g.room) === g) games.delete(g.room); }, 60e3);
@@ -101,8 +105,8 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
 
   /* ---------- Desenha e adivinha ---------- */
   function drawRound(g) {
-    const players = humansIn(g.room).filter(id => g.scores.has(id));
-    if (players.length < 2) return end(g, 'Faltou gente na call: o jogo acabou.');
+    const players = inGame(g);
+    if (players.length < 2) return end(g, 'Faltou gente jogando: o jogo acabou.');
     if (g.round >= g.total) return end(g);
     const drawer = g.order[g.round % g.order.length];
     if (!players.includes(drawer)) { g.round++; return drawRound(g); }
@@ -138,17 +142,30 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
     return null;
   }
   async function quizRound(g) {
-    if (humansIn(g.room).length < 1) return end(g, 'A call ficou vazia.');
+    if (inGame(g).length < 1) return end(g, 'Ninguém mais está jogando.');
     if (g.round >= g.total) return end(g);
-    g.phase = 'carregando'; push(g);
+    g.phase = 'carregando'; g.cur = null; push(g);
     let song = null;
-    if (g.mode === 'musica') { song = g.next ? await g.next : await prepClip(g); g.next = prepClip(g); if (games.get(g.room) !== g) return; }
+    if (g.mode === 'musica') { song = g.next ? await g.next : await prepClip(g); g.next = prepClip(g); if (games.get(g.room) !== g || g.phase === 'fim') return; }
     const secs = song ? CLIP_SECS + 5 : QUIZ_SECS;
-    g.phase = 'jogando';
     if (song) {
+      // música: primeiro todo mundo carrega o trecho (game:ready); depois ela começa no mesmo instante para todos
       const at = Math.max(20, Math.round((song.dur || 120) * 0.35));
-      g.cur = { kind: 'musica', clip: { url: song.url, at, dur: CLIP_SECS }, answers: song.answers, reveal: { text: song.title }, guessed: new Set(), answers2: null, ends: now() + secs * 1000 };
-    } else {
+      g.cur = { kind: 'musica', clip: { url: song.url, at, dur: CLIP_SECS, start: 0 }, answers: song.answers, reveal: { text: song.title }, guessed: new Set(), ready: new Set(), ends: 0, secs };
+      push(g);
+      const go = () => {
+        if (games.get(g.room) !== g || g.phase !== 'carregando' || !g.cur || g.cur.kind !== 'musica' || g.cur.clip.start) return;
+        clearTimeout(g.timer);
+        const start = now() + 900; // um instante para o aviso chegar em todo mundo
+        g.cur.clip.start = start; g.cur.ends = start + secs * 1000; g.phase = 'jogando';
+        push(g); g.timer = setTimeout(() => quizReveal(g), secs * 1000 + 900);
+      };
+      g.cur.go = go;
+      clearTimeout(g.timer); g.timer = setTimeout(go, READY_SECS * 1000); // quem demorar demais entra no meio
+      return;
+    }
+    g.phase = 'jogando';
+    {
       let q; do { q = QUESTIONS[crypto.randomInt(0, QUESTIONS.length)]; } while (g.usedQ.has(q[0]) && g.usedQ.size < QUESTIONS.length); g.usedQ.add(q[0]);
       const opts = shuffle(q.slice(1).map((t, i) => ({ t, ok: i === 0 })));
       g.cur = { kind: 'pergunta', q: q[0], opts: opts.map(o => o.t), right: opts.findIndex(o => o.ok), answers: new Map(), reveal: { right: opts.findIndex(o => o.ok), text: q[1] }, guessed: new Set(), ends: now() + secs * 1000 };
@@ -164,6 +181,17 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
     g.phase = 'revelando'; push(g);
     g.round++; g.timer = setTimeout(() => quizRound(g), 4500);
   }
+  // fim do convite: começa com quem aceitou
+  function begin(g) {
+    if (g.phase !== 'convite') return;
+    clearTimeout(g.timer);
+    const people = inGame(g);
+    if (people.length < minOf(g)) { g.phase = 'fim'; g.prizes = {}; push(g); roomEmit(g.room, 'game:info', { text: `Pouca gente topou ${g.kind === 'desenho' ? 'o Desenha e adivinha (precisa de 2)' : 'o Quiz'}. Fica para a próxima!` }); setTimeout(() => { if (games.get(g.room) === g) games.delete(g.room); }, 60e3); return; }
+    g.scores = new Map(people.map(p => [p, 0]));
+    if (g.kind === 'desenho') { g.order = shuffle(people.slice()); g.total = people.length === 2 ? 4 : people.length; }
+    roomEmit(g.room, 'game:info', { text: `Começou! Jogando: ${people.map(name).join(', ')}.` });
+    if (g.kind === 'desenho') drawRound(g); else quizRound(g);
+  }
 
   function bind(socket, uid, on, ok, fail) {
     const room = () => socket.data.voice;
@@ -173,13 +201,61 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
       if (limited('game:' + r, 3, 60e3)) return fail(cb, 'Espere um pouco para começar outro jogo.');
       const people = humansIn(r), kind = d.kind === 'quiz' ? 'quiz' : 'desenho';
       if (kind === 'desenho' && people.length < 2) return fail(cb, 'O Desenha e adivinha precisa de pelo menos 2 pessoas na call.');
-      const g = { room: r, kind, mode: kind === 'quiz' && d.mode === 'musica' ? 'musica' : 'perguntas', host: uid, phase: 'jogando', round: 0, scores: new Map(people.map(p => [p, 0])), used: new Set(), usedQ: new Set(), timer: null, hintT: null };
-      if (kind === 'desenho') { g.order = shuffle(people.slice()); g.total = people.length === 2 ? 4 : people.length; }
-      else { g.total = Math.max(3, Math.min(15, Math.round(+d.rounds) || 8)); if (g.mode === 'musica') { g.songs = shuffle(SONGS.slice()); g.next = prepClip(g); } }
+      // começa com um convite: quem quiser clica em Entrar; quem não quiser, em Agora não (ninguém é obrigado)
+      const g = { room: r, kind, mode: kind === 'quiz' && d.mode === 'musica' ? 'musica' : 'perguntas', host: uid, phase: 'convite', round: 0, scores: new Map(), players: new Set([uid]), declined: new Set(), lobbyEnds: now() + LOBBY_SECS * 1000, used: new Set(), usedQ: new Set(), timer: null, hintT: null };
+      if (kind === 'quiz') { g.total = Math.max(3, Math.min(15, Math.round(+d.rounds) || 8)); if (g.mode === 'musica') { g.songs = shuffle(SONGS.slice()); g.next = prepClip(g); } }
       games.set(r, g);
-      roomEmit(r, 'game:info', { text: `${name(uid)} começou ${kind === 'desenho' ? 'um Desenha e adivinha' : g.mode === 'musica' ? 'um Quiz de música' : 'um Quiz'}!` });
-      log(`   Jogo: @${(db.users[uid] || {}).username} começou ${kind}/${g.mode} numa call.`);
-      if (kind === 'desenho') drawRound(g); else quizRound(g);
+      const label = kind === 'desenho' ? 'Desenha e adivinha' : g.mode === 'musica' ? 'Quiz de música' : 'Quiz';
+      roomEmit(r, 'game:info', { text: `${name(uid)} chamou a call para um ${label}! Entre se quiser.` });
+      log(`   Jogo: @${(db.users[uid] || {}).username} chamou ${kind}/${g.mode} numa call.`);
+      g.timer = setTimeout(() => begin(g), LOBBY_SECS * 1000);
+      // sozinho na call (quiz): nem precisa esperar
+      if (people.length === 1 && kind === 'quiz') begin(g); else push(g);
+      ok(cb);
+    });
+    // convite: entrar, recusar, e quem chamou pode começar antes do tempo
+    on('game:join', (_, cb) => {
+      const g = games.get(room()); if (!g || g.phase === 'fim') return fail(cb, 'Nenhum jogo nesta call.');
+      if (g.players.has(uid)) return ok(cb);
+      g.players.add(uid); g.declined.delete(uid);
+      if (g.phase !== 'convite') {
+        if (!g.scores.has(uid)) g.scores.set(uid, 0);
+        if (g.kind === 'desenho' && !g.order.includes(uid)) g.order.push(uid);
+        roomEmit(g.room, 'game:info', { text: `${name(uid)} entrou no jogo.` });
+      }
+      push(g); ok(cb);
+      // todo mundo da call já respondeu o convite: começa logo
+      if (g.phase === 'convite' && humansIn(g.room).every(p => g.players.has(p) || g.declined.has(p))) begin(g);
+    });
+    on('game:decline', (_, cb) => {
+      const g = games.get(room()); if (!g || g.phase !== 'convite') return ok(cb);
+      if (uid === g.host) return fail(cb, 'Você chamou o jogo. Para cancelar, use o ⏹.');
+      g.players.delete(uid); g.declined.add(uid); push(g); ok(cb);
+      if (humansIn(g.room).every(p => g.players.has(p) || g.declined.has(p))) begin(g);
+    });
+    on('game:begin', (_, cb) => {
+      const g = games.get(room()); if (!g || g.phase !== 'convite') return fail(cb, 'O jogo já começou.');
+      if (g.host !== uid) return fail(cb, 'Só quem chamou pode começar antes do tempo.');
+      if (inGame(g).length < minOf(g)) return fail(cb, `Precisa de pelo menos ${minOf(g)} jogando.`);
+      begin(g); ok(cb);
+    });
+    // sair no meio: o jogo continua para os outros
+    on('game:leave', (_, cb) => {
+      const g = games.get(room()); if (!g || g.phase === 'fim' || !g.players.has(uid)) return ok(cb);
+      if (g.phase === 'convite') { g.players.delete(uid); g.declined.add(uid); push(g); return ok(cb); }
+      g.players.delete(uid);
+      roomEmit(g.room, 'game:info', { text: `${name(uid)} saiu do jogo.` });
+      if (g.kind === 'desenho' && g.cur && g.cur.drawer === uid && g.phase === 'jogando') drawReveal(g);
+      else if (inGame(g).length < minOf(g)) end(g, 'Faltou gente jogando: o jogo acabou.');
+      else push(g);
+      ok(cb);
+    });
+    // quiz de música: este app já carregou o trecho e está pronto para tocar
+    on('game:ready', (d, cb) => {
+      const g = games.get(room()); const r = g && g.cur;
+      if (!r || r.kind !== 'musica' || g.phase !== 'carregando' || r.clip.url !== str(d.url, 80)) return ok(cb);
+      r.ready.add(uid);
+      if (inGame(g).every(p => r.ready.has(p))) r.go();
       ok(cb);
     });
     on('game:get', (_, cb) => { const g = games.get(room()); ok(cb, { game: g ? view(g) : null }); if (g && g.kind === 'desenho' && g.cur && g.cur.drawer === uid && g.phase === 'jogando') toUser(uid, 'game:word', { room: g.room, word: g.cur.word }); });
@@ -207,6 +283,7 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
       if (g.kind === 'quiz' && r.kind !== 'musica') return fail(cb, 'Nesta rodada é para escolher uma opção.');
       if (g.kind === 'desenho' && r.drawer === uid) return fail(cb, 'Você está desenhando!');
       if (r.guessed.has(uid)) return fail(cb, 'Você já acertou. Espere a próxima!');
+      if (!g.players.has(uid)) return fail(cb, 'Você não está jogando. Clique em Entrar no jogo.');
       if (!g.scores.has(uid)) g.scores.set(uid, 0);
       const n = norm(text), targets = g.kind === 'desenho' ? [norm(r.word)] : r.answers;
       const left = Math.max(0, (r.ends - now()) / ((g.kind === 'desenho' ? DRAW_SECS : CLIP_SECS + 5) * 1000));
@@ -216,7 +293,7 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
         if (g.kind === 'desenho') g.scores.set(r.drawer, (g.scores.get(r.drawer) || 0) + 40);
         roomEmit(g.room, 'game:hit', { uid, name: name(uid), pts });
         push(g);
-        const need = humansIn(g.room).filter(p => g.scores.has(p) && (g.kind !== 'desenho' || p !== r.drawer));
+        const need = inGame(g).filter(p => g.kind !== 'desenho' || p !== r.drawer);
         if (need.every(p => r.guessed.has(p))) { if (g.kind === 'desenho') drawReveal(g); else quizReveal(g); }
         return ok(cb, { hit: true, pts });
       }
@@ -229,18 +306,22 @@ function createJogos({ db, save, now, str, toUser, voice, sockets, limited, trac
       const g = games.get(room()); if (!g || g.kind !== 'quiz' || g.phase !== 'jogando' || !g.cur || g.cur.kind !== 'pergunta') return fail(cb, 'Nenhuma pergunta valendo.');
       const r = g.cur; if (r.answers.has(uid)) return fail(cb, 'Você já respondeu.');
       const i = Math.round(+d.i); if (!(i >= 0 && i < r.opts.length)) return fail(cb, 'Opção inválida.');
+      if (!g.players.has(uid)) return fail(cb, 'Você não está jogando. Clique em Entrar no jogo.');
       if (!g.scores.has(uid)) g.scores.set(uid, 0);
       r.answers.set(uid, { i, left: Math.max(0, (r.ends - now()) / (QUIZ_SECS * 1000)) });
       push(g);
-      if (humansIn(g.room).every(p => r.answers.has(p))) quizReveal(g);
+      if (inGame(g).every(p => r.answers.has(p))) quizReveal(g);
       ok(cb);
     });
   }
   // saiu da call: se era quem desenhava, a rodada acaba
   function onLeave(room, uid) {
-    const g = games.get(room); if (!g || g.phase !== 'jogando') return;
+    const g = games.get(room); if (!g || g.phase === 'fim') return;
+    if (g.phase === 'convite') { if (!humansIn(room).length) end(g); else if (uid === g.host || humansIn(room).every(p => g.players.has(p) || g.declined.has(p))) push(g); return; }
+    if (g.phase === 'carregando' && g.cur && g.cur.kind === 'musica' && inGame(g).every(p => g.cur.ready.has(p))) g.cur.go();
+    if (g.phase !== 'jogando') return;
     if (g.kind === 'desenho' && g.cur && g.cur.drawer === uid) { roomEmit(room, 'game:info', { text: `${name(uid)} saiu da call enquanto desenhava.` }); drawReveal(g); }
-    if (!humansIn(room).length) end(g);
+    if (!inGame(g).length) end(g);
   }
   return { bind, onLeave, busy: r => games.has(r) && games.get(r).phase !== 'fim', _games: games, _norm: norm };
 }

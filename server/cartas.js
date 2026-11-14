@@ -3,7 +3,7 @@
    montado por pessoa) e as jogadas são conferidas antes de valer. Um jogo de cartas por call. */
 const crypto = require('crypto');
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = crypto.randomInt(0, i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-const PRIZE = 150, PRIZE2 = 50, DAY_CAP = 600, TURN_SECS = 30, TRUCO_SECS = 40;
+const PRIZE = 150, PRIZE2 = 50, DAY_CAP = 600, TURN_SECS = 30, TRUCO_SECS = 40, LOBBY_SECS = 20;
 
 /* ---------- Cartas Malucas ---------- */
 const COLORS = ['vermelho', 'amarelo', 'verde', 'azul'];
@@ -30,6 +30,8 @@ function createCartas({ db, save, now, str, toUser, voice, sockets, limited, tra
 
   /* ----- o que cada pessoa vê: a própria mão; dos outros, só quantas cartas têm ----- */
   function view(g, uid) {
+    // convite: só quem topou e quem recusou (ainda não tem cartas)
+    if (g.phase === 'convite') return { room: g.room, kind: g.kind, host: g.host, phase: 'convite', invited: [...g.invited], declined: [...g.declined], ends: g.lobbyEnds, serverNow: now(), log: g.log.slice(-6), players: [...g.invited].map(p => ({ uid: p, n: 0 })), me: null };
     const v = { room: g.room, kind: g.kind, host: g.host, phase: g.phase, players: g.players.map(p => ({ uid: p, n: g.hands[p] ? g.hands[p].length : 0 })), turn: g.players[g.turn], ends: g.ends, serverNow: now(), log: g.log.slice(-6), winner: g.winner || null, prizes: g.prizes || null, me: g.players.includes(uid) ? (g.hands[uid] || []) : null };
     if (g.kind === 'malucas') Object.assign(v, { top: g.pile[g.pile.length - 1], color: g.color, dir: g.dir, drawn: g.drawn && g.players[g.turn] === uid ? g.drawn : null, deck: g.deck.length, last: g.players.filter(p => g.hands[p].length === 1 && g.saidLast[p]), catchable: g.players.filter(p => g.hands[p].length === 1 && !g.saidLast[p]) });
     if (g.kind === 'truco') Object.assign(v, { teams: g.teams, score: g.score, value: g.value, vira: g.vira, manilha: g.manilha, table: g.table, tricks: g.tricks, ask: g.ask, dealer: g.players[g.dealer] });
@@ -173,24 +175,64 @@ function createCartas({ db, save, now, str, toUser, voice, sockets, limited, tra
     tDeal(g);
   }
 
+  const answered = g => humansIn(g.room).every(p => g.invited.has(p) || g.declined.has(p));
+  // fim do convite: dá as cartas para quem aceitou (devolve um erro se ainda não dá para começar pelo botão)
+  function begin(g, manual) {
+    if (g.phase !== 'convite') return null;
+    const here = humansIn(g.room), ps = [g.host, ...shuffle([...g.invited].filter(p => p !== g.host))].filter(p => here.includes(p));
+    let n = ps.length;
+    if (g.kind === 'truco') n = n >= 4 ? 4 : n >= 2 ? 2 : n; else n = Math.min(n, 10);
+    if (n < 2) {
+      if (manual) return 'Precisa de pelo menos 2 jogando.';
+      clearTimeout(g.timer); g.phase = 'fim'; g.winner = null; g.prizes = {}; push(g); info(g, 'Pouca gente topou. Fica para a próxima!');
+      setTimeout(() => { if (games.get(g.room) === g) games.delete(g.room); }, 60e3); return null;
+    }
+    clearTimeout(g.timer);
+    g.players = ps.slice(0, n); g.phase = 'jogando';
+    if (g.kind === 'malucas') mStart(g); else tStart(g);
+    const out = ps.slice(n);
+    info(g, `Começou! Na mesa: ${g.players.map(name).join(', ')}.${out.length ? ` (${out.map(name).join(', ')} ${out.length > 1 ? 'ficaram' : 'ficou'} de fora: o Truco é com 2 ou 4.)` : ''}`);
+    push(g); return null;
+  }
   function bind(socket, uid, on, ok, fail) {
     const room = () => socket.data.voice;
     on('cards:start', (d, cb) => {
       const r = room(); if (!r) return fail(cb, 'Entre numa call para jogar.');
       if ((games.has(r) && games.get(r).phase !== 'fim') || (otherBusy && otherBusy(r))) return fail(cb, 'Já tem um jogo rolando nesta call.');
       if (limited('cards:' + r, 3, 60e3)) return fail(cb, 'Espere um pouco para começar outro jogo.');
-      const kind = d.kind === 'truco' ? 'truco' : 'malucas', people = shuffle(humansIn(r).slice());
-      if (people.length < 2) return fail(cb, 'Precisa de pelo menos 2 pessoas na call.');
-      if (kind === 'malucas' && people.length > 10) people.length = 10;
-      if (kind === 'truco' && people.length === 3) return fail(cb, 'O Truco é com 2 ou 4 pessoas. Com 3 na call, chame mais um (ou alguém fica de fora: comece com 4 ou com 2).');
-      // quem começou fica sempre na mesa
-      const ps = [uid, ...people.filter(p => p !== uid)];
-      const g = { room: r, kind, host: uid, players: ps, phase: 'jogando', turn: 0, log: [], timer: null, ends: 0 };
+      const kind = d.kind === 'truco' ? 'truco' : 'malucas';
+      if (humansIn(r).length < 2) return fail(cb, 'Precisa de pelo menos 2 pessoas na call.');
+      // convite: quem quiser entra; ninguém é obrigado a jogar
+      const g = { room: r, kind, host: uid, players: [], invited: new Set([uid]), declined: new Set(), phase: 'convite', lobbyEnds: now() + LOBBY_SECS * 1000, turn: 0, log: [], timer: null, ends: 0 };
       games.set(r, g);
-      if (kind === 'malucas') mStart(g); else tStart(g);
-      info(g, `${name(uid)} começou ${kind === 'truco' ? `um Truco${g.players.length === 4 ? ' de duplas' : ''}` : 'Cartas Malucas'}!${people.length > g.players.length ? ' (A mesa ficou cheia: alguns vão assistir.)' : ''}`);
-      log(`   Cartas: @${(db.users[uid] || {}).username} começou ${kind} com ${g.players.length}.`);
+      info(g, `${name(uid)} chamou a call para ${kind === 'truco' ? 'um Truco' : 'Cartas Malucas'}! Entre se quiser.`);
+      g.timer = setTimeout(() => begin(g), LOBBY_SECS * 1000);
+      log(`   Cartas: @${(db.users[uid] || {}).username} chamou ${kind}.`);
       push(g); ok(cb);
+    });
+    on('cards:join', (_, cb) => {
+      const g = games.get(room()); if (!g || g.phase === 'fim') return fail(cb, 'Nenhum jogo nesta call.');
+      if (g.phase !== 'convite') return fail(cb, 'As cartas já foram dadas. Espere a próxima partida.');
+      g.invited.add(uid); g.declined.delete(uid); push(g); ok(cb);
+      if (answered(g)) begin(g);
+    });
+    on('cards:decline', (_, cb) => {
+      const g = games.get(room()); if (!g || g.phase !== 'convite') return ok(cb);
+      if (uid === g.host) return fail(cb, 'Você chamou o jogo. Para cancelar, use o ⏹.');
+      g.invited.delete(uid); g.declined.add(uid); push(g); ok(cb);
+      if (answered(g)) begin(g);
+    });
+    // sair da mesa no meio (nas Cartas Malucas o jogo segue; no Truco a partida acaba)
+    on('cards:leave', (_, cb) => {
+      const g = games.get(room()); if (!g || g.phase === 'fim') return ok(cb);
+      if (g.phase === 'convite') { if (uid !== g.host) { g.invited.delete(uid); g.declined.add(uid); push(g); } return ok(cb); }
+      if (g.players.includes(uid)) onLeave(g.room, uid, true);
+      ok(cb);
+    });
+    on('cards:begin', (_, cb) => {
+      const g = games.get(room()); if (!g || g.phase !== 'convite') return fail(cb, 'O jogo já começou.');
+      if (g.host !== uid) return fail(cb, 'Só quem chamou pode começar antes do tempo.');
+      const e = begin(g, true); if (e) return fail(cb, e); ok(cb);
     });
     on('cards:get', (_, cb) => { const g = games.get(room()); ok(cb, { game: g ? view(g, uid) : null }); });
     on('cards:stop', (_, cb) => {
@@ -256,9 +298,11 @@ function createCartas({ db, save, now, str, toUser, voice, sockets, limited, tra
       info(g, `🔥 ${name(uid)} pediu ${RAISE_NAME[nv]}!`); tTurn(g, g.turn); push(g); ok(cb);
     });
   }
-  function onLeave(room, uid) {
-    const g = games.get(room); if (!g || g.phase === 'fim' || !g.players.includes(uid)) return;
-    if (g.kind === 'truco') return end(g, null, `${name(uid)} saiu da call: o Truco acabou.`);
+  function onLeave(room, uid, quit) {
+    const g = games.get(room); if (!g || g.phase === 'fim') return;
+    if (g.phase === 'convite') { if (!humansIn(room).length) { clearTimeout(g.timer); games.delete(room); } else if (answered(g)) begin(g); return; }
+    if (!g.players.includes(uid)) return;
+    if (g.kind === 'truco') return end(g, null, `${name(uid)} ${quit ? 'saiu da mesa' : 'saiu da call'}: o Truco acabou.`);
     // Cartas Malucas: a pessoa sai da mesa e o jogo segue
     const i = g.players.indexOf(uid), wasTurn = g.turn === i;
     g.players.splice(i, 1); g.deck.unshift(...g.hands[uid]); delete g.hands[uid];

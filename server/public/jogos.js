@@ -25,7 +25,7 @@ const KIND = g => g.kind === 'desenho' ? '🎨 Desenha e adivinha' : g.mode === 
 /* ---------- menu do botão 🎮 ---------- */
 function menu(anchor) {
   if (!H.inCall()) return H.toast('Entre numa call para jogar.', true);
-  if (J.g && J.g.phase !== 'fim') { J.min = false; render(); return; }
+  if (J.g && J.g.phase !== 'fim') { J.min = false; if (!mine(J.g) && J.g.phase !== 'convite') J.watch = true; J.pill = true; render(); return; }
   if (window.anarchyCards && window.anarchyCards.running()) { window.anarchyCards.open(); return; }
   H.pop(`<button data-game="desenho"><span>🎨 Desenha e adivinha</span></button>
     <button data-game="quiz"><span>🧠 Quiz de perguntas</span></button>
@@ -58,10 +58,38 @@ function scoresHtml(g) {
   return g.scores.map(([u, s], i) => `<div class="jg-sc ${g.guessed.includes(u) ? 'hit' : ''} ${g.drawer === u ? 'drw' : ''}">${H.av(u, 22, false)}<b>${esc(H.nameOf(u))}</b>${g.drawer === u && g.phase === 'jogando' ? '<i title="Desenhando">✏️</i>' : g.guessed.includes(u) ? '<i title="Acertou">✅</i>' : (g.answered || []).includes(u) && g.phase === 'jogando' ? '<i title="Já respondeu">💭</i>' : ''}<em>${s}</em>${g.phase === 'fim' && i < 3 && s > 0 ? `<span>${medal[i]}</span>` : ''}</div>`).join('');
 }
 function chatHtml() { return J.chat.slice(-40).map(c => `<div class="jg-ln ${c.k}">${c.k === 'info' ? esc(c.text) : c.k === 'hit' ? `✅ <b>${esc(c.name)}</b> acertou! (+${c.pts})` : `<b>${esc(c.name)}:</b> ${esc(c.text)}`}</div>`).join(''); }
+const mine = g => (g.players || []).includes(me());
+// convite: cartão pequeno com Entrar / Agora não (ninguém é obrigado a jogar)
+function inviteHtml(g) {
+  const left = Math.max(0, Math.ceil((g.ends - sNow()) / 1000));
+  return `<div class="jg-invite" role="alertdialog" aria-label="Convite para jogo"><div class="jg-inv-h">${H.av(g.host, 32, false)}<div><b>${esc(H.nameOf(g.host))}</b> chamou a call para<br><span>${KIND(g)}</span></div></div>
+    <div class="jg-inv-who">${(g.players || []).map(u => H.av(u, 22, false)).join('')}<small>${(g.players || []).length} ${(g.players || []).length === 1 ? 'vai jogar' : 'vão jogar'} · começa em <span class="jg-t">${left}s</span></small></div>
+    <div class="jg-inv-acts"><button class="btn primary sm" data-jg="join">🎮 Entrar</button><button class="btn ghost sm" data-jg="decline">Agora não</button></div></div>`;
+}
+function lobbyHtml(g) {
+  const host = g.host === me(), waiting = (H.S.voice[g.room] || []).map(p => p.uid).filter((u, i, a) => a.indexOf(u) === i && !(g.players || []).includes(u) && !(g.declined || []).includes(u) && !(H.S.users[u] || {}).bot);
+  return `<div class="jg-lobby"><h3>${KIND(g)}</h3><p class="muted">Esperando a galera responder o convite · começa em <b class="jg-t"></b></p>
+    <div class="jg-lob-list">${(g.players || []).map(u => `<span class="in">${H.av(u, 26, false)}${esc(H.nameOf(u))} ✅</span>`).join('')}${waiting.map(u => `<span class="wait">${H.av(u, 26, false)}${esc(H.nameOf(u))} ⏳</span>`).join('')}${(g.declined || []).map(u => `<span class="no">${H.av(u, 26, false)}${esc(H.nameOf(u))} 💤</span>`).join('')}</div>
+    <div class="jg-inv-acts">${host ? `<button class="btn primary" data-jg="begin" ${(g.players || []).length < (g.min || 1) ? 'disabled' : ''}>▶ Começar agora</button><button class="btn ghost" data-jg="stop">Cancelar</button>` : '<button class="btn ghost" data-jg="leave">Sair</button>'}</div>
+    ${(g.players || []).length < (g.min || 1) ? `<p class="muted small">Precisa de pelo menos ${g.min} jogando.</p>` : ''}</div>`;
+}
 function render() {
   const g = J.g;
   if (!g || !H.inCall()) return close();
   const el = box();
+  // ainda no convite
+  if (g.phase === 'convite') {
+    if (!mine(g)) {
+      if ((g.declined || []).includes(me())) return close();
+      el.className = 'jg-back invite'; el.innerHTML = inviteHtml(g); return;
+    }
+    el.className = 'jg-back'; el.innerHTML = `<div class="jg-box lobby">${lobbyHtml(g)}</div>`; tick(); return;
+  }
+  // jogo rolando e eu não estou jogando: só uma pílula (Entrar ou Assistir), a não ser que eu peça para assistir
+  if (!mine(g) && g.phase !== 'fim' && !J.watch) {
+    if ((g.declined || []).includes(me()) && !J.pill) return close();
+    el.className = 'jg-back min'; el.innerHTML = `<div class="jg-pill jg-spect">${KIND(g)} rolando <button class="btn primary sm" data-jg="join">Entrar</button><button class="btn ghost sm" data-jg="watch">Assistir</button></div>`; return;
+  }
   if (J.min) {
     el.className = 'jg-back min';
     el.innerHTML = `<button class="jg-pill" data-jg="max">${KIND(g)} · rodada ${Math.min(g.round, g.total)}/${g.total} <span class="jg-t"></span> ▲</button>`;
@@ -73,11 +101,11 @@ function render() {
   if (g.phase === 'fim') main = endHtml(g);
   else if (g.kind === 'desenho') main = drawHtml(g, drawing);
   else main = quizHtml(g);
-  const canGuess = g.phase === 'jogando' && !g.guessed.includes(me()) && (g.kind === 'desenho' ? !drawing : g.clip);
+  const canGuess = mine(g) && g.phase === 'jogando' && !g.guessed.includes(me()) && (g.kind === 'desenho' ? !drawing : g.clip);
   const chatOn = g.kind === 'desenho' || g.clip || g.phase === 'fim';
   el.innerHTML = `<div class="jg-box ${g.kind}">
     <div class="jg-head"><b>${KIND(g)}</b><span class="jg-rd">${g.phase === 'fim' ? 'Fim de jogo' : `Rodada ${Math.min(g.round, g.total)} de ${g.total}`}</span><span class="jg-t"></span>
-      <span class="jg-hsp"></span>${canStop(g) ? '<button class="jg-ib" data-jg="stop" data-tip="Encerrar o jogo">⏹</button>' : ''}<button class="jg-ib" data-jg="min" data-tip="Minimizar">▁</button>${g.phase === 'fim' ? '<button class="jg-ib" data-jg="close" data-tip="Fechar">✕</button>' : ''}</div>
+      <span class="jg-hsp"></span>${g.phase !== 'fim' ? (mine(g) ? '<button class="btn ghost sm jg-quit" data-jg="leave" data-tip="Sair do jogo (os outros continuam)">🚪 Sair</button>' : '<button class="btn primary sm" data-jg="join">🎮 Entrar</button>') : ''}${canStop(g) ? '<button class="jg-ib" data-jg="stop" data-tip="Encerrar o jogo">⏹</button>' : ''}<button class="jg-ib" data-jg="min" data-tip="Minimizar">▁</button>${g.phase === 'fim' ? '<button class="jg-ib" data-jg="close" data-tip="Fechar">✕</button>' : ''}</div>
     <div class="jg-bar"><i></i></div>
     <div class="jg-body"><div class="jg-main">${main}</div>
       <aside class="jg-side"><div class="jg-scores">${scoresHtml(g)}</div>
@@ -120,7 +148,7 @@ function endHtml(g) {
 /* ---------- tempo ---------- */
 function tick() {
   const g = J.g, el = document.querySelector('.jg-back'); if (!g || !el) return;
-  const left = Math.max(0, Math.ceil((g.ends - sNow()) / 1000)), on = g.phase === 'jogando' && g.ends;
+  const left = Math.max(0, Math.ceil((g.ends - sNow()) / 1000)), on = (g.phase === 'jogando' || g.phase === 'convite') && g.ends;
   el.querySelectorAll('.jg-t').forEach(t => { t.textContent = on ? `⏱ ${left}s` : ''; t.classList.toggle('low', on && left <= 10); });
   const bar = el.querySelector('.jg-bar i'); if (bar) bar.style.width = on ? `${Math.min(100, (left / (g.dur || 80)) * 100)}%` : '0%';
 }
@@ -175,15 +203,33 @@ function setupCanvas(cv, drawing) {
 /* ---------- música do quiz ---------- */
 function volume() { try { return +(localStorage.getItem('anarchy.jgVol') || 0.6); } catch { return 0.6; } }
 function stopClip() { if (J.audio) { try { J.audio.pause(); } catch {} J.audio.src = ''; J.audio = null; } J.clipKey = ''; }
-function playClip(g) {
+// Quiz de música em 2 passos, para todo mundo ouvir junto:
+// 1) "carregando": cada app baixa o trecho, já posiciona no ponto certo e avisa o servidor (game:ready);
+// 2) quando todos estão prontos (ou passou o tempo), o servidor marca o instante de começar (clip.start) e todos tocam nele.
+function prepClip(g) {
   const key = g.clip.url;
-  if (J.clipKey === key) return;
+  if (J.clipKey === key) return J.audio;
   stopClip(); J.clipKey = key;
-  const a = new Audio(g.clip.url); a.volume = volume(); J.audio = a;
-  const elapsed = Math.max(0, (sNow() - (g.ends - (g.clip.dur + 5) * 1000)) / 1000);
-  a.addEventListener('loadedmetadata', () => { try { a.currentTime = g.clip.at + Math.min(elapsed, g.clip.dur); } catch {} a.play().catch(() => H.toast('Clique na janela do jogo para liberar o som.', true)); }, { once: true });
+  const a = new Audio(); a.preload = 'auto'; a.volume = volume(); J.audio = a; a._ready = false;
   const stopAt = g.clip.at + g.clip.dur;
   a.addEventListener('timeupdate', () => { if (a.currentTime >= stopAt) a.pause(); });
+  const ready = () => { if (a._ready || J.audio !== a) return; a._ready = true; H.emit('game:ready', { url: key }); };
+  a.addEventListener('loadedmetadata', () => { try { a.currentTime = g.clip.at; } catch {} a.addEventListener('canplaythrough', ready, { once: true }); a.addEventListener('seeked', () => { if (a.readyState >= 3) ready(); }, { once: true }); }, { once: true });
+  a.addEventListener('error', ready, { once: true }); // se der erro, não segura os outros
+  a.src = key; a.load();
+  return a;
+}
+function playClip(g) {
+  const a = prepClip(g); if (!g.clip.start || a._sched === g.clip.start) return;
+  a._sched = g.clip.start;
+  const go = () => {
+    if (J.audio !== a) return;
+    const late = Math.max(0, (sNow() - g.clip.start) / 1000);
+    try { if (Math.abs(a.currentTime - (g.clip.at + late)) > .25) a.currentTime = g.clip.at + Math.min(late, g.clip.dur); } catch {}
+    a.play().catch(() => H.toast('Clique na janela do jogo para liberar o som.', true));
+  };
+  const wait = g.clip.start - sNow();
+  if (wait > 0) setTimeout(go, wait); else go();
 }
 
 /* ---------- eventos ---------- */
@@ -191,6 +237,8 @@ function onState(g) {
   const prev = J.g;
   J.skew = (g.serverNow || Date.now()) - Date.now();
   g.dur = g.kind === 'desenho' ? 80 : g.clip ? 20 : 15;
+  // jogo novo: zera o "assistir" e o aviso de convite
+  if (!prev || prev.phase === 'fim' || prev.room !== g.room) { J.watch = false; J.pill = false; if (g.phase === 'convite' && g.host !== me() && !mine(g)) H.tone([[660, .08], [880, .08], [1100, .15]], 'triangle', .05); }
   if (!prev || prev.room !== g.room || prev.round !== g.round || prev.kind !== g.kind || (prev.phase === 'fim' && g.phase !== 'fim')) {
     J.strokes = (g.strokes || []).slice();
     if (!prev || prev.phase === 'fim' || prev.room !== g.room) { J.chat = []; J.min = false; }
@@ -199,12 +247,16 @@ function onState(g) {
   // sons: rodada nova e fim
   if (prev && g.phase === 'jogando' && (prev.round !== g.round || prev.phase !== 'jogando')) H.tone([[660, .06], [880, .1]], 'triangle', .04);
   if (g.phase === 'fim' && prev && prev.phase !== 'fim') { H.tone([[523, .1], [659, .1], [784, .1], [1047, .35]], 'triangle', .06); if (g.scores[0] && g.scores[0][0] === me() && g.scores[0][1] > 0 && H.confetti) H.confetti(); }
-  if (g.clip && g.phase === 'jogando') playClip(g); else if (g.phase !== 'revelando') stopClip();
+  // só quem está jogando (ou assistindo) baixa e toca o trecho
+  const hear = mine(g) || J.watch;
+  if (g.clip && hear && g.phase === 'carregando') prepClip(g);
+  else if (g.clip && hear && g.phase === 'jogando') playClip(g);
+  else if (g.phase !== 'revelando') stopClip();
   if (g.phase === 'revelando' && g.clip) setTimeout(() => { if (J.g && J.g.phase !== 'jogando') stopClip(); }, 4000);
   J.g = g;
   // durante o desenho, só redesenha o quadro inteiro se não for quem está desenhando no meio de um traço
   const el = document.querySelector('.jg-back');
-  if (el && !J.min && prev && prev.round === g.round && prev.phase === g.phase && g.kind === 'desenho' && g.phase === 'jogando') {
+  if (el && !J.min && el.querySelector('.jg-scores') && prev && mine(prev) === mine(g) && prev.round === g.round && prev.phase === g.phase && g.kind === 'desenho' && g.phase === 'jogando') {
     el.querySelector('.jg-scores').innerHTML = scoresHtml(g);
     const w = el.querySelector('.jg-word .jg-letters');
     if (w && g.drawer !== me()) w.innerHTML = [...g.mask].map(c => c === ' ' ? '<i class="sp"></i>' : `<span>${c === '_' ? '' : esc(c)}</span>`).join('');
@@ -218,7 +270,12 @@ function onClick(e) {
   const a = b.dataset.jg;
   if (a === 'min') { J.min = true; render(); }
   if (a === 'max') { J.min = false; render(); }
-  if (a === 'close') { J.g = null; close(); }
+  if (a === 'close') { J.g = null; J.watch = false; close(); }
+  if (a === 'join') { J.watch = false; J.min = false; call('game:join', {}); }
+  if (a === 'decline') { call('game:decline', {}); close(); }
+  if (a === 'begin') call('game:begin', {});
+  if (a === 'leave') { call('game:leave', {}); J.watch = false; stopClip(); }
+  if (a === 'watch') { J.watch = true; J.min = false; render(); if (J.g && J.g.clip && J.g.phase === 'jogando') playClip(J.g); }
   if (a === 'stop') H.confirmBox('Encerrar o jogo', 'O placar fica como está e os prêmios são entregues agora.', 'Encerrar', false).then(y => y && call('game:stop', {}));
   if (a === 'again') { const g = J.g; start(g.kind === 'desenho' ? 'desenho' : g.mode === 'musica' ? 'musica' : 'quiz'); }
   if (a === 'ans') { const i = +b.dataset.i; J.answered = { r: J.g.round, i }; call('game:answer', { i }).then(r => { if (!r.ok) J.answered = null; render(); }); render(); }
@@ -251,7 +308,8 @@ function attach(sock) {
   });
   sock.on('game:chat', c => pushChat({ k: 'msg', ...c }));
   sock.on('game:hit', h => { pushChat({ k: 'hit', ...h }); if (h.uid !== me()) H.tone([[988, .06]], 'sine', .03); });
-  sock.on('game:info', d => { pushChat({ k: 'info', text: d.text }); if (J.min || !document.querySelector('.jg-back')) H.toast('🎮 ' + d.text, false, 5000); });
+  // avisos do jogo em toast só para quem está jogando (quem recusou não é incomodado a cada rodada)
+  sock.on('game:info', d => { pushChat({ k: 'info', text: d.text }); if ((J.min || !document.querySelector('.jg-back .jg-box')) && J.g && mine(J.g) && J.g.phase !== 'convite') H.toast('🎮 ' + d.text, false, 5000); });
 }
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-game]'); if (b && H) { e.stopPropagation(); start(b.dataset.game); return; }
