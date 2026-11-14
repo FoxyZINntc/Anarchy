@@ -213,3 +213,35 @@
   .iv-people-col .inv-people { max-height: 220px; }
   .iv-tabs button { flex: none; }
 }
+/* ---------- estilos novos (10 x 5 cores = 50 efeitos) ---------- */
+@keyframes axFall { from { transform: translateY(-30%); opacity: 0; } 25% { opacity: 1; } to { transform: translateY(30%); opacity: 0; } }
+@keyframes axFloat { from { transform: translateY(20%) scale(.8); opacity: 0; } 30% { opacity: 1; } to { transform: translateY(-35%) scale(1.1); opacity: 0; } }
+@keyframes axOrbit { to { transform: rotate(360deg); } }
+@keyframes axZap { 0%, 100% { opacity: 0; } 6%, 10% { opacity: 1; } 8% { opacity: .3; } 50% { opacity: 0; } 54%, 57% { opacity: .9; } }
+/* comuns */
+.avx-gotas::before, .avx-gotas::after { border-radius: 0; background: radial-gradient(ellipse calc(var(--s) * .05) calc(var(--s) * .085) at 14% 35%, var(--a) 70%, transparent 75%), radial-gradient(ellipse calc(var(--s) * .045) calc(var(--s) * .08) at 86% 45%, var(--b) 70%, transparent 75%), radial-gradient(ellipse calc(var(--s) * .04) calc(var(--s) * .07) at 50% 10%, var(--a) 70%, transparent 75%); animation: axFall 1.6s ease-in infinite; filter: drop-shadow(0 0 2px var(--a)); }
+.avx-gotas::after { background-position: -8% 30%, 6% -20%, 12% 40%; animation-delay: .8s; }
+.avx-moldura::before { inset: 10%; border-radius: 22%; border: var(--rw) solid var(--a); animation: axSpin 4s linear infinite; box-shadow: 0 0 calc(var(--s) * .08) var(--a); }
+.avx-moldura::after { inset: 10%; border-radius: 22%; border: var(--rw) solid var(--b); animation: axSpin 4s linear infinite reverse; opacity: .7; }
+.avx-pontilhado::before { inset: 5%; border: calc(var(--rw) * 1.2) dotted var(--a); animation: axSpin 5s linear infinite; filter: drop-shadow(0 0 2px var(--b)); }
+.avx-pontilhado::after { inset: 14%; border: 1px dotted var(--b); animation: axSpin 3s linear infinite reverse; }
+/* raros */
+.avx-notas::before, .avx-notas::after { border-radius: 0; display: grid; font-size: calc(var(--s) * .28); line-height: 1; color: var(--a); text-shadow: 0 0 4px var(--b); animation: axFloat 2.4s ease-out infinite; }
+.avx-notas::before { content: '♪'; justify-items: start; align-items: center; padding-left: 2%; }
+.avx-notas::after { content: '♫'; justify-items: end; align-items: start; color: var(--b); text-shadow: 0 0 4px var(--a); animation-delay: 1.2s; }
+.avx-coracoes::before, .avx-coracoes::after { border-radius: 0; display: grid; font-size: calc(var(--s) * .3); line-height: 1; color: var(--a); text-shadow: 0 0 5px var(--a); animation: axFloat 2s ease-out infinite; }
+.avx-coracoes::before { content: '♥'; justify-items: end; align-items: end; }
+.avx-coracoes::after { content: '♥'; justify-items: start; align-items: center; color: var(--b); text-shadow: 0 0 5px var(--b); animation-delay: 1s; font-size: calc(var(--s) * .24); }
+.avx-orbita::before { inset: 0; border: 1px solid color-mix(in srgb, var(--a) 55%, transparent); transform: rotate(-25deg) scaleY(.45); }
+.avx-orbita::after { inset: 0; background: radial-gradient(circle at 50% 3%, var(--b) 0 calc(var(--s) * .05), transparent calc(var(--s) * .065)), radial-gradient(circle at 50% 97%, var(--a) 0 calc(var(--s) * .04), transparent calc(var(--s) * .055)); animation: axOrbit 2.6s linear infinite; filter: drop-shadow(0 0 3px var(--b)); }
+/* épicos */
+.avx-tornado::before { inset: 0; background: conic-gradient(from 0deg, transparent, var(--a), transparent 30%, var(--b), transparent 60%, var(--a), transparent 90%); -webkit-mask: radial-gradient(farthest-side, transparent 55%, #000 62%, transparent 100%); mask: radial-gradient(farthest-side, transparent 55%, #000 62%, transparent 100%); animation: axSpin .8s linear infinite; filter: blur(1.5px); }
+.avx-tornado::after { inset: 6%; background: conic-gradient(from 90deg, transparent, var(--b), transparent 40%); -webkit-mask: var(--ring); mask: var(--ring); animation: axSpin .5s linear infinite reverse; }
+.avx-hexa::before { inset: 2%; border-radius: 0; clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); background: conic-gradient(var(--a), var(--b), var(--a)); -webkit-mask: radial-gradient(farthest-side, transparent 78%, #000 80%); mask: radial-gradient(farthest-side, transparent 78%, #000 80%); animation: axSpin 6s linear infinite; }
+.avx-hexa::after { inset: 2%; border-radius: 0; clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); background: linear-gradient(120deg, transparent 40%, #ffffffaa 50%, transparent 60%); background-size: 300% 100%; animation: npShine 2s linear infinite; }
+/* lendários */
+.avx-eclipse::before { inset: 4%; background: repeating-conic-gradient(var(--a) 0 4deg, transparent 4deg 12deg); -webkit-mask: radial-gradient(farthest-side, transparent 70%, #000 74%, transparent 100%); mask: radial-gradient(farthest-side, transparent 70%, #000 74%, transparent 100%); animation: axSpin 10s linear infinite, axPulse 2s ease-in-out infinite; filter: drop-shadow(0 0 5px var(--a)); }
+.avx-eclipse::after { inset: 12%; box-shadow: 0 0 0 max(2px, calc(var(--s) * .035)) #000, 0 0 calc(var(--s) * .18) calc(var(--s) * .02) var(--b), 0 0 calc(var(--s) * .3) var(--a); animation: axBreath 3s ease-in-out infinite; }
+.avx-tempestade::before { inset: 2%; background: radial-gradient(closest-side, transparent 66%, color-mix(in srgb, var(--a) 70%, transparent) 75%, transparent 100%); filter: blur(2px); animation: axPulse 1.4s ease-in-out infinite; }
+.avx-tempestade::after { border-radius: 0; display: grid; place-items: start end; font-size: calc(var(--s) * .26); line-height: 1; content: '⚡'; color: var(--b); text-shadow: 0 0 6px var(--a), 0 0 12px var(--a); animation: axZap 1.6s steps(1) infinite, axSpin 6.4s steps(4) infinite; }
+@media (prefers-reduced-motion: reduce) { .av-fx::before, .av-fx::after { animation: none !important; } }

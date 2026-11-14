@@ -167,7 +167,11 @@ const FRAMES = ['neon', 'arco', 'ouro', 'fogo', 'gelo', 'folhas', 'pixel', 'orbi
 const EFFECTS = ['estrelas', 'neve', 'brilho', 'bolhas', 'aurora'];
 // Placas de nome animadas (inventário). Ninguém escolhe: só os donos do Anarchy dão para as pessoas.
 // O visual e o nome de cada uma ficam no app (PLATES em app.js); aqui só a lista do que existe.
-const PLATES = ['sakura', 'lua', 'galaxia', 'shoujo', 'chamas', 'raio', 'neon', 'oceano', 'mecha', 'escarlate', 'kitsune', 'ceifador', 'oni', 'aura', 'dragao', 'anarquia'];
+const PLATES = ['sakura', 'lua', 'galaxia', 'shoujo', 'chamas', 'raio', 'neon', 'oceano', 'mecha', 'escarlate', 'kitsune', 'ceifador', 'oni', 'aura', 'dragao', 'anarquia',
+  'pizza', 'gato', 'cafe', 'arcoiris', 'outono', 'arcade', 'gelo', 'colmeia', 'foguete', 'batida', 'vampiro', 'fantasma', 'samurai', 'alien', 'fenix', 'rei'];
+// placas que também saem na Caixa Anarchy (as 16 primeiras continuam só de presente do dono)
+const BOX_PLATES = { pizza: 'comum', gato: 'comum', cafe: 'comum', arcoiris: 'comum', outono: 'comum', arcade: 'raro', gelo: 'raro', colmeia: 'raro', foguete: 'raro', batida: 'raro',
+  vampiro: 'epico', fantasma: 'epico', samurai: 'epico', alien: 'epico', fenix: 'lendario', rei: 'lendario' };
 // quem pode dar itens: ANARCHY_ADMINS no .env (ids ou nomes de usuário, separados por vírgula). Padrão: a conta do Foxy.
 const ADMINS = (process.env.ANARCHY_ADMINS || 'JoREzT59l3Vw').split(',').map(s => s.trim()).filter(Boolean);
 const isAdmin = u => !!u && !u.bot && (ADMINS.includes(u.id) || ADMINS.includes(u.username));
@@ -178,7 +182,8 @@ const isAdmin = u => !!u && !u.bot && (ADMINS.includes(u.id) || ADMINS.includes(
 const PT_EVERY = Math.max(1, +process.env.PONTOS_MINUTOS || 30) * 60e3, PT_GAIN = 100, BOX_COST = 300;
 const AVFX_STYLES = { anel: 'comum', brilho: 'comum', pontos: 'comum', duplo: 'comum', pulso: 'comum', arco: 'comum', respiro: 'comum',
   cometa: 'raro', faiscas: 'raro', bolhas: 'raro', eletrico: 'raro', radar: 'raro', petalas: 'raro',
-  chamas: 'epico', galaxia: 'epico', glitch: 'epico', runas: 'epico', aura: 'lendario', coroa: 'lendario', portal: 'lendario' };
+  chamas: 'epico', galaxia: 'epico', glitch: 'epico', runas: 'epico', aura: 'lendario', coroa: 'lendario', portal: 'lendario',
+  gotas: 'comum', moldura: 'comum', pontilhado: 'comum', notas: 'raro', coracoes: 'raro', orbita: 'raro', tornado: 'epico', hexa: 'epico', eclipse: 'lendario', tempestade: 'lendario' };
 const AVFX_PALS = ['fogo', 'gelo', 'veneno', 'realeza', 'prisma'];
 const RAR_UP = { comum: 'raro', raro: 'epico', epico: 'lendario', lendario: 'mitico' };
 const AVFX = {}; // 'estilo-cor' -> raridade (a cor Prisma sobe uma raridade)
@@ -193,14 +198,18 @@ const BGFX = {
   inferno: 'lendario', cosmos: 'lendario', glitch: 'lendario', dragao: 'lendario', ouro: 'lendario', abismo: 'lendario',
   arco_iris: 'mitico', supernova: 'mitico', anarquia: 'mitico', dimensao: 'mitico'
 };
-const prizeTier = id => (String(id).startsWith('bg:') ? BGFX[id.slice(3)] : AVFX[id]);
-const prizeItem = id => (String(id).startsWith('bg:') ? id : 'av:' + id); // como fica guardado em u.items
-// sorteia a raridade e depois o prêmio dela: efeito de foto ou fundo animado (fundo em ~40% das vezes)
+// prêmio da caixa: 'estilo-cor' (efeito de foto), 'bg:ID' (fundo animado) ou 'np:ID' (placa de nome)
+const prizeTier = id => { id = String(id); return id.startsWith('bg:') ? BGFX[id.slice(3)] : id.startsWith('np:') ? BOX_PLATES[id.slice(3)] : AVFX[id]; };
+const prizeItem = id => { id = String(id); return id.startsWith('bg:') ? id : id.startsWith('np:') ? id.slice(3) : 'av:' + id; }; // como fica guardado em u.items
+// sorteia a raridade e depois o prêmio dela: placa (~15%), fundo animado (~35%) ou efeito de foto
 function rollAvfx() {
   let n = crypto.randomInt(0, 10000), tier = 'comum';
   for (const [t, w] of DROP) { if (n < w) { tier = t; break; } n -= w; }
+  const kind = crypto.randomInt(0, 100);
+  const nps = Object.keys(BOX_PLATES).filter(k => BOX_PLATES[k] === tier).map(k => 'np:' + k);
+  if (nps.length && kind < 15) return nps[crypto.randomInt(0, nps.length)];
   const bgs = Object.keys(BGFX).filter(k => BGFX[k] === tier).map(k => 'bg:' + k);
-  if (bgs.length && crypto.randomInt(0, 100) < 40) return bgs[crypto.randomInt(0, bgs.length)];
+  if (bgs.length && kind < 50) return bgs[crypto.randomInt(0, bgs.length)];
   const pool = Object.keys(AVFX).filter(k => AVFX[k] === tier);
   return pool[crypto.randomInt(0, pool.length)];
 }
