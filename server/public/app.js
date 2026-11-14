@@ -1223,6 +1223,15 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-13-diversao', date: '13/11/2026', title: 'Muita diversão nova!', emoji: '🎉', items: [
+    'Botão <b>🎉</b> no chat: <b>enquetes</b>, <b>apostas de AnarchyPoints</b>, <b>mensagem-bomba</b> (some depois de lida) e <b>fofoca anônima</b> (se o grupo ligar).',
+    'Botão <b>🎮</b> na call: <b>Desenha e adivinha</b>, <b>Quiz</b> de perguntas ou de música, <b>Cartas Malucas</b>, <b>Truco</b> e <b>roleta</b>. Quem ganha leva AnarchyPoints!',
+    '<b>Conquistas</b>, <b>caixa diária</b> grátis e <b>loja da semana</b> no Inventário.',
+    'DJ: vote nas músicas da fila, ligue o <b>rádio</b> com <code>/radio funk</code> e cante no <b>🎤 karaokê</b> com a letra na tela.',
+    'Eventos do grupo com aviso, apelidos votados pela galera, som de entrada na call, retrospectiva do mês e o Porteiro comentando.',
+    'Mostre <b>o que está fazendo</b> no perfil, e use <b>Entrar junto</b> para cair na call de um amigo.',
+    'RPG: <b>dados 3D</b>, <b>trilha sonora</b> por cena e <b>diário</b> da campanha escrito sozinho.'
+  ] },
   { id: '2026-11-12-rpg-visual-hud', date: '12/11/2026', title: 'RPG de Mesa: visual do seu jeito', emoji: '🎬', items: [
     'Novo botão <b>🎬</b> no topo da mesa: escolha o filtro da tela entre <b>Limpo</b>, <b>Suave</b> ou <b>Cinema</b>, ou ajuste cada efeito. Vale só para você.',
     'O filtro padrão ficou mais leve.',
