@@ -29,7 +29,9 @@ const ACH = [
   ['rico', '💰', 'Rico', 'Juntou 5.000 AnarchyPoints no total', 'pointsTotal', 5000, 500],
   ['apostador', '🎲', 'Apostador', 'Ganhou uma aposta', 'betWins', 1, 100],
   ['apelidado', '🏷️', 'Apelidado', 'O grupo votou um apelido para você', 'nicked', 1, 50],
-  ['comprador', '🛒', 'Cliente fiel', 'Comprou algo na loja da semana', 'buys', 1, 100]
+  ['comprador', '🛒', 'Cliente fiel', 'Comprou algo na loja da semana', 'buys', 1, 100],
+  ['artista', '🎨', 'Picasso da call', 'Ganhou uma partida de Desenha e adivinha', 'drawWins', 1, 150],
+  ['sabichao', '🧠', 'Sabichão', 'Ganhou um Quiz na call', 'quizWins', 1, 150]
 ];
 // conquistas que o Porteiro anuncia no grupo (as grandes)
 const BIG = new Set(['tagarela', 'call100', 'lenda', 'rico', 'sortudo', 'caixa50']);
@@ -438,7 +440,7 @@ function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAc
     });
   }
 
-  return { bind, pubMsg, track, check, onVoiceJoin, onMessage, porteiro, ACH: ACH.map(([id, emoji, name, desc, , goal, reward]) => ({ id, emoji, name, desc, goal, reward })), day };
+  return { bind, pubMsg, track, check, onVoiceJoin, onMessage, porteiro, ACH: ACH.map(([id, emoji, name, desc, k, goal, reward]) => ({ id, emoji, name, desc, k, goal, reward })), day };
 }
 
 module.exports = { createDiversao };

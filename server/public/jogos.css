@@ -1,0 +1,97 @@
+/* Anarchy — Jogos da call (Desenha e adivinha e Quiz). Usa as variáveis do tema (style.css). */
+.jg-back { position: fixed; inset: 0; z-index: 900; display: grid; place-items: center; background: rgba(0, 0, 0, .45); padding: 16px; animation: jgIn .18s ease; }
+.jg-back.min { inset: auto 18px 92px auto; background: none; padding: 0; display: block; }
+@keyframes jgIn { from { opacity: 0; } }
+.jg-pill { border: 1px solid var(--accent); background: var(--elev); color: var(--text); border-radius: 99px; padding: 9px 16px; font: inherit; font-weight: 700; cursor: pointer; box-shadow: var(--shadow); display: flex; gap: 8px; align-items: center; }
+.jg-box { width: min(1040px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; background: var(--elev); color: var(--text); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
+.jg-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px 10px; }
+.jg-head > b { font-size: 16px; }
+.jg-rd { color: var(--muted); font-size: 13px; }
+.jg-t { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 14px; }
+.jg-t.low { color: var(--danger); animation: jgPulse 1s infinite; }
+@keyframes jgPulse { 50% { opacity: .45; } }
+.jg-hsp { flex: 1; }
+.jg-ib { border: 0; background: var(--panel); color: var(--text); width: 32px; height: 32px; border-radius: 9px; cursor: pointer; font-size: 14px; }
+.jg-ib:hover { background: color-mix(in srgb, var(--accent) 25%, var(--panel)); }
+.jg-bar { height: 4px; background: var(--panel); }
+.jg-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2, var(--accent))); transition: width 1s linear; }
+.jg-body { display: grid; grid-template-columns: 1fr 270px; min-height: 0; flex: 1; }
+.jg-main { padding: 14px 16px 16px; min-width: 0; overflow: auto; display: grid; align-content: start; gap: 10px; }
+.jg-side { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+.jg-scores { padding: 10px; display: grid; gap: 4px; max-height: 40%; overflow: auto; border-bottom: 1px solid var(--line); }
+.jg-sc { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 9px; font-size: 13px; }
+.jg-sc b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jg-sc em { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+.jg-sc.hit { background: color-mix(in srgb, var(--ok) 20%, transparent); }
+.jg-sc.drw { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.jg-chat { flex: 1; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; min-height: 120px; font-size: 13px; }
+.jg-scores:last-child { max-height: none; flex: 1; border-bottom: 0; }
+.jg-ln { display: block; line-height: 1.35; word-break: break-word; }
+.jg-ln b { margin-right: 4px; }
+.jg-ln.hit { color: var(--ok); font-weight: 600; }
+.jg-ln.info { color: var(--muted); font-style: italic; }
+.jg-ln.close { color: var(--warn); }
+.jg-guess { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--line); }
+.jg-guess .input { flex: 1; min-width: 0; }
+.jg-ok { margin: 0; padding: 12px; text-align: center; color: var(--ok); font-size: 13px; border-top: 1px solid var(--line); }
+
+/* desenho */
+.jg-word { display: grid; justify-items: center; gap: 4px; }
+.jg-word small { color: var(--muted); font-size: 12px; }
+.jg-letters { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; font-size: 22px; font-weight: 800; letter-spacing: 0; }
+.jg-letters span { min-width: 20px; text-align: center; border-bottom: 3px solid var(--text); line-height: 1.15; text-transform: uppercase; }
+.jg-letters .sp { width: 14px; }
+.jg-word.mine .jg-letters span { border-color: var(--accent); color: var(--accent); }
+.jg-cv { width: 100%; aspect-ratio: 800 / 560; max-height: calc(100vh - 290px); display: grid; place-items: center; }
+.jg-cv canvas { max-width: 100%; max-height: 100%; aspect-ratio: 800 / 560; border-radius: 12px; background: #fff; box-shadow: inset 0 0 0 1px var(--line); touch-action: none; }
+.jg-cv canvas.can { cursor: crosshair; }
+.jg-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-content: center; }
+.jg-col { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); background: var(--c); cursor: pointer; padding: 0; }
+.jg-col.on { outline: 3px solid var(--accent); outline-offset: 2px; }
+.jg-size, .jg-tool { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; display: grid; place-items: center; font-size: 16px; padding: 0; }
+.jg-size i { display: block; border-radius: 50%; background: var(--text); }
+.jg-size.on, .jg-tool.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--panel)); }
+.jg-sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+
+/* quiz */
+.jg-q { display: grid; gap: 14px; padding: 8px 4px; }
+.jg-q > p { margin: 0; font-size: 20px; font-weight: 700; text-align: center; line-height: 1.35; }
+.jg-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.jg-opt { display: flex; gap: 10px; align-items: center; text-align: left; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-size: 15px; cursor: pointer; transition: transform .1s, background .15s; }
+.jg-opt span { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 25%, transparent); font-weight: 800; flex: none; }
+.jg-opt:not(:disabled):hover { transform: translateY(-1px); border-color: var(--accent); }
+.jg-opt:disabled { cursor: default; }
+.jg-opt.mine { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--panel)); }
+.jg-opt.right { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 25%, var(--panel)); }
+.jg-opt.wrong { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 22%, var(--panel)); }
+.jg-opt.dim { opacity: .5; }
+.jg-ans { margin: 0; text-align: center; font-weight: 700; font-size: 16px; }
+.jg-load { display: grid; justify-items: center; gap: 12px; padding: 60px 0; color: var(--muted); }
+.jg-spin { width: 34px; height: 34px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: jgSpin .8s linear infinite; }
+@keyframes jgSpin { to { transform: rotate(360deg); } }
+.jg-music { display: grid; justify-items: center; gap: 10px; padding: 34px 10px; text-align: center; }
+.jg-music b { font-size: 20px; }
+.jg-disc { width: 120px; height: 120px; border-radius: 50%; display: grid; place-items: center; font-size: 46px; background: radial-gradient(circle, var(--panel) 18%, #111 19%, #222 60%, #111 61%, #2a2a2a 100%); box-shadow: var(--shadow); }
+.jg-music.on .jg-disc { animation: jgSpin 3s linear infinite; }
+.jg-vol { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+
+/* fim */
+.jg-end { display: grid; justify-items: center; gap: 12px; padding: 20px 0; text-align: center; }
+.jg-big { font-size: 54px; }
+.jg-pod { display: flex; align-items: flex-end; gap: 14px; }
+.jg-p { display: grid; justify-items: center; gap: 4px; width: 120px; }
+.jg-p b { font-size: 14px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jg-p em { font-style: normal; color: var(--muted); font-size: 12px; }
+.jg-prize { font-size: 12px; font-weight: 700; color: var(--warn); }
+.jg-step { width: 100%; display: grid; place-items: center; font-size: 26px; border-radius: 10px 10px 0 0; background: color-mix(in srgb, var(--accent) 22%, var(--panel)); }
+.jg-p.p0 .jg-step { height: 90px; } .jg-p.p1 .jg-step { height: 64px; } .jg-p.p2 .jg-step { height: 46px; }
+
+@media (max-width: 760px) {
+  .jg-back { padding: 0; }
+  .jg-box { max-height: 100vh; height: 100%; border-radius: 0; }
+  .jg-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(180px, 1fr); }
+  .jg-side { border-left: 0; border-top: 1px solid var(--line); }
+  .jg-opts { grid-template-columns: 1fr; }
+  .jg-back.min { inset: auto 10px 80px auto; }
+}
+@media (prefers-reduced-motion: reduce) { .jg-music.on .jg-disc, .jg-t.low { animation: none; } }

@@ -3491,7 +3491,7 @@ function renderStageSlot() {
     <button class="ctrl ${V.cam ? 'on' : ''}" data-act="toggleCam" data-tip="${V.cam ? 'Desligar câmera' : 'Ligar câmera'}">${ic(V.cam ? 'cam' : 'camOff')}</button>
     <button class="ctrl ${V.screen ? 'on' : ''}" data-act="toggleScreen" data-tip="${V.screen ? 'Parar de compartilhar' : 'Compartilhar tela'}">${ic('screen')}</button>
     <button class="ctrl" data-act="soundboard" data-tip="Central de Áudio">${ic('board')}</button>
-    <button class="ctrl fun-ctrl" data-fun="roulette" data-tip="Roleta da call">🎡</button>
+    <button class="ctrl fun-ctrl" data-act="games" data-tip="Jogos da call e roleta">🎮</button>
     <button class="ctrl" data-act="mixer" data-tip="Mixer: volume de cada pessoa">${ic('sliders')}</button>
     <button class="ctrl" data-act="voiceSettings" data-tip="Configurar voz e vídeo">${ic('gear')}</button>
     <span class="ctrl-sep"></span>

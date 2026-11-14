@@ -218,7 +218,7 @@ function achPane() {
   const KEY = Object.fromEntries((F.defs || []).map(d => [d.id, d]));
   if (!F.defs.length) return '<p class="muted small">Carregando conquistas...</p>';
   const done = F.defs.filter(d => at[d.id]).length;
-  const statKey = { primeira: 'msgs', falante: 'msgs', tagarela: 'msgs', call1: 'callMin', call10: 'callMin', call100: 'callMin', caixa1: 'boxes', caixa50: 'boxes', sortudo: 'luck', enquete: 'polls', eleitor: 'votes', bomba: 'bombs', fiel: 'streakMax', lenda: 'streakMax', destino: 'spins', organizador: 'events', reator: 'reacts', rico: 'pointsTotal' };
+  const statKey = Object.fromEntries(F.defs.map(d => [d.id, d.k])); // contador de cada conquista (vem do servidor)
   void KEY;
   return `<p class="muted small iv-note">${done} de ${F.defs.length} conquistas. Cada uma dá AnarchyPoints na hora e aparece no seu perfil.</p>
     <div class="fun-achs">${F.defs.slice().sort((a, b) => (!!at[b.id] - !!at[a.id]) || (val(statKey[b.id]) / b.goal - val(statKey[a.id]) / a.goal)).map(d => { const has = at[d.id], v = Math.min(d.goal, val(statKey[d.id])), pc = Math.round(v / d.goal * 100);
@@ -403,7 +403,8 @@ function attach(sock) {
 }
 
 window.anarchyFun = {
-  init(h) { H = h; }, attach,
+  init(h) { H = h; if (window.anarchyGames) window.anarchyGames.init(h); },
+  attach(sock) { attach(sock); if (window.anarchyGames) window.anarchyGames.attach(sock); },
   msgExtra: m => (m.poll ? pollHtml(m) : '') + (m.bomb ? bombHtml(m) : '') + (m.bet ? betHtml(m) : '') + (m.nick ? nickHtml(m) : ''),
   sysEvent: m => m.system === 'porteiro'
     ? `<div class="msg sys fun-port" id="m-${m.id}"><span class="fun-port-av" aria-hidden="true">🤖</span><span class="sys-t"><b>Porteiro</b> ${H.md(m.content)} <time>${new Date(m.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</time></span></div>`

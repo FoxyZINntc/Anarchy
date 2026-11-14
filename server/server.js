@@ -326,6 +326,7 @@ function leaveVoice(socket) {
   if (r) { r.delete(socket.id); if (!r.size) voice.delete(roomId); }
   socket.data.voice = null;
   pushVoice(roomId);
+  if (typeof jogos !== 'undefined') jogos.onLeave(roomId, socket.data.uid); // quem desenhava saiu: a rodada acaba
   // todo mundo saiu: o DJ para
   if (!voice.get(roomId) && music.has(roomId)) stopMusic(roomId, 'vazia');
   // avisa se a call de DM terminou
@@ -871,6 +872,12 @@ const rpg = require('./rpg').createRpg({
 const fun = require('./diversao').createDiversao({
   db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, sockets, rollAvfx, AVFX, REFUND, PLATES
 });
+/* ---------- jogos da call: Desenha e adivinha e Quiz (ver jogos.js) ---------- */
+const jogos = require('./jogos').createJogos({
+  db, save, now, str, toUser, voice, sockets, limited, selfUser, log, track: (uid, k) => fun.track(uid, k),
+  // trecho de música para o Quiz: o DJ busca o áudio, o app toca por /api/music/:id (o nome fica só aqui)
+  clip: async (q, roomId) => { const r = await dj.resolve(q); hlsWarm(r.src); const t = { id: newId(), ...r, who: null, q, roomId }; tracks.set(t.id, t); setTimeout(() => tracks.delete(t.id), 15 * 60e3).unref(); return { url: '/api/music/' + t.id, dur: r.dur || 0 }; }
+});
 
 /* ---------- Socket.IO ---------- */
 function onConnection(socket) {
@@ -888,6 +895,7 @@ function onConnection(socket) {
   const on = (ev, fn) => socket.on(ev, (data, cb) => { try { fn(data || {}, cb); } catch (e) { console.error(ev, e); fail(cb, 'Erro interno.'); } });
   rpg.bind(socket, uid, on, ok, fail);
   fun.bind(socket, uid, on, ok, fail);
+  jogos.bind(socket, uid, on, ok, fail);
   on('ach:list', (_, cb) => ok(cb, { list: fun.ACH }));
 
   on('init', (_, cb) => {
