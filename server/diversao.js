@@ -48,7 +48,13 @@ function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAc
   const int = (v, lo, hi, d) => { const n = Math.round(+v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
   const findMsg = (cid, id) => (db.messages[cid] || []).find(m => m.id === id);
   // mensagem que sai para as pessoas: a bomba vai sem o texto (só quem abrir recebe, pelo bomb:open)
-  const pubMsg = m => (m && m.bomb ? { ...m, bomb: { secs: m.bomb.secs, opened: Object.keys(m.bomb.opened || {}) } } : m);
+  // a fofoca vai sem quem mandou (só a moderação descobre, pelo gossip:who)
+  const pubMsg = m => {
+    if (!m) return m;
+    if (m.bomb) m = { ...m, bomb: { secs: m.bomb.secs, opened: Object.keys(m.bomb.opened || {}) } };
+    if (m.gossip) m = { ...m, gossip: { n: m.gossip.n } };
+    return m;
+  };
 
   /* ---------- conquistas ---------- */
   function statOf(u, k) { if (k === 'pointsTotal') return u.pointsTotal || 0; if (k === 'boxes') return u.boxes || 0; return (u.stats && u.stats[k]) || 0; }
@@ -396,6 +402,32 @@ function createDiversao({ db, save, newId, now, str, log, toUser, toUsers, canAc
       save(); toUser(uid, 'me:update', selfUser(u)); ok(cb);
     });
     // ligar/desligar os comentários do Porteiro no grupo
+    /* ----- modo fofoca: mensagem anônima no grupo (só se quem gerencia ligar). A moderação pode ver quem mandou. ----- */
+    on('fofoca:set', (d, cb) => {
+      const g = db.groups[str(d.gid, 40)]; if (!g || !can(g, uid, 'manageServer')) return fail(cb, 'Só quem gerencia o grupo.');
+      g.fofoca = !!d.on; save(); pushGroup(g); ok(cb);
+      porteiro(g, g.fofoca ? 'O **modo fofoca** foi ligado. 🤫 Agora dá para mandar mensagem anônima pelo 🎉 do chat. (A moderação ainda consegue ver quem mandou, então nada de maldade!)' : 'O modo fofoca foi desligado. 🤐', 'fofoca:' + g.fofoca, 60e3);
+    });
+    on('gossip:send', (d, cb) => {
+      const cid = str(d.cid, 40), info = canAccess(uid, cid);
+      if (!info || info.kind !== 'group' || info.channel.type !== 'text') return fail(cb, 'A fofoca só vale em canal de texto de grupo.');
+      const g = info.group; if (!g.fofoca) return fail(cb, 'O modo fofoca está desligado neste grupo.');
+      const c = txt(d.text, 500); if (!c) return fail(cb, 'Escreva a fofoca.');
+      if (limited('fofoca:' + uid, 3, 10 * 60e3)) return fail(cb, 'Muita fofoca! Espere uns minutos. 🤫');
+      g.fofocaN = (g.fofocaN || 0) + 1;
+      const msg = { id: newId(), cid, authorId: null, content: c, image: null, ts: now(), edited: null, reactions: {}, replyTo: null, system: 'fofoca', gossip: { by: uid, n: g.fofocaN } };
+      const list = db.messages[cid] || (db.messages[cid] = []); list.push(msg); if (list.length > 3000) list.splice(0, list.length - 3000);
+      toUsers(info.members, 'message:new', pubMsg(msg));
+      save(); ok(cb, { id: msg.id }); // sem conquista: ela apareceria no perfil e entregaria quem fofoca
+    });
+    on('gossip:who', (d, cb) => {
+      const info = canAccess(uid, str(d.cid, 40)); const m = info && findMsg(d.cid, str(d.id, 40));
+      if (!m || !m.gossip) return fail(cb, 'Fofoca não encontrada.');
+      if (info.kind !== 'group' || !can(info.group, uid, 'manageMessages')) return fail(cb, 'Só a moderação (Gerenciar mensagens) pode ver.');
+      log(`   Fofoca: @${(me() || {}).username} viu quem mandou a fofoca #${m.gossip.n} em ${info.group.name}.`);
+      ok(cb, { uid: m.gossip.by, name: (db.users[m.gossip.by] || {}).displayName || 'alguém' });
+    });
+
     on('porteiro:set', (d, cb) => {
       const g = db.groups[str(d.gid, 40)]; if (!g || !can(g, uid, 'manageServer')) return fail(cb, 'Só quem gerencia o grupo.');
       g.porteiro = d.on !== false; save(); pushGroup(g); ok(cb);

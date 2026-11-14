@@ -187,8 +187,76 @@ function djVotes(roomId, t) {
 /* =============== menu "+" do compositor =============== */
 function composeMenu(anchor) {
   const cid = H.viewingCid(); if (!cid) return;
-  const p = H.pop(`<button data-fun="newPoll" data-cid="${cid}"><span>📊 Enquete</span></button><button data-fun="newBet" data-cid="${cid}"><span>🎲 Aposta de pontos</span></button><button data-fun="newBomb" data-cid="${cid}"><span>💣 Mensagem-bomba</span></button>`, anchor, 'menu', 'above');
-  void p;
+  const g = H.S.view.kind === 'group' && H.S.groups[H.S.view.gid];
+  H.pop(`<button data-fun="newPoll" data-cid="${cid}"><span>📊 Enquete</span></button><button data-fun="newBet" data-cid="${cid}"><span>🎲 Aposta de pontos</span></button><button data-fun="newBomb" data-cid="${cid}"><span>💣 Mensagem-bomba</span></button>${g && g.fofoca ? `<button data-fun="newGossip" data-cid="${cid}"><span>🤫 Fofoca anônima</span></button>` : ''}`, anchor, 'menu', 'above');
+}
+
+/* =============== modo fofoca (mensagem anônima) =============== */
+function gossipModal(cid) {
+  H.modal(`<div class="modal-h"><h2>🤫 Fofoca anônima</h2><p>A mensagem aparece no canal sem o seu nome. A moderação do grupo ainda consegue ver quem mandou, então nada de ofender ninguém.</p></div>
+    <div class="modal-b fun-form"><textarea class="input" id="fgT" rows="4" maxlength="500" placeholder="Dizem por aí que..."></textarea></div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="fgGo">🤫 Espalhar</button></div>`, (md, close) => {
+    const t = md.querySelector('#fgT'); setTimeout(() => t.focus(), 50);
+    md.querySelector('#fgGo').onclick = async () => { const r = await call('gossip:send', { cid, text: t.value }, '🤫 Fofoca espalhada!'); if (r.ok) close(); };
+  });
+}
+function gossipHtml(m) {
+  const g = H.S.view.kind === 'group' && H.S.groups[H.S.view.gid], mod = g && H.gCan(g, 'manageMessages');
+  return `<div class="msg sys fun-gossip" id="m-${m.id}"><span class="fun-gs-ic" aria-hidden="true">🤫</span><div class="fun-gs-b"><div class="fun-gs-h"><b>Fofoca anônima${m.gossip && m.gossip.n ? ` #${m.gossip.n}` : ''}</b><time>${new Date(m.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</time>${mod ? `<button class="fun-gs-x" data-fun="gossipWho" data-cid="${m.cid}" data-id="${m.id}" title="Ver quem mandou (só a moderação)">👁️</button><button class="fun-gs-x" data-fun="gossipDel" data-cid="${m.cid}" data-id="${m.id}" title="Apagar">🗑️</button>` : ''}</div><div class="fun-gs-t">${H.md(m.content)}</div></div></div>`;
+}
+
+/* =============== karaokê: letra sincronizada da música do DJ =============== */
+const K = { room: null, id: null, lines: null, raf: 0 };
+async function karaoke(roomId) {
+  document.querySelector('.fun-kar')?.remove(); cancelAnimationFrame(K.raf);
+  const el = document.createElement('div'); el.className = 'fun-kar'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Karaokê');
+  el.innerHTML = '<div class="fun-kar-h"><b>🎤 Karaokê</b><span class="fun-kar-s muted small">Procurando a letra...</span><button class="jg-ib" data-kar="x" aria-label="Fechar">✕</button></div><div class="fun-kar-body"></div>';
+  document.body.appendChild(el);
+  el.querySelector('[data-kar="x"]').onclick = () => { el.remove(); cancelAnimationFrame(K.raf); K.room = null; };
+  K.room = roomId; await loadLyrics(el);
+}
+async function loadLyrics(el) {
+  const st = H.S.music[K.room]; const body = el.querySelector('.fun-kar-body'), sub = el.querySelector('.fun-kar-s');
+  if (!st || !st.cur) { sub.textContent = 'Nada tocando agora.'; body.innerHTML = ''; return; }
+  K.id = st.cur.id; K.lines = null; sub.textContent = 'Procurando a letra...'; body.innerHTML = '<div class="jg-load"><span class="jg-spin"></span></div>';
+  const r = await H.emit('music:lyrics', { roomId: K.room });
+  if (!el.isConnected || K.id !== (H.S.music[K.room] && H.S.music[K.room].cur && H.S.music[K.room].cur.id)) return;
+  if (!r.ok) { sub.textContent = r.erro; body.innerHTML = ''; return; }
+  const L = r.lyrics;
+  if (!L) { sub.textContent = st.cur.title; body.innerHTML = '<div class="fun-empty">🙊<b>Não achei a letra desta música</b><span>Vale cantar inventando mesmo.</span></div>'; return; }
+  sub.textContent = `${L.title}${L.by ? ' · ' + L.by : ''}`;
+  if (!L.synced) { body.innerHTML = `<div class="fun-kar-plain">${esc(L.plain).replace(/\n/g, '<br>')}</div><p class="muted small">Letra sem tempo marcado: role junto com a música.</p>`; return; }
+  K.lines = L.synced;
+  body.innerHTML = `<div class="fun-kar-lines">${L.synced.map(([, t], i) => `<p data-i="${i}">${esc(t) || '♪'}</p>`).join('')}</div>`;
+  let curI = -2;
+  const step = () => {
+    if (!el.isConnected) return;
+    const s2 = H.S.music[K.room];
+    if (!s2 || !s2.cur) { sub.textContent = 'A música acabou.'; return; }
+    if (s2.cur.id !== K.id) { loadLyrics(el); return; }
+    const pos = H.djPos(K.room) + 0.25;
+    let i = -1; for (let k = 0; k < K.lines.length && K.lines[k][0] <= pos; k++) i = k;
+    if (i !== curI) {
+      curI = i;
+      body.querySelectorAll('p.on, p.past').forEach(p => p.classList.remove('on', 'past'));
+      body.querySelectorAll('p').forEach((p, k) => { if (k < i) p.classList.add('past'); });
+      const p = body.querySelector(`p[data-i="${i}"]`);
+      if (p) { p.classList.add('on'); const box = body.querySelector('.fun-kar-lines'); box.scrollTo({ top: p.offsetTop - box.clientHeight / 2 + p.clientHeight / 2, behavior: H.reduceMotion() ? 'auto' : 'smooth' }); }
+    }
+    K.raf = requestAnimationFrame(step);
+  };
+  step();
+}
+
+/* =============== entrar junto: a pessoa está numa call que você pode entrar =============== */
+function joinWith(uid) {
+  if (!H || uid === me()) return '';
+  for (const g of Object.values(H.S.groups)) for (const c of g.channels) {
+    if (c.type !== 'voice' || !(H.S.voice[c.id] || []).some(p => p.uid === uid)) continue;
+    if (H.room() === c.id) return `<div class="fun-jw on">🎧 Na mesma call que você</div>`;
+    return `<button class="fun-jw" data-fun="joinWith" data-gid="${g.id}" data-room="${c.id}">🎧 Em <b>${esc(c.name)}</b> · ${esc(g.name)} <span>Entrar junto</span></button>`;
+  }
+  return '';
 }
 
 /* =============== conquistas =============== */
@@ -362,7 +430,7 @@ async function retroModal(gid) {
   });
 }
 function groupFunMenu(anchor, gid) {
-  H.pop(`<button data-fun="events" data-gid="${gid}"><span>📅 Eventos do grupo</span></button><button data-fun="retro" data-gid="${gid}"><span>✨ Retrospectiva do mês</span></button>${H.inCall() ? '<button data-fun="roulette"><span>🎡 Roleta da call</span></button>' : ''}<button data-fun="activity"><span>🎮 Minha atividade</span></button><button data-fun="joinSound" data-gid="${gid}"><span>🔊 Meu som de entrada</span></button>${H.gCan(H.S.groups[gid], 'manageServer') ? `<hr><button data-fun="porteiro" data-gid="${gid}"><span>🤖 Porteiro: ${H.S.groups[gid].porteiro === false ? 'desligado (ligar)' : 'comentando (desligar)'}</span></button>` : ''}`, anchor, 'menu', 'below');
+  H.pop(`<button data-fun="events" data-gid="${gid}"><span>📅 Eventos do grupo</span></button><button data-fun="retro" data-gid="${gid}"><span>✨ Retrospectiva do mês</span></button>${H.inCall() ? '<button data-fun="roulette"><span>🎡 Roleta da call</span></button>' : ''}<button data-fun="activity"><span>🎮 Minha atividade</span></button><button data-fun="joinSound" data-gid="${gid}"><span>🔊 Meu som de entrada</span></button>${H.gCan(H.S.groups[gid], 'manageServer') ? `<hr><button data-fun="porteiro" data-gid="${gid}"><span>🤖 Porteiro: ${H.S.groups[gid].porteiro === false ? 'desligado (ligar)' : 'comentando (desligar)'}</span></button><button data-fun="fofoca" data-gid="${gid}"><span>🤫 Modo fofoca: ${H.S.groups[gid].fofoca ? 'ligado (desligar)' : 'desligado (ligar)'}</span></button>` : ''}`, anchor, 'menu', 'below');
 }
 
 /* =============== cliques e tempo real =============== */
@@ -392,6 +460,12 @@ document.addEventListener('click', e => {
   if (a === 'joinSound') joinSoundModal(b.dataset.gid);
   if (a === 'porteiro') { const g = H.S.groups[b.dataset.gid]; call('porteiro:set', { gid: b.dataset.gid, on: g.porteiro === false }, g.porteiro === false ? '🤖 O Porteiro voltou a comentar no grupo.' : '🤖 O Porteiro ficou quieto.'); }
   if (a === 'djVote') call('music:vote', { roomId: b.dataset.room, id: b.dataset.id, v: +b.dataset.v });
+  if (a === 'newGossip') gossipModal(b.dataset.cid);
+  if (a === 'gossipWho') call('gossip:who', { cid: b.dataset.cid, id: b.dataset.id }).then(r => { if (r.ok) H.toast(`👁️ Quem mandou: ${r.name}`, false, 8000); });
+  if (a === 'gossipDel') H.confirmBox('Apagar fofoca', 'A fofoca some do canal para todo mundo.', 'Apagar').then(y => y && call('message:delete', { cid: b.dataset.cid, id: b.dataset.id }));
+  if (a === 'fofoca') { const g = H.S.groups[b.dataset.gid]; call('fofoca:set', { gid: b.dataset.gid, on: !g.fofoca }, g.fofoca ? '🤐 Modo fofoca desligado.' : '🤫 Modo fofoca ligado!'); }
+  if (a === 'karaoke') karaoke(b.dataset.room);
+  if (a === 'joinWith') { H.go({ kind: 'group', gid: b.dataset.gid, cid: b.dataset.room }); H.joinVoice(b.dataset.room); }
 }, true);
 function attach(sock) {
   sock.on('connect', loadDefs);
@@ -406,9 +480,9 @@ window.anarchyFun = {
   init(h) { H = h; if (window.anarchyGames) window.anarchyGames.init(h); },
   attach(sock) { attach(sock); if (window.anarchyGames) window.anarchyGames.attach(sock); },
   msgExtra: m => (m.poll ? pollHtml(m) : '') + (m.bomb ? bombHtml(m) : '') + (m.bet ? betHtml(m) : '') + (m.nick ? nickHtml(m) : ''),
-  sysEvent: m => m.system === 'porteiro'
+  sysEvent: m => m.system === 'fofoca' ? gossipHtml(m) : m.system === 'porteiro'
     ? `<div class="msg sys fun-port" id="m-${m.id}"><span class="fun-port-av" aria-hidden="true">🤖</span><span class="sys-t"><b>Porteiro</b> ${H.md(m.content)} <time>${new Date(m.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</time></span></div>`
     : `<div class="msg sys fun-evmsg" id="m-${m.id}"><span class="sys-ic">🎉</span><span class="sys-t"><b>${esc(m.content)}</b> começou agora! <span class="muted">Evento marcado por ${esc(H.nameOf(m.authorId))}</span></span></div>`,
-  achRow, achPane, actLine, eventPill, activityModal, loadDefs, nickTag, djVotes, fillShop
+  achRow, achPane, actLine, eventPill, activityModal, loadDefs, nickTag, djVotes, fillShop, joinWith
 };
 })();

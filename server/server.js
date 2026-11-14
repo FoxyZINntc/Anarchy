@@ -340,6 +340,7 @@ function leaveVoice(socket) {
    app toca o áudio (puxado deste servidor, /api/music/:id) sincronizado, com o próprio volume. */
 const { createMusic } = require('./music');
 const dj = createMusic({ log });
+const radio = require('./radio'); // rádio do grupo (/radio) e letras do karaokê
 const music = new Map();  // roomId -> { roomId, gid, cid, botId, cur, queue, startedAt, pausedAt, vol, loop, timer }
 const tracks = new Map(); // id da faixa -> faixa (o endereço real do áudio só fica aqui no servidor)
 const isBot = id => !!(db.users[id] && db.users[id].bot);
@@ -351,7 +352,7 @@ function musicView(st) {
   if (!st) return null;
   const t = x => x && { id: x.id, title: x.title, by: x.by, page: x.page, dur: x.dur, thumb: x.thumb, who: x.who, votes: x.votes || {} };
   // enquanto o áudio da música atual está sendo buscado, os apps não tocam nada
-  return { roomId: st.roomId, gid: st.gid, botId: st.botId, cur: st.cur && st.cur.src && !st.cur.loading ? t(st.cur) : null, loading: st.cur && (!st.cur.src || st.cur.loading) ? t(st.cur) : null, queue: st.queue.map(t), startedAt: st.startedAt, pausedAt: st.pausedAt, vol: st.vol, loop: st.loop, serverNow: now() };
+  return { roomId: st.roomId, gid: st.gid, botId: st.botId, cur: st.cur && st.cur.src && !st.cur.loading ? t(st.cur) : null, loading: st.cur && (!st.cur.src || st.cur.loading) ? t(st.cur) : null, queue: st.queue.map(t), startedAt: st.startedAt, pausedAt: st.pausedAt, vol: st.vol, loop: st.loop, radio: st.radio && radio.STATIONS[st.radio] ? radio.STATIONS[st.radio][0] : null, serverNow: now() };
 }
 function pushMusic(roomId) {
   const info = channelInfo(roomId); if (!info) return;
@@ -381,6 +382,8 @@ async function nextTrack(roomId, { skipped = false, msg = null } = {}) {
   if (st.loop && prev && !skipped) st.queue.unshift(prev);
   else if (prev) setTimeout(() => { if (![...music.values()].some(s => s.cur === prev || s.queue.includes(prev))) tracks.delete(prev.id); }, 60e3).unref();
   st.cur = st.queue.shift() || null;
+  // rádio ligado: a fila acabou, o DJ escolhe a próxima da estação
+  if (!st.cur && st.radio) { const q = radio.radioPick(st); if (q) { st.cur = { id: newId(), q, title: q, who: st.botId, roomId, radio: true }; tracks.set(st.cur.id, st.cur); } }
   if (!st.cur) return stopMusic(roomId, 'fim', msg);
   const seq = st.seq = (st.seq || 0) + 1, t = st.cur;
   // música de playlist (ainda sem áudio) ou endereço velho (o do YouTube vence em algumas horas): busca agora
@@ -390,16 +393,19 @@ async function nextTrack(roomId, { skipped = false, msg = null } = {}) {
     try { await p; }
     catch (e) {
       if (st.seq !== seq || music.get(roomId) !== st) return;
-      const g = db.groups[st.gid]; if (g) botSay(g, st.cid, `⚠️ Pulei **${mdSafe(t.title)}**: ${mdSafe(e.message)}.`);
+      const g = db.groups[st.gid]; if (g && !t.radio) botSay(g, st.cid, `⚠️ Pulei **${mdSafe(t.title)}**: ${mdSafe(e.message)}.`);
       tracks.delete(t.id);
+      // rádio que não acha nada (ex.: busca bloqueada) não fica tentando para sempre
+      if (t.radio && (st.radioFails = (st.radioFails || 0) + 1) >= 3) { st.radio = null; st.radioFails = 0; if (g) botSay(g, st.cid, `📻 Desliguei o rádio: não consegui achar as músicas da estação agora (${mdSafe(e.message)}).`); }
       return nextTrack(roomId, { skipped: true, msg });
     }
     if (st.seq !== seq || music.get(roomId) !== st) return; // alguém pulou ou parou enquanto buscava
   }
+  if (t.radio) st.radioFails = 0;
   st.startedAt = now() + 1500; st.pausedAt = null; // 1,5 s para todo mundo carregar e começar junto
   scheduleEnd(st); pushMusic(roomId);
   const g = db.groups[st.gid];
-  if (g && !(st.loop && prev === st.cur)) botEdit(g, msg, `🎵 Tocando agora: **${mdSafe(st.cur.title)}**${st.cur.dur ? ` (${fmtDur(st.cur.dur)})` : ''} · pedido por ${mdSafe(uname(st.cur.who))}${st.cur.via ? ` · achei no ${st.cur.via} (o YouTube está bloqueando o servidor agora)` : ''}`, { music: card(st.cur), cid: st.cid });
+  if (g && !(st.loop && prev === st.cur)) botEdit(g, msg, `🎵 Tocando agora: **${mdSafe(st.cur.title)}**${st.cur.dur ? ` (${fmtDur(st.cur.dur)})` : ''} · ${st.cur.radio ? `📻 rádio ${radio.STATIONS[st.radio] ? radio.STATIONS[st.radio][0] : ''}` : `pedido por ${mdSafe(uname(st.cur.who))}`}${st.cur.via ? ` · achei no ${st.cur.via} (o YouTube está bloqueando o servidor agora)` : ''}`, { music: card(st.cur), cid: st.cid });
   // já deixa a próxima pronta, para a troca de música não ter espera
   const nx = st.queue[0]; if (nx && needSrc(nx)) loadSrc(nx).catch(() => {});
 }
@@ -433,7 +439,8 @@ function roomOfUser(g, uid) {
 const CMDS = {
   music: ['music', 'm', 'tocar', 'play', 'p'], album: ['album', 'álbum', 'disco', 'playlist'], pular: ['pular', 'skip', 's', 'proxima'], pausar: ['pausar', 'pause'], continuar: ['continuar', 'resume', 'voltar'],
   parar: ['parar', 'stop', 'sair'], fila: ['fila', 'queue', 'q'], agora: ['agora', 'np', 'tocando'], volume: ['volume', 'vol', 'v'], repetir: ['repetir', 'loop', 'r'],
-  tirar: ['tirar', 'remover', 'remove'], embaralhar: ['embaralhar', 'shuffle', 'misturar'], ajuda: ['ajuda', 'help', 'comandos']
+  tirar: ['tirar', 'remover', 'remove'], embaralhar: ['embaralhar', 'shuffle', 'misturar'], ajuda: ['ajuda', 'help', 'comandos'],
+  radio: ['radio', 'rádio', 'estacao', 'estação'], letra: ['letra', 'karaoke', 'karaokê', 'lyrics']
 };
 const CMD_OF = Object.fromEntries(Object.entries(CMDS).flatMap(([k, l]) => l.map(a => [a, k])));
 const HELP = [
@@ -443,6 +450,8 @@ const HELP = [
   '`/pular` próxima música · `/pausar` · `/continuar` · `/parar` para tudo e limpa a fila',
   '`/fila` mostra a fila · `/agora` o que está tocando · `/tirar 2` tira a 2ª da fila · `/embaralhar`',
   '`/volume 80` volume do DJ para todo mundo (0 a 100) · `/repetir` repete a música atual',
+  '`/radio funk` liga o rádio: quando a fila acaba, o DJ segue tocando a estação (`/radio` lista as estações · `/radio parar` desliga)',
+  '`/letra` ou o 🎤 do cartão "Tocando agora" abre a letra sincronizada para o karaokê',
   'Cada um também ajusta o volume do DJ só para si no cartão "Tocando agora" da call.'
 ].join('\n');
 // ações do DJ (vêm dos comandos no chat ou dos botões do cartão). Devolve o texto da resposta.
@@ -547,6 +556,19 @@ function djCommand(g, cid, uid, text) {
     } else djPlay(g, cid, uid, room, arg.slice(0, 300));
     return true;
   }
+  if (action === 'radio') {
+    const list = Object.entries(radio.STATIONS).map(([k, s]) => `\`/radio ${k}\` ${s[0]}`).join(' · ');
+    const cur = music.get(room);
+    if (!arg) { botSay(g, cid, `📻 **Rádio do grupo**${cur && cur.radio ? ` (tocando agora: ${radio.STATIONS[cur.radio][0]})` : ''}: quando a fila acaba, eu sigo tocando a estação.\n${list}\n\`/radio parar\` desliga o rádio.`); return true; }
+    if (/^(parar|desligar|off|stop|sair)$/i.test(arg)) { if (cur) { cur.radio = null; pushMusic(room); } botSay(g, cid, `📻 ${mdSafe(uname(uid))} desligou o rádio. A música atual termina e a fila segue normal.`); return true; }
+    const k = radio.stationOf(arg); if (!k) { botSay(g, cid, `Não conheço essa estação. Escolha uma: ${list}`); return true; }
+    if (limited('dj:' + uid, 8, 60e3)) { botSay(g, cid, 'Calma! Muitos pedidos seguidos. Espere um pouquinho.'); return true; }
+    const st = djState(g, cid, room); st.radio = k; st.radioUsed = [];
+    botSay(g, cid, `📻 ${mdSafe(uname(uid))} ligou o rádio **${radio.STATIONS[k][0]}**. Quando a fila acabar, eu sigo tocando. Peça músicas com \`/music\` que elas entram na frente.`);
+    if (!st.cur) nextTrack(room); else pushMusic(room);
+    return true;
+  }
+  if (action === 'letra') { botSay(g, cid, '🎤 Clique no 🎤 do cartão **Tocando agora** na call para abrir a letra sincronizada. Bora cantar!'); return true; }
   const st = music.get(room); if (st) st.cid = cid;
   const reply = djAction(g, uid, room, action, arg);
   if (reply) botSay(g, cid, reply);
@@ -1591,6 +1613,15 @@ function onConnection(socket) {
       botSay(g, st.cid, `🚫 A galera vetou **${mdSafe(t.title)}**. Saiu da fila.`);
     } else st.queue = st.queue.map((x, i) => [x, i]).sort((a, b) => score(b[0]) - score(a[0]) || a[1] - b[1]).map(x => x[0]);
     pushMusic(d.roomId); ok(cb);
+  });
+  // karaokê: letra sincronizada da música que está tocando (busca no LRCLIB, guardada na faixa)
+  on('music:lyrics', async (d, cb) => {
+    const st = music.get(str(d.roomId, 40)); if (!st || !canAccess(uid, st.roomId)) return fail(cb, 'Nada tocando nesta sala.');
+    const t = st.cur; if (!t || !t.src) return fail(cb, 'Espere a música começar.');
+    if (limited('lyrics:' + uid, 10, 60e3)) return fail(cb, 'Calma! Espere um pouquinho.');
+    if (t.lyrics === undefined) t.lyrics = await radio.lyricsFor(t).catch(() => null);
+    if (st.cur !== t) return fail(cb, 'A música mudou. Tente de novo.');
+    ok(cb, { id: t.id, lyrics: t.lyrics });
   });
   // link direto sem duração conhecida: o app de quem está na sala avisa quanto o áudio dura
   on('music:dur', d => {

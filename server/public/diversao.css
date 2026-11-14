@@ -167,3 +167,32 @@
 .fun-djv button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--panel)); }
 
 @media (prefers-reduced-motion: reduce) { .fun-bomb.closed, .iv-daily, .fun-achpop, .fun-achpop > i { animation: none !important; } }
+
+/* ---- fofoca anônima ---- */
+.fun-gossip { display: flex; gap: 10px; align-items: flex-start; padding: 8px 16px; }
+.fun-gs-ic { width: 36px; height: 36px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 20px; background: color-mix(in srgb, #b06cff 30%, var(--panel)); }
+.fun-gs-b { flex: 1; min-width: 0; max-width: 560px; padding: 9px 12px; border-radius: 4px 14px 14px 14px; background: color-mix(in srgb, #b06cff 12%, var(--panel)); border: 1px dashed color-mix(in srgb, #b06cff 55%, var(--line)); }
+.fun-gs-h { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 3px; }
+.fun-gs-h b { color: color-mix(in srgb, #b06cff 70%, var(--text)); }
+.fun-gs-h time { color: var(--muted); font-size: 11px; margin-right: auto; }
+.fun-gs-x { border: 0; background: none; cursor: pointer; font-size: 13px; opacity: .55; padding: 2px 4px; border-radius: 6px; }
+.fun-gs-x:hover { opacity: 1; background: var(--panel); }
+.fun-gs-t { word-break: break-word; }
+
+/* ---- karaokê ---- */
+.fun-kar { position: fixed; right: 18px; bottom: 96px; z-index: 880; width: min(420px, calc(100vw - 32px)); height: min(460px, calc(100vh - 140px)); display: flex; flex-direction: column; background: var(--elev); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; animation: jgIn .18s ease; }
+.fun-kar-h { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.fun-kar-s { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fun-kar-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.fun-kar-lines { flex: 1; overflow: auto; padding: 45% 18px; text-align: center; scrollbar-width: none; mask-image: linear-gradient(transparent, #000 25%, #000 75%, transparent); }
+.fun-kar-lines p { margin: 0; padding: 7px 0; font-size: 17px; font-weight: 700; color: var(--muted); opacity: .55; transition: color .25s, opacity .25s, transform .25s; }
+.fun-kar-lines p.past { opacity: .35; }
+.fun-kar-lines p.on { color: var(--text); opacity: 1; transform: scale(1.12); text-shadow: 0 0 18px color-mix(in srgb, var(--accent) 60%, transparent); }
+.fun-kar-plain { flex: 1; overflow: auto; padding: 14px 18px; line-height: 1.6; }
+.fun-kar .fun-empty, .fun-kar .jg-load { margin: auto; }
+
+/* ---- entrar junto ---- */
+.fun-jw { display: flex; align-items: center; gap: 6px; width: 100%; margin: 6px 0 2px; padding: 7px 10px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--ok) 50%, var(--line)); background: color-mix(in srgb, var(--ok) 12%, var(--panel)); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.fun-jw span { margin-left: auto; font-weight: 700; color: var(--ok); }
+.fun-jw:hover { background: color-mix(in srgb, var(--ok) 22%, var(--panel)); }
+.fun-jw.on { cursor: default; color: var(--ok); }

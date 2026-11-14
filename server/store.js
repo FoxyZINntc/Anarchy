@@ -9,12 +9,12 @@ const emptyRpg = () => ({ camps: {}, chars: {}, maps: {}, ents: {}, events: {}, 
 
 // campos que vão na coluna "extra" (JSON) de cada tabela
 const USER_X = ['pronouns', 'theme', 'accent', 'frame', 'effect', 'favs', 'blocked', 'privacy', 'bot', 'botGid', 'email', 'emailAt', 'emailAsked', 'resetHash', 'resetExp', 'items', 'given', 'lost', 'plate', 'points', 'pointsTotal', 'callAcc', 'avfx', 'boxes', 'boxLog', 'ptsLog', 'ach', 'stats', 'daily', 'activity', 'joinSounds'];
-const GROUP_X = ['description', 'banner', 'roles', 'memberRoles', 'bans', 'welcomeCid', 'systemJoin', 'djId', 'rpg', 'events', 'nicks', 'porteiro'];
+const GROUP_X = ['description', 'banner', 'roles', 'memberRoles', 'bans', 'welcomeCid', 'systemJoin', 'djId', 'rpg', 'events', 'nicks', 'porteiro', 'fofoca', 'fofocaN'];
 // RPG de Mesa: colunas próprias de cada tabela; todo o resto do objeto vai na coluna "extra"
 const omit = (o, keys) => { const x = {}; for (const [k, v] of Object.entries(o)) if (!keys.includes(k) && v !== undefined) x[k] = v; return x; };
 const rpgOf = db => db.rpg || emptyRpg();
 const CHAN_X = ['topic', 'slowmode'];
-const MSG_X = ['system', 'sticker', 'gif', 'imageName', 'pinned', 'mentions', 'everyone', 'music', 'poll', 'bomb', 'bet', 'nick'];
+const MSG_X = ['system', 'sticker', 'gif', 'imageName', 'pinned', 'mentions', 'everyone', 'music', 'poll', 'bomb', 'bet', 'nick', 'gossip'];
 const pack = (o, keys) => { const x = {}; for (const k of keys) if (o[k] !== undefined && o[k] !== null) x[k] = o[k]; return x; };
 const unpack = (x, keys) => { const o = {}; if (x && typeof x === 'object') for (const k of keys) if (x[k] !== undefined) o[k] = x[k]; return o; };
 

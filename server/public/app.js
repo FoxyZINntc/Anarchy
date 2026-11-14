@@ -1101,7 +1101,7 @@ function renderMessages(forceBottom) {
       html += `<div class="msg sys" id="m-${m.id}"><span class="sys-ic">${ic('reply').replace('<svg', '<svg style="transform:scaleX(-1) rotate(180deg)"')}</span><span class="sys-t">${line} <time>${fmtDay(m.ts) === 'Hoje' ? 'Hoje às ' : fmtDay(m.ts) + ' '}${fmtTime(m.ts)}</time></span></div>`;
       prev = null; continue;
     }
-    if ((m.system === 'event' || m.system === 'porteiro') && window.anarchyFun) { html += window.anarchyFun.sysEvent(m); prev = null; continue; } // evento começou / comentário do Porteiro
+    if ((m.system === 'event' || m.system === 'porteiro' || m.system === 'fofoca') && window.anarchyFun) { html += window.anarchyFun.sysEvent(m); prev = null; continue; } // evento começou / comentário do Porteiro
     if ((S.me.blocked || []).includes(m.authorId) && !S.unhide[m.id]) {
       html += `<div class="msg sys blocked" id="m-${m.id}"><span class="sys-ic">${ic('ban')}</span><span class="sys-t muted">Mensagem de alguém que você bloqueou. <button class="link" data-act="unhide" data-id="${m.id}">Mostrar</button></span></div>`;
       prev = null; continue;
@@ -1828,7 +1828,7 @@ function profileCardOf(u, g) {
   return `<div class="profile-prev ${cv.th ? 'themed' : ''}" style="${cv.style}">${fxLayer(u)}<div class="banner" style="${bannerStyle(u)}"></div><div class="pbody">
     <div class="pf-top">${av(id, 80, true, '', u)}${badges ? `<div class="pf-badges">${badges}</div>` : ''}</div>
     <h3>${esc(u.displayName)}${u.bot ? '<span class="bot-tag">BOT</span>' : ''}</h3><div class="un">@${esc(u.username)}${u.pronouns ? ` · ${esc(u.pronouns)}` : ''}</div>
-    ${u.activity ? `<div class="pf-status pf-act">${esc(u.activity.emoji)} ${esc(u.activity.text)}</div>` : ''}${u.customStatus ? `<div class="pf-status">${esc(u.customStatus)}</div>` : ''}
+    ${u.activity ? `<div class="pf-status pf-act">${esc(u.activity.emoji)} ${esc(u.activity.text)}</div>` : ''}${window.anarchyFun ? window.anarchyFun.joinWith(id) : ''}${u.customStatus ? `<div class="pf-status">${esc(u.customStatus)}</div>` : ''}
     ${window.anarchyFun ? window.anarchyFun.achRow(u) : ''}
     <div class="bio">${u.bio ? md(u.bio) : '<span class="muted">Sem bio.</span>'}${u.createdAt ? `<div class="muted small" style="margin-top:8px">No Anarchy desde ${new Date(u.createdAt).toLocaleDateString('pt-BR')}</div>` : ''}</div>
     ${g && g.members.includes(id) ? `<div class="pf-roles"><div class="pf-h">${roles.length ? 'Cargos' : 'Sem cargos'}${g.ownerId === id ? ' · 👑 dono' : ''}</div>${roles.map(r => `<span class="role-chip"><i style="background:${esc(r.color || 'var(--muted)')}"></i>${esc(r.name)}</span>`).join('')}</div>` : ''}
@@ -3219,10 +3219,10 @@ function djCard(roomId) {
     <div class="dj-main">
       <div class="dj-top">${av(st.botId, 20, false)}<span class="dj-bot">${esc(nameOf(st.botId))}</span><span class="bot-tag">BOT</span><span class="dj-state">${loading ? 'Carregando...' : paused ? 'Pausado' : 'Tocando agora'}</span></div>
       <div class="dj-title" title="${esc(c.title)}">${c.page ? `<a href="${esc(c.page)}" target="_blank" rel="noopener">${esc(c.title)}</a>` : esc(c.title)}</div>
-      <div class="dj-sub">${esc(c.by || '')}${c.by ? ' · ' : ''}pedido por ${esc(nameOf(c.who))}${st.queue.length ? ` · ${st.queue.length} na fila` : ''}${st.loop ? ' · 🔁 repetindo' : ''}</div>
+      <div class="dj-sub">${esc(c.by || '')}${c.by ? ' · ' : ''}${c.who === st.botId && st.radio ? `📻 rádio ${esc(st.radio)}` : `pedido por ${esc(nameOf(c.who))}`}${st.radio && c.who !== st.botId ? ` · 📻 ${esc(st.radio)} depois da fila` : ''}${st.queue.length ? ` · ${st.queue.length} na fila` : ''}${st.loop ? ' · 🔁 repetindo' : ''}</div>
       <div class="dj-prog"><i></i></div>
       <div class="dj-row">
-        ${b(paused ? 'continuar' : 'pausar', paused ? '▶' : '⏸', paused ? 'Continuar' : 'Pausar')}${b('pular', '⏭', 'Pular')}${b('parar', '⏹', 'Parar e limpar a fila')}${b('repetir', '🔁', 'Repetir esta música', st.loop)}
+        ${b(paused ? 'continuar' : 'pausar', paused ? '▶' : '⏸', paused ? 'Continuar' : 'Pausar')}${b('pular', '⏭', 'Pular')}${b('parar', '⏹', 'Parar e limpar a fila')}${b('repetir', '🔁', 'Repetir esta música', st.loop)}<button class="dj-b" data-fun="karaoke" data-room="${roomId}" title="Karaokê: letra sincronizada" ${loading ? 'disabled' : ''}>🎤</button>
         <span class="dj-time">${loading ? '' : '0:00'}</span>
         <label class="dj-vol" title="Volume do DJ só para você (dá para usar a rodinha do mouse)">${ic('voice')}<input type="range" min="0" max="100" step="1" value="${prefs.djVol ?? 70}" data-djvol="1" aria-label="Volume do DJ para você"><output>${prefs.djVol ?? 70}%</output></label>
       </div>
@@ -4396,7 +4396,8 @@ window.addEventListener('beforeunload', () => { if (V.room) socket?.emit('voice:
 /* =============== RPG de Mesa (rpg.js): o que ele usa do app =============== */
 if (window.anarchyRpg) window.anarchyRpg.init({ S, esc, ic, av, user, nameOf, emit, toast, modal, confirmBox, pickFile, readFile, api, tone, gCan, openGroupSettings, get socket() { return socket; } });
 if (window.anarchyFun) window.anarchyFun.init({ S, esc, av, nameOf, emit, toast, modal, confirmBox, pop, closePops, tone, confetti, md, gCan, reduceMotion, viewingCid: () => viewingCid(), renderMessages: () => renderMessages(), inCall: () => !!V.room,
-  avfx: id => AVFX[id], avWith, rarName: t => (AVR[t] || [t])[0], plate: id => PLATES[id], plateRow, renderStage: () => renderStageSlot() });
+  avfx: id => AVFX[id], avWith, rarName: t => (AVR[t] || [t])[0], plate: id => PLATES[id], plateRow, renderStage: () => renderStageSlot(),
+  djPos: roomId => (S.music[roomId] ? djPos(S.music[roomId]) : 0), joinVoice: roomId => joinVoice(roomId), room: () => V.room, go: v => go(v) });
 
 /* =============== início =============== */
 // quem entrou numa versão antiga tem o token guardado no navegador: troca por cookie (sem precisar entrar de novo)
