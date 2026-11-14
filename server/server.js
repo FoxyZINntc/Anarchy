@@ -143,7 +143,10 @@ function publicUser(u) {
     accent: u.accent || null, frame: u.frame || null, effect: u.effect || null, badges: u.bot ? [] : badgesOf(u),
     status: on ? (u.status || 'online') : 'offline', createdAt: u.createdAt,
     plate: u.plate && PLATES.includes(u.plate) ? u.plate : null,
-    avfx: u.avfx && AVFX[u.avfx] ? u.avfx : null
+    avfx: u.avfx && AVFX[u.avfx] ? u.avfx : null,
+    // conquistas (ids) e o que está fazendo agora (some depois de 12 horas)
+    ach: u.ach ? Object.keys(u.ach) : [],
+    activity: u.activity && Date.now() - u.activity.at < 12 * 3600e3 ? { text: u.activity.text, emoji: u.activity.emoji } : null
   };
 }
 /* insígnias: calculadas a partir de dados reais da conta (ninguém escolhe a própria) */
@@ -236,7 +239,10 @@ const above = (g, uid, target) => rank(g, uid) < rank(g, target);
 // o email da conta só vai para o próprio dono (nunca no publicUser)
 function selfUser(u) { return { ...publicUser(u), status: u.status || 'online', realStatus: u.status || 'online', blocked: u.blocked || [], favs: u.favs || null, privacy: u.privacy || {}, email: u.email || null, emailAsked: u.emailAsked || 0, mailOn: mailOn(),
   items: u.items || [], lost: (u.lost || []).slice(-100), admin: isAdmin(u), given: isAdmin(u) ? (u.given || []).slice(-300) : [],
-  points: u.points || 0, pointsTotal: u.pointsTotal || 0, callAcc: u.callAcc || 0, ptEvery: PT_EVERY, boxes: u.boxes || 0, boxLog: (u.boxLog || []).slice(-40), ptsLog: (u.ptsLog || []).slice(-40) }; }
+  points: u.points || 0, pointsTotal: u.pointsTotal || 0, callAcc: u.callAcc || 0, ptEvery: PT_EVERY, boxes: u.boxes || 0, boxLog: (u.boxLog || []).slice(-40), ptsLog: (u.ptsLog || []).slice(-40),
+  // caixa diária: pronta para pegar hoje? (vira à meia-noite de Brasília) e quantos dias seguidos
+  daily: { ready: !u.daily || u.daily.last !== new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), streak: (u.daily && u.daily.streak) || 0 },
+  achAt: u.ach || {}, stats: u.stats || {}, joinSounds: u.joinSounds || {} }; }
 // bloqueio vale nos dois sentidos: quem bloqueou e quem foi bloqueado não se alcançam
 const blockedBetween = (a, b) => !!((db.users[a] && (db.users[a].blocked || []).includes(b)) || (db.users[b] && (db.users[b].blocked || []).includes(a)));
 
@@ -304,6 +310,7 @@ setInterval(() => {
         u.callAcc -= PT_EVERY; u.points = (u.points || 0) + PT_GAIN; u.pointsTotal = (u.pointsTotal || 0) + PT_GAIN;
         toUser(u.id, 'points:gain', { amount: PT_GAIN, points: u.points });
       }
+      fun.track(u.id, 'callMin'); // minutos em call (conquistas e retrospectiva)
       toUser(u.id, 'me:update', selfUser(u));
     }
   }
@@ -319,6 +326,8 @@ function leaveVoice(socket) {
   if (r) { r.delete(socket.id); if (!r.size) voice.delete(roomId); }
   socket.data.voice = null;
   pushVoice(roomId);
+  if (typeof jogos !== 'undefined') jogos.onLeave(roomId, socket.data.uid); // quem desenhava saiu: a rodada acaba
+  if (typeof cartas !== 'undefined') cartas.onLeave(roomId, socket.data.uid); // saiu da mesa de cartas
   // todo mundo saiu: o DJ para
   if (!voice.get(roomId) && music.has(roomId)) stopMusic(roomId, 'vazia');
   // avisa se a call de DM terminou
@@ -332,6 +341,7 @@ function leaveVoice(socket) {
    app toca o áudio (puxado deste servidor, /api/music/:id) sincronizado, com o próprio volume. */
 const { createMusic } = require('./music');
 const dj = createMusic({ log });
+const radio = require('./radio'); // rádio do grupo (/radio) e letras do karaokê
 const music = new Map();  // roomId -> { roomId, gid, cid, botId, cur, queue, startedAt, pausedAt, vol, loop, timer }
 const tracks = new Map(); // id da faixa -> faixa (o endereço real do áudio só fica aqui no servidor)
 const isBot = id => !!(db.users[id] && db.users[id].bot);
@@ -341,9 +351,9 @@ const card = t => ({ title: t.title, by: t.by, page: t.page, thumb: t.thumb, dur
 const mdSafe = s => String(s).replace(/([*_~`|\\])/g, '\\$1');
 function musicView(st) {
   if (!st) return null;
-  const t = x => x && { id: x.id, title: x.title, by: x.by, page: x.page, dur: x.dur, thumb: x.thumb, who: x.who };
+  const t = x => x && { id: x.id, title: x.title, by: x.by, page: x.page, dur: x.dur, thumb: x.thumb, who: x.who, votes: x.votes || {} };
   // enquanto o áudio da música atual está sendo buscado, os apps não tocam nada
-  return { roomId: st.roomId, gid: st.gid, botId: st.botId, cur: st.cur && st.cur.src && !st.cur.loading ? t(st.cur) : null, loading: st.cur && (!st.cur.src || st.cur.loading) ? t(st.cur) : null, queue: st.queue.map(t), startedAt: st.startedAt, pausedAt: st.pausedAt, vol: st.vol, loop: st.loop, serverNow: now() };
+  return { roomId: st.roomId, gid: st.gid, botId: st.botId, cur: st.cur && st.cur.src && !st.cur.loading ? t(st.cur) : null, loading: st.cur && (!st.cur.src || st.cur.loading) ? t(st.cur) : null, queue: st.queue.map(t), startedAt: st.startedAt, pausedAt: st.pausedAt, vol: st.vol, loop: st.loop, radio: st.radio && radio.STATIONS[st.radio] ? radio.STATIONS[st.radio][0] : null, serverNow: now() };
 }
 function pushMusic(roomId) {
   const info = channelInfo(roomId); if (!info) return;
@@ -373,6 +383,8 @@ async function nextTrack(roomId, { skipped = false, msg = null } = {}) {
   if (st.loop && prev && !skipped) st.queue.unshift(prev);
   else if (prev) setTimeout(() => { if (![...music.values()].some(s => s.cur === prev || s.queue.includes(prev))) tracks.delete(prev.id); }, 60e3).unref();
   st.cur = st.queue.shift() || null;
+  // rádio ligado: a fila acabou, o DJ escolhe a próxima da estação
+  if (!st.cur && st.radio) { const q = radio.radioPick(st); if (q) { st.cur = { id: newId(), q, title: q, who: st.botId, roomId, radio: true }; tracks.set(st.cur.id, st.cur); } }
   if (!st.cur) return stopMusic(roomId, 'fim', msg);
   const seq = st.seq = (st.seq || 0) + 1, t = st.cur;
   // música de playlist (ainda sem áudio) ou endereço velho (o do YouTube vence em algumas horas): busca agora
@@ -382,16 +394,19 @@ async function nextTrack(roomId, { skipped = false, msg = null } = {}) {
     try { await p; }
     catch (e) {
       if (st.seq !== seq || music.get(roomId) !== st) return;
-      const g = db.groups[st.gid]; if (g) botSay(g, st.cid, `⚠️ Pulei **${mdSafe(t.title)}**: ${mdSafe(e.message)}.`);
+      const g = db.groups[st.gid]; if (g && !t.radio) botSay(g, st.cid, `⚠️ Pulei **${mdSafe(t.title)}**: ${mdSafe(e.message)}.`);
       tracks.delete(t.id);
+      // rádio que não acha nada (ex.: busca bloqueada) não fica tentando para sempre
+      if (t.radio && (st.radioFails = (st.radioFails || 0) + 1) >= 3) { st.radio = null; st.radioFails = 0; if (g) botSay(g, st.cid, `📻 Desliguei o rádio: não consegui achar as músicas da estação agora (${mdSafe(e.message)}).`); }
       return nextTrack(roomId, { skipped: true, msg });
     }
     if (st.seq !== seq || music.get(roomId) !== st) return; // alguém pulou ou parou enquanto buscava
   }
+  if (t.radio) st.radioFails = 0;
   st.startedAt = now() + 1500; st.pausedAt = null; // 1,5 s para todo mundo carregar e começar junto
   scheduleEnd(st); pushMusic(roomId);
   const g = db.groups[st.gid];
-  if (g && !(st.loop && prev === st.cur)) botEdit(g, msg, `🎵 Tocando agora: **${mdSafe(st.cur.title)}**${st.cur.dur ? ` (${fmtDur(st.cur.dur)})` : ''} · pedido por ${mdSafe(uname(st.cur.who))}${st.cur.via ? ` · achei no ${st.cur.via} (o YouTube está bloqueando o servidor agora)` : ''}`, { music: card(st.cur), cid: st.cid });
+  if (g && !(st.loop && prev === st.cur)) botEdit(g, msg, `🎵 Tocando agora: **${mdSafe(st.cur.title)}**${st.cur.dur ? ` (${fmtDur(st.cur.dur)})` : ''} · ${st.cur.radio ? `📻 rádio ${radio.STATIONS[st.radio] ? radio.STATIONS[st.radio][0] : ''}` : `pedido por ${mdSafe(uname(st.cur.who))}`}${st.cur.via ? ` · achei no ${st.cur.via} (o YouTube está bloqueando o servidor agora)` : ''}`, { music: card(st.cur), cid: st.cid });
   // já deixa a próxima pronta, para a troca de música não ter espera
   const nx = st.queue[0]; if (nx && needSrc(nx)) loadSrc(nx).catch(() => {});
 }
@@ -425,7 +440,8 @@ function roomOfUser(g, uid) {
 const CMDS = {
   music: ['music', 'm', 'tocar', 'play', 'p'], album: ['album', 'álbum', 'disco', 'playlist'], pular: ['pular', 'skip', 's', 'proxima'], pausar: ['pausar', 'pause'], continuar: ['continuar', 'resume', 'voltar'],
   parar: ['parar', 'stop', 'sair'], fila: ['fila', 'queue', 'q'], agora: ['agora', 'np', 'tocando'], volume: ['volume', 'vol', 'v'], repetir: ['repetir', 'loop', 'r'],
-  tirar: ['tirar', 'remover', 'remove'], embaralhar: ['embaralhar', 'shuffle', 'misturar'], ajuda: ['ajuda', 'help', 'comandos']
+  tirar: ['tirar', 'remover', 'remove'], embaralhar: ['embaralhar', 'shuffle', 'misturar'], ajuda: ['ajuda', 'help', 'comandos'],
+  radio: ['radio', 'rádio', 'estacao', 'estação'], letra: ['letra', 'karaoke', 'karaokê', 'lyrics']
 };
 const CMD_OF = Object.fromEntries(Object.entries(CMDS).flatMap(([k, l]) => l.map(a => [a, k])));
 const HELP = [
@@ -435,6 +451,8 @@ const HELP = [
   '`/pular` próxima música · `/pausar` · `/continuar` · `/parar` para tudo e limpa a fila',
   '`/fila` mostra a fila · `/agora` o que está tocando · `/tirar 2` tira a 2ª da fila · `/embaralhar`',
   '`/volume 80` volume do DJ para todo mundo (0 a 100) · `/repetir` repete a música atual',
+  '`/radio funk` liga o rádio: quando a fila acaba, o DJ segue tocando a estação (`/radio` lista as estações · `/radio parar` desliga)',
+  '`/letra` ou o 🎤 do cartão "Tocando agora" abre a letra sincronizada para o karaokê',
   'Cada um também ajusta o volume do DJ só para si no cartão "Tocando agora" da call.'
 ].join('\n');
 // ações do DJ (vêm dos comandos no chat ou dos botões do cartão). Devolve o texto da resposta.
@@ -539,6 +557,19 @@ function djCommand(g, cid, uid, text) {
     } else djPlay(g, cid, uid, room, arg.slice(0, 300));
     return true;
   }
+  if (action === 'radio') {
+    const list = Object.entries(radio.STATIONS).map(([k, s]) => `\`/radio ${k}\` ${s[0]}`).join(' · ');
+    const cur = music.get(room);
+    if (!arg) { botSay(g, cid, `📻 **Rádio do grupo**${cur && cur.radio ? ` (tocando agora: ${radio.STATIONS[cur.radio][0]})` : ''}: quando a fila acaba, eu sigo tocando a estação.\n${list}\n\`/radio parar\` desliga o rádio.`); return true; }
+    if (/^(parar|desligar|off|stop|sair)$/i.test(arg)) { if (cur) { cur.radio = null; pushMusic(room); } botSay(g, cid, `📻 ${mdSafe(uname(uid))} desligou o rádio. A música atual termina e a fila segue normal.`); return true; }
+    const k = radio.stationOf(arg); if (!k) { botSay(g, cid, `Não conheço essa estação. Escolha uma: ${list}`); return true; }
+    if (limited('dj:' + uid, 8, 60e3)) { botSay(g, cid, 'Calma! Muitos pedidos seguidos. Espere um pouquinho.'); return true; }
+    const st = djState(g, cid, room); st.radio = k; st.radioUsed = [];
+    botSay(g, cid, `📻 ${mdSafe(uname(uid))} ligou o rádio **${radio.STATIONS[k][0]}**. Quando a fila acabar, eu sigo tocando. Peça músicas com \`/music\` que elas entram na frente.`);
+    if (!st.cur) nextTrack(room); else pushMusic(room);
+    return true;
+  }
+  if (action === 'letra') { botSay(g, cid, '🎤 Clique no 🎤 do cartão **Tocando agora** na call para abrir a letra sincronizada. Bora cantar!'); return true; }
   const st = music.get(room); if (st) st.cid = cid;
   const reply = djAction(g, uid, room, action, arg);
   if (reply) botSay(g, cid, reply);
@@ -833,7 +864,7 @@ function sendRange(req, res, buf, type) {
 }
 app.get('/api/music/:id', auth, async (req, res) => {
   const t = tracks.get(req.params.id);
-  if (!t || !t.src || !canAccess(req.uid, t.roomId)) return res.status(404).end();
+  if (!t || !t.src || !(t.acc ? t.acc(req.uid) : canAccess(req.uid, t.roomId))) return res.status(404).end();
   if (t.src.hls) {
     try { return sendRange(req, res, await hlsBuffer(t.src), t.src.mime); }
     catch { return res.headersSent ? res.destroy() : res.status(502).end(); }
@@ -858,7 +889,26 @@ app.get('/api/music/:id', auth, async (req, res) => {
 /* ---------- RPG de Mesa (atividade opcional dos grupos e conversas; ver rpg.js) ---------- */
 const rpg = require('./rpg').createRpg({
   db, save, newId, now, str, log, toUser, toUsers, can, pushGroup, limited, users: db.users,
-  isUpload: u => store.isUpload(u)
+  isUpload: u => store.isUpload(u),
+  // trilha sonora das cenas: o DJ busca o áudio; quem pode ouvir é quem tem papel na campanha (acc)
+  soundtrack: async (q, acc) => { const r = await dj.resolve(q); hlsWarm(r.src); const t = { id: newId(), ...r, who: null, q, acc, at: now() }; tracks.set(t.id, t); return { id: t.id, title: r.title, dur: r.dur || 0 }; },
+  soundAlive: id => { const t = tracks.get(id); return !!(t && t.src && now() - (t.at || 0) < 4 * 3600e3); }
+});
+// trilhas velhas do RPG (o endereço do áudio vence em algumas horas; a mesa busca de novo quando precisar)
+setInterval(() => { for (const [id, t] of tracks) if (t.acc && now() - (t.at || 0) > 5 * 3600e3) tracks.delete(id); }, 30 * 60e3).unref();
+/* ---------- diversão: enquetes, bombas, conquistas, caixa diária, atividade, eventos, roleta, retrospectiva (ver diversao.js) ---------- */
+const fun = require('./diversao').createDiversao({
+  db, save, newId, now, str, log, toUser, toUsers, canAccess, can, pushGroup, pushUser, selfUser, limited, voice, sockets, rollAvfx, AVFX, REFUND, PLATES
+});
+/* ---------- jogos da call: Desenha e adivinha e Quiz (ver jogos.js) ---------- */
+const jogos = require('./jogos').createJogos({
+  db, save, now, str, toUser, voice, sockets, limited, selfUser, log, track: (uid, k) => fun.track(uid, k), otherBusy: r => cartas.busy(r),
+  // trecho de música para o Quiz: o DJ busca o áudio, o app toca por /api/music/:id (o nome fica só aqui)
+  clip: async (q, roomId) => { const r = await dj.resolve(q); hlsWarm(r.src); const t = { id: newId(), ...r, who: null, q, roomId }; tracks.set(t.id, t); setTimeout(() => tracks.delete(t.id), 15 * 60e3).unref(); return { url: '/api/music/' + t.id, dur: r.dur || 0 }; }
+});
+/* ---------- jogos de cartas da call: Cartas Malucas e Truco (ver cartas.js) ---------- */
+const cartas = require('./cartas').createCartas({
+  db, save, now, str, toUser, voice, sockets, limited, selfUser, log, track: (uid, k) => fun.track(uid, k), otherBusy: r => jogos.busy(r)
 });
 
 /* ---------- Socket.IO ---------- */
@@ -876,6 +926,10 @@ function onConnection(socket) {
   const fail = (cb, erro) => typeof cb === 'function' && cb({ ok: false, erro });
   const on = (ev, fn) => socket.on(ev, (data, cb) => { try { fn(data || {}, cb); } catch (e) { console.error(ev, e); fail(cb, 'Erro interno.'); } });
   rpg.bind(socket, uid, on, ok, fail);
+  fun.bind(socket, uid, on, ok, fail);
+  jogos.bind(socket, uid, on, ok, fail);
+  cartas.bind(socket, uid, on, ok, fail);
+  on('ach:list', (_, cb) => ok(cb, { list: fun.ACH }));
 
   on('init', (_, cb) => {
     const users = {};
@@ -979,6 +1033,8 @@ function onConnection(socket) {
     else u.items.push({ id: newId(), item: 'av:' + item, from: 'caixa', at: now(), seen: true });
     u.boxes = (u.boxes || 0) + 1;
     u.boxLog = [...(u.boxLog || []), { item, at: now(), dup }].slice(-60);
+    if (tier === 'lendario' || tier === 'mitico') { u.stats = u.stats || {}; u.stats.luck = (u.stats.luck || 0) + 1; }
+    fun.check(u); // conquistas de caixa e de sorte
     save(); toUser(uid, 'me:update', selfUser(u));
     if (tier === 'lendario' || tier === 'mitico') log(`   Caixa: @${u.username} tirou ${item} (${tier})!`);
     ok(cb, { item, tier, dup, refund, points: u.points });
@@ -1310,7 +1366,7 @@ function onConnection(socket) {
     const list = db.messages[d.cid] || [];
     let end = list.length;
     if (d.before) { const i = list.findIndex(m => m.id === d.before); if (i >= 0) end = i; }
-    ok(cb, { messages: list.slice(Math.max(0, end - 60), end), more: end > 60 });
+    ok(cb, { messages: list.slice(Math.max(0, end - 60), end).map(fun.pubMsg), more: end > 60 });
   });
   on('message:send', (d, cb) => {
     if (limited('msg:' + uid, 12, 10e3)) return fail(cb, 'Calma! Você está mandando mensagens rápido demais.');
@@ -1353,7 +1409,9 @@ function onConnection(socket) {
     if (msg.image && d.imageName) { const n = str(d.imageName, 120).replace(/[^\w.\- ()À-ÿ]/g, '').trim(); if (n) msg.imageName = n; }
     const list = db.messages[d.cid] || (db.messages[d.cid] = []);
     list.push(msg); if (list.length > 3000) list.splice(0, list.length - 3000);
+    fun.track(uid, 'msgs');
     save(); toUsers(info.members, 'message:new', msg);
+    fun.onMessage(uid, info);
     if (info.kind === 'dm') toUsers(info.members, 'dm:update', { ...info.dm, last: msg.ts });
     ok(cb, { message: msg });
   });
@@ -1361,6 +1419,7 @@ function onConnection(socket) {
   on('message:edit', (d, cb) => {
     const info = canAccess(uid, d.cid); const m = info && findMsg(d.cid, d.id);
     if (!m || m.authorId !== uid) return fail(cb, 'Sem permissão.');
+    if (m.bomb || m.poll || m.bet || m.nick) return fail(cb, 'Enquetes, apostas, votações e mensagens-bomba não podem ser editadas.');
     const c = str(d.content, 4000).trim(); if (!c && !m.image) return fail(cb, 'Mensagem vazia.');
     m.content = c; m.edited = now(); save(); toUsers(info.members, 'message:update', m); ok(cb);
   });
@@ -1379,19 +1438,19 @@ function onConnection(socket) {
       if ((db.messages[d.cid] || []).filter(x => x.pinned).length >= 50) return fail(cb, 'Limite de 50 mensagens fixadas por canal.');
       m.pinned = { by: uid, at: now() };
     } else delete m.pinned;
-    save(); toUsers(info.members, 'message:update', m); ok(cb);
+    save(); toUsers(info.members, 'message:update', fun.pubMsg(m)); ok(cb);
   });
   on('messages:pins', (d, cb) => {
     if (!canAccess(uid, d.cid)) return fail(cb, 'Sem acesso.');
-    ok(cb, { messages: (db.messages[d.cid] || []).filter(m => m.pinned).sort((a, b) => b.pinned.at - a.pinned.at) });
+    ok(cb, { messages: (db.messages[d.cid] || []).filter(m => m.pinned).sort((a, b) => b.pinned.at - a.pinned.at).map(fun.pubMsg) });
   });
   on('message:react', (d, cb) => {
     const info = canAccess(uid, d.cid); const m = info && findMsg(d.cid, d.id);
     const emoji = str(d.emoji, 16); if (!m || !emoji) return fail(cb, 'Inválido.');
     const arr = m.reactions[emoji] || (m.reactions[emoji] = []);
-    const i = arr.indexOf(uid); if (i >= 0) arr.splice(i, 1); else arr.push(uid);
+    const i = arr.indexOf(uid); if (i >= 0) arr.splice(i, 1); else { arr.push(uid); fun.track(uid, 'reacts'); }
     if (!arr.length) delete m.reactions[emoji];
-    save(); toUsers(info.members, 'message:update', m); ok(cb);
+    save(); toUsers(info.members, 'message:update', fun.pubMsg(m)); ok(cb);
   });
   on('typing', d => { const info = canAccess(uid, d.cid); if (info) toUsers(info.members.filter(m => m !== uid), 'typing', { cid: d.cid, uid }); });
 
@@ -1484,6 +1543,7 @@ function onConnection(socket) {
     voice.get(d.roomId).set(socket.id, { uid, muted: !!d.muted, deafened: !!d.deafened, screen: null, cam: null, joinedAt: now() });
     socket.data.voice = d.roomId;
     pushVoice(d.roomId);
+    fun.onVoiceJoin(socket, uid, d.roomId, info); // som de entrada e o Porteiro contando as entradas
     ok(cb, { peers: others, iceServers: cfg.iceServers });
   });
   on('voice:leave', (_, cb) => { leaveVoice(socket); ok(cb); });
@@ -1548,6 +1608,31 @@ function onConnection(socket) {
     const reply = djAction(g, uid, d.roomId, d.action, d.value);
     if (reply && !['volume'].includes(d.action)) botSay(g, st.cid, reply);
     ok(cb);
+  });
+  // 👍/👎 nas músicas da fila: as mais curtidas sobem; se a maioria da sala não quer, a música sai
+  on('music:vote', (d, cb) => {
+    const st = music.get(d.roomId); const g = st && db.groups[st.gid];
+    if (!g || roomOfUser(g, uid) !== d.roomId) return fail(cb, 'Entre na sala para votar.');
+    const t = st.queue.find(x => x.id === str(d.id, 40)); if (!t) return fail(cb, 'Essa música não está mais na fila.');
+    if (limited('djvote:' + uid, 30, 30e3)) return fail(cb, 'Calma com os votos!');
+    t.votes = t.votes || {}; const v = d.v > 0 ? 1 : d.v < 0 ? -1 : 0;
+    if (!v || t.votes[uid] === v) delete t.votes[uid]; else t.votes[uid] = v;
+    const score = x => Object.values(x.votes || {}).reduce((a, b) => a + b, 0);
+    const listeners = [...(voice.get(d.roomId) || new Map()).values()].filter(s => !isBot(s.uid)).length;
+    if (score(t) <= -Math.max(2, Math.ceil(listeners / 2))) {
+      st.queue = st.queue.filter(x => x !== t); tracks.delete(t.id);
+      botSay(g, st.cid, `🚫 A galera vetou **${mdSafe(t.title)}**. Saiu da fila.`);
+    } else st.queue = st.queue.map((x, i) => [x, i]).sort((a, b) => score(b[0]) - score(a[0]) || a[1] - b[1]).map(x => x[0]);
+    pushMusic(d.roomId); ok(cb);
+  });
+  // karaokê: letra sincronizada da música que está tocando (busca no LRCLIB, guardada na faixa)
+  on('music:lyrics', async (d, cb) => {
+    const st = music.get(str(d.roomId, 40)); if (!st || !canAccess(uid, st.roomId)) return fail(cb, 'Nada tocando nesta sala.');
+    const t = st.cur; if (!t || !t.src) return fail(cb, 'Espere a música começar.');
+    if (limited('lyrics:' + uid, 10, 60e3)) return fail(cb, 'Calma! Espere um pouquinho.');
+    if (t.lyrics === undefined) t.lyrics = await radio.lyricsFor(t).catch(() => null);
+    if (st.cur !== t) return fail(cb, 'A música mudou. Tente de novo.');
+    ok(cb, { id: t.id, lyrics: t.lyrics });
   });
   // link direto sem duração conhecida: o app de quem está na sala avisa quanto o áudio dura
   on('music:dur', d => {

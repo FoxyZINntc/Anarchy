@@ -52,7 +52,7 @@ const DEF_STATS = [
 ];
 const ATTR_MOD = C.ATTR_MOD;
 
-function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, can, pushGroup, limited, users }) {
+function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, can, pushGroup, limited, users, soundtrack, soundAlive }) {
   db.rpg = db.rpg || {};
   for (const k of ['camps', 'chars', 'maps', 'ents', 'events', 'snaps']) if (!db.rpg[k] || typeof db.rpg[k] !== 'object') db.rpg[k] = {};
   const R = db.rpg;
@@ -195,7 +195,8 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
   }
   const sceneLite = s => ({ id: s.id, name: s.name, desc: s.desc, vis: s.vis, uids: s.uids, chars: s.chars, perm: s.perm, state: s.state, mapId: s.mapId, at: s.at });
   function campView(c, r, uid, sid) {
-    const { snapsCache, scenes, combat, ...rest } = c;
+    const { snapsCache, scenes, combat, diary, music, ...rest } = c;
+    rest.music = musicFor(c, sid);
     const sc = r === 'mestre' ? (scenes || []).filter(s => s.state === 'ativa' || s.endedAt > now() - 864e5).map(sceneLite)
       : active(c).filter(s => s.uids.includes(uid) || s.vis === 'compartilhada').map(s => ({ id: s.id, name: s.name, desc: s.desc, vis: s.vis, uids: s.uids, perm: s.perm, state: s.state }));
     return { ...rest, role: r, kinds: KINDS, scenes: sc, view: sid, myScene: (sceneOfUser(c, uid) || {}).id || '', combat: combatOf(c, sid) };
@@ -274,7 +275,57 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
     const arr = evIdx.get(c.id); arr.push(ev);
     while (arr.length > LIM.events) delete R.events[arr.shift().id];
     emitCamp(c, 'rpg:event', (uid, r) => evFor(c, ev, uid, r));
+    diaryAdd(c, ev);
     return ev;
+  }
+
+  /* ---------- diário automático: os grandes momentos de cada dia de jogo ficam guardados na campanha ----------
+     Uma página por dia de jogo (mais de 4 h sem nada acontecendo abre outra). Guarda críticos, falhas, anúncios,
+     falas, combates e avisos do sistema; rolagem secreta e cena privada continuam escondidas de quem não podia ver. */
+  const DIARY_PAGES = 80, DIARY_ITEMS = 120;
+  function diaryAdd(c, ev) {
+    if (!c.diary) c.diary = [];
+    let pg = c.diary[c.diary.length - 1];
+    if (!pg || ev.ts - pg.end > 4 * 3600e3) {
+      pg = { id: newId(), n: (pg ? pg.n : 0) + 1, start: ev.ts, end: ev.ts, title: '', note: '', items: [], rolls: 0, crits: 0, fails: 0, by: {} };
+      c.diary.push(pg); if (c.diary.length > DIARY_PAGES) c.diary.shift();
+    }
+    pg.end = ev.ts;
+    const keep = (ic, text, extra = {}) => { if (pg.items.length >= DIARY_ITEMS) pg.items.shift(); pg.items.push({ ts: ev.ts, ic, text: txt(text, 300), uid: ev.uid || null, ...(ev.priv ? { priv: true } : {}), ...(ev.sc ? { sc: ev.sc } : {}), ...(ev.only ? { only: ev.only } : {}), ...extra }); };
+    if (ev.type === 'roll') {
+      if (ev.priv) return;
+      pg.rolls++; if (ev.uid) pg.by[ev.uid] = (pg.by[ev.uid] || 0) + 1;
+      const r = ev.roll || {};
+      if (r.crit) { pg.crits++; keep('🌟', `${userName(ev.uid)} tirou um CRÍTICO${ev.text ? ` em ${ev.text}` : ''} (${r.total})`); }
+      else if (r.fail) { pg.fails++; keep('💀', `${userName(ev.uid)} teve uma falha crítica${ev.text ? ` em ${ev.text}` : ''} (${r.total})`); }
+      return;
+    }
+    if (ev.type === 'narr') return keep('📖', ev.text);
+    if (ev.type === 'fala') return keep('💬', `${ev.who || userName(ev.uid)}: “${ev.text}”`, { quote: true });
+    if (ev.type === 'combat') return keep('⚔️', ev.text);
+    if (ev.type === 'sys' || ev.type === 'log') return keep('•', ev.text, { minor: true });
+  }
+  // o que desta página a pessoa pode ler
+  function diaryFor(c, pg, uid, r) {
+    const items = pg.items.filter(it => evFor(c, { ...it, type: 'diary' }, uid, r));
+    return { ...pg, items };
+  }
+
+  /* ---------- trilha sonora da cena: o Mestre escolhe, todo mundo da cena ouve em loop ---------- */
+  const reviving = new Set();
+  function musicFor(c, sid) {
+    const s = sid && sceneById(c, sid), m = (s && s.music) || c.music;
+    if (!m) return null;
+    if (soundAlive && !soundAlive(m.id)) {
+      // o servidor reiniciou e o endereço do áudio se perdeu: busca de novo e avisa a mesa
+      const old = m.id;
+      if (soundtrack && !reviving.has(old)) {
+        reviving.add(old);
+        soundtrack(m.q, uid => !!role(c, uid)).then(t => { m.id = t.id; m.dur = t.dur || m.dur; save(); emitState(c); }).catch(() => {}).finally(() => setTimeout(() => reviving.delete(old), 60e3));
+      }
+      return { ...m, url: null };
+    }
+    return { ...m, url: '/api/music/' + m.id };
   }
   const say = (c, text, extra = {}) => addEvent(c, { type: 'log', text: txt(text, 400), ...extra });
 
@@ -1239,6 +1290,35 @@ function createRpg({ db, save, newId, now, str, log, toUser, toUsers, isUpload, 
       emitScene(c, sid, 'rpg:announce', a);
       addEvent(c, { type: 'narr', uid, text: `📢 ${title}${a.sub ? ' — ' + a.sub : ''}`, sc: sid });
       touched(c); ok(cb, {});
+    });
+    // diário automático: páginas (dias de jogo) que a pessoa pode ler; o Mestre dá título e resumo
+    on('rpg:diary', (d, cb) => {
+      const c = camp(d); if (!c) return fail(cb, NO);
+      const r = role(c, uid);
+      ok(cb, { pages: (c.diary || []).map(pg => diaryFor(c, pg, uid, r)).reverse() });
+    });
+    on('rpg:diary:edit', (d, cb) => {
+      const c = camp(d, 'mestre'); if (!c) return fail(cb, NO);
+      const pg = (c.diary || []).find(p => p.id === str(d.id, 40)); if (!pg) return fail(cb, 'Página não encontrada.');
+      if (d.del) { c.diary = c.diary.filter(p => p !== pg); touched(c); return ok(cb, {}); }
+      pg.title = txt(d.title, 80); pg.note = txt(d.note, 2000);
+      touched(c); ok(cb, {});
+    });
+    // trilha sonora: o Mestre põe uma música (nome ou link) na cena que está vendo; quem está nela ouve em loop
+    on('rpg:music', async (d, cb) => {
+      const c = camp(d, 'mestre'); if (!c) return fail(cb, NO);
+      const sid = myView(c), s = sceneById(c, sid), target = s || c;
+      if (d.stop) { target.music = null; touched(c); emitState(c); say(c, '🔇 O Mestre parou a trilha sonora.', { type: 'sys', sc: sid }); return ok(cb, {}); }
+      if (d.vol !== undefined && target.music) { target.music.vol = int(d.vol, 5, 100, 60); touched(c); emitState(c); return ok(cb, {}); }
+      const q = txt(d.q, 300); if (!q) return fail(cb, 'Escreva o nome da música ou cole um link.');
+      if (!soundtrack) return fail(cb, 'A trilha sonora não está disponível neste servidor.');
+      if (limited('rpg-music:' + uid, 6, 60e3)) return fail(cb, 'Calma! Espere um pouco para trocar de novo.');
+      let t; try { t = await soundtrack(q, u => !!role(c, u)); } catch (e) { return fail(cb, 'Não achei essa música: ' + (e.message || 'erro')); }
+      if (!R.camps[c.id]) return fail(cb, NO);
+      target.music = { id: t.id, q, title: txt(t.title, 120) || q, dur: t.dur || 0, at: now(), vol: int(d.vol, 5, 100, 60) };
+      touched(c); emitState(c);
+      say(c, `🎵 Trilha sonora: ${target.music.title}`, { type: 'sys', sc: sid });
+      ok(cb, { title: target.music.title });
     });
     // o dono limpa os próprios avisos
     on('rpg:notif:clear', (d, cb) => {
