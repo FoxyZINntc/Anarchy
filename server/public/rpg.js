@@ -73,12 +73,16 @@ const sceneName = sid => { const s = (R.st.camp.scenes || []).find(x => x.id ===
 const doorAt = (m, i) => (m.doors || []).find(d => d.i === i);
 
 /* imagem com transparência (PNG/WEBP) para miniaturas, mapas e texturas */
-async function upImg(file, max) {
+// crop: abre o editor de recorte antes (recorte.js); 'capa' = capa da campanha, 'retrato' = personagem/criatura
+const CROPS = { capa: ['chat', { title: 'Ajustar capa', ok: 'Usar', aspects: [['Original', 0], ['Larga', 16 / 9], ['Banner', 3]] }], retrato: ['figurinha', { title: 'Ajustar imagem', aspects: [['Original', 0], ['Quadrada', 1], ['Retrato', 3 / 4]], original: true, ok: 'Usar' }] };
+async function upImg(file, max, crop) {
   if (!file) return null;
   if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) { toast('Use uma imagem PNG, JPG, WEBP ou GIF.', true); return null; }
   if (file.size > 25e6) { toast('Imagem grande demais (máximo 25 MB).', true); return null; }
   try {
-    let data = await H.readFile(file);
+    let data;
+    if (crop && CROPS[crop] && window.anarchyCrop) { const [p, ex] = CROPS[crop]; data = await window.anarchyCrop.open(file, p, { ...ex, max, gifMax: Math.min(max, 480) }); if (!data) return null; }
+    else data = await H.readFile(file);
     const im = new Image(); im.src = data; await im.decode();
     let w = im.naturalWidth, h = im.naturalHeight;
     if (!/gif/.test(file.type) && (Math.max(w, h) > max || data.length > 5e6)) {
@@ -155,7 +159,7 @@ function createModal() {
     </div>
     <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="rcGo">Criar campanha</button></div>`, (m, close) => {
     const pick = m.querySelector('#rcCover');
-    pick.onclick = async () => { const f = await H.pickFile(); const up = await upImg(f, 1600); if (up) { cover = up.url; pick.style.backgroundImage = `url('${up.url}')`; pick.classList.add('on'); } };
+    pick.onclick = async () => { const f = await H.pickFile(); const up = await upImg(f, 1600, 'capa'); if (up) { cover = up.url; pick.style.backgroundImage = `url('${up.url}')`; pick.classList.add('on'); } };
     m.querySelector('#rcGo').onclick = async () => {
       const r = await call('rpg:create', { scope: R.scope.kind, id: R.scope.id, name: m.querySelector('#rcName').value, desc: m.querySelector('#rcDesc').value, cover, maxPlayers: +m.querySelector('#rcMax').value, open: m.querySelector('#rcOpen').checked });
       if (r.ok) { close(); drawLobby(); openRoom(r.camp.id); }
@@ -1691,7 +1695,7 @@ function matModal(x, layer) {
     const pv = () => { const col = q('#mtCol').value; matPreview(q('#mtPv'), { id: 'pv-' + Date.now(), L: q('#mtL').value, c: [col, col, col], st: q('#mtS').value, img: d.img, emoji: q('#mtE').value }); };
     styles(); pv();
     q('#mtL').onchange = () => { styles(); pv(); }; q('#mtS').onchange = pv; q('#mtCol').oninput = pv; q('#mtE').oninput = pv;
-    q('#mtImg').onclick = async () => { const f = await H.pickFile('image/png,image/webp,image/jpeg'); const up = await upImg(f, 256); if (up) { d.img = up.url; pv(); toast('Imagem pronta. Salve para usar.'); } };
+    q('#mtImg').onclick = async () => { const f = await H.pickFile('image/png,image/webp,image/jpeg'); const up = await upImg(f, 256, 'retrato'); if (up) { d.img = up.url; pv(); toast('Imagem pronta. Salve para usar.'); } };
     const ix = q('#mtImgX'); if (ix) ix.onclick = () => { d.img = null; ix.remove(); pv(); };
     q('#mtSave').onclick = async () => {
       const r = await call('rpg:mat:save', { cid: c.id, mat: { id: x ? x.id : undefined, n: q('#mtN').value, L: q('#mtL').value, cat: q('#mtC').value, color: q('#mtCol').value, st: q('#mtS').value, img: d.img, emoji: q('#mtE').value, w: q('#mtW').checked, s: q('#mtSi').checked, l: q('#mtLi').checked, glow: q('#mtG').checked } }, 'Material salvo.');
@@ -1792,7 +1796,7 @@ function sheetModal(ch, ownerId) {
       }
     };
     const condBox = q('#shConds'); if (condBox) condBox.onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; const v = b.dataset.v; d.conds = d.conds.includes(v) ? d.conds.filter(x => x !== v) : [...d.conds, v]; b.classList.toggle('on'); };
-    if (edit) q('#shImg').onclick = async () => { const f = await H.pickFile(); const up = await upImg(f, 512); if (up) { d.img = up.url; q('#shImg').innerHTML = `<img src="${esc(up.url)}" alt="">`; } };
+    if (edit) q('#shImg').onclick = async () => { const f = await H.pickFile(); const up = await upImg(f, 512, 'retrato'); if (up) { d.img = up.url; q('#shImg').innerHTML = `<img src="${esc(up.url)}" alt="">`; } };
     const lb = q('#shLant'); if (lb) lb.onclick = () => lanternModal(ch);
     const save = q('#shSave');
     if (save) save.onclick = async () => {
@@ -1840,7 +1844,7 @@ function entModal(e, at) {
     </div>
     <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn primary" id="enSave">${e ? 'Salvar' : 'Colocar no mapa'}</button></div>`, (m, close) => {
     const q = s => m.querySelector(s);
-    q('#enImg').onclick = async () => { const f = await H.pickFile('image/png,image/webp,image/jpeg,image/gif'); const up = await upImg(f, 768); if (up) { d.img = up.url; q('#enImg').innerHTML = `<img src="${esc(up.url)}" alt="">`; } };
+    q('#enImg').onclick = async () => { const f = await H.pickFile('image/png,image/webp,image/jpeg,image/gif'); const up = await upImg(f, 768, 'retrato'); if (up) { d.img = up.url; q('#enImg').innerHTML = `<img src="${esc(up.url)}" alt="">`; } };
     const ix = q('#enImgX'); if (ix) ix.onclick = () => { d.img = null; q('#enImg').innerHTML = `<span>${esc(q('#enEmoji').value || '👾')}</span>`; ix.remove(); };
     q('#enKind').onchange = () => { if (!e) q('#enColor').value = { chefe: '#ff3b3b', npc: '#3fb97a', objeto: '#9aa4b6', monstro: '#d9822b' }[q('#enKind').value]; };
     q('#enSave').onclick = async () => {
@@ -1897,7 +1901,7 @@ function settingsModal() {
     };
     q('#csCls').onclick = e => { const b = e.target.closest('[data-del]'); if (b) { classes.splice(+b.dataset.del, 1); drawCls(); } };
     q('#csClsAdd').onclick = () => { classes.push({ name: 'Nova classe', icon: '🛡️', desc: '', hp: 8, mp: 0, mods: {}, skills: '' }); drawCls(); };
-    q('#csCover').onclick = async () => { const f = await H.pickFile(); const up = await upImg(f, 1600); if (up) { cover = up.url; q('#csCover').style.backgroundImage = `url('${up.url}')`; q('#csCover').classList.add('on'); } };
+    q('#csCover').onclick = async () => { const f = await H.pickFile(); const up = await upImg(f, 1600, 'capa'); if (up) { cover = up.url; q('#csCover').style.backgroundImage = `url('${up.url}')`; q('#csCover').classList.add('on'); } };
     q('#csMasterGo').onclick = async () => {
       const u = q('#csMaster').value; if (!u) return;
       if (await H.confirmBox('Passar o papel de Mestre', `${H.nameOf(u)} vai controlar a campanha. Você vira jogador.`, 'Passar', false)) { const r = await call('rpg:master', { cid: c.id, uid: u }, 'Agora você é jogador nesta campanha.'); if (r.ok) close(); }
