@@ -197,10 +197,17 @@ async function shrink(dataUrl, max, q = .86, square) {
   c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
   return c.toDataURL(/png/.test(dataUrl) && square ? 'image/png' : 'image/jpeg', q);
 }
+// recorte antes de enviar (recorte.js): opts.crop = 'avatar' | 'icone' | 'banner' | 'figurinha' | 'chat' | 'fundo'
+async function cropFile(file, preset) {
+  if (!window.anarchyCrop || !/^image\/(png|jpeg|gif|webp|bmp)$/.test(file.type)) return readFile(file);
+  return window.anarchyCrop.open(file, preset);
+}
 async function uploadImage(file, opts = {}) {
   if (!file || !/^image\//.test(file.type)) { toast('Escolha um arquivo de imagem.', true); return null; }
   try {
-    let data = await readFile(file);
+    let data = opts.crop ? await cropFile(file, opts.crop) : await readFile(file);
+    if (!data) return null; // cancelou o recorte
+    if (opts.crop) toast('Enviando...');
     data = await shrink(data, opts.max || 2000, .86, opts.square);
     const r = await api('/api/upload', { data });
     return r.url;
@@ -1211,9 +1218,11 @@ async function sendMessage(image, imageName) {
 // a imagem vai do jeito que está (mesma qualidade, resolução e formato); só é reduzida se passar de 8 MB
 async function sendImage(file) {
   if (!file || !/^image\//.test(file.type)) return toast('Escolha um arquivo de imagem.', true);
+  // antes de enviar dá para recortar; sem mexer (ou "Enviar sem cortar"), vai a original
+  const data = await cropFile(file, 'chat'); if (!data) return;
   toast('Enviando imagem...');
   let url = null;
-  if (/^image\/(png|jpeg|gif|webp)$/.test(file.type) && file.size <= 8 * 1024 * 1024) { try { url = (await api('/api/upload', { data: await readFile(file) })).url; } catch (e) { return toast(e.message, true); } }
+  if (/^data:image\/(png|jpeg|gif|webp)/.test(data) && data.length <= 11e6) { try { url = (await api('/api/upload', { data })).url; } catch (e) { return toast(e.message, true); } }
   else url = await uploadImage(file);
   if (url) sendMessage(url, file.name);
 }
@@ -2052,7 +2061,7 @@ function groupModal(g) {
     $('#gEmo', m).onclick = e => { const b = e.target.closest('[data-e]'); if (b) { icon = b.dataset.e; draw(); } };
     $('#gName', m).oninput = draw;
     $('#gClr', m).onclick = () => { icon = ''; draw(); };
-    $('#gImg', m).onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 256, square: true }); if (url) { icon = url; draw(); } };
+    $('#gImg', m).onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 256, square: true, crop: 'icone' }); if (url) { icon = url; draw(); } };
     draw();
     if (editing) {
       $('#gCopy', m).onclick = () => copy(g.invite, 'Código copiado.');
@@ -2242,7 +2251,7 @@ function gsDj(g, b) {
   $('#djColors').onclick = e => { const c = e.target.closest('[data-c]'); if (c) { d.color = c.dataset.c; $('#djColor').value = d.color; } };
   $('#djColor').oninput = e => { d.color = e.target.value; };
   $('#djSave').onclick = () => save({});
-  $('#djImg').onclick = async () => { const f = await pickFile(); if (!f) return; try { let data = await readFile(f); if (!/gif/.test(f.type)) data = await shrink(data, 256, .9); const { url } = await api('/api/upload', { data }); save({ avatar: url }); } catch (e) { toast(e.message || 'Não consegui enviar a foto.', true); } };
+  $('#djImg').onclick = async () => { const f = await pickFile(); if (!f) return; try { let data = await cropFile(f, 'avatar'); if (!data) return; if (!/^data:image\/gif/.test(data)) data = await shrink(data, 256, .9); const { url } = await api('/api/upload', { data }); save({ avatar: url }); } catch (e) { toast(e.message || 'Não consegui enviar a foto.', true); } };
   if ($('#djImgX')) $('#djImgX').onclick = () => save({ avatar: null });
   $('#djDel').onclick = async () => { if (await confirmBox('Remover DJ', `Tirar ${u.displayName} do grupo? A música para e a fila é apagada.`, 'Remover')) { const r = await act('bot:remove', { gid: g.id }, 'DJ removido.'); if (r.ok) setTimeout(drawGroupSettings, 200); } };
 }
@@ -2282,8 +2291,8 @@ function gsGeral(g, b) {
   $('#gEmo').onclick = e => { const x = e.target.closest('[data-e]'); if (x) { d.icon = x.dataset.e; draw(); } };
   $('#gName').oninput = draw; $('#gDesc').oninput = draw;
   $('#gClr').onclick = () => { d.icon = ''; draw(); };
-  $('#gImg').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 256, square: true }); if (url) { d.icon = url; draw(); } };
-  $('#gBan').onclick = async () => { const f = await pickFile(); if (!f) return; toast('Enviando banner...'); const url = await uploadImage(f, { max: 1200 }); if (url) { d.banner = url; draw(); } };
+  $('#gImg').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 256, square: true, crop: 'icone' }); if (url) { d.icon = url; draw(); } };
+  $('#gBan').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 1200, crop: 'banner' }); if (url) { d.banner = url; draw(); } };
   $('#gBanC').oninput = e => { d.banner = e.target.value; draw(); };
   $('#gBanX').onclick = () => { d.banner = null; draw(); };
   $('#gSave').onclick = () => act('group:update', { gid: g.id, name: $('#gName').value.trim() || g.name, icon: d.icon, color: d.color, description: $('#gDesc').value, banner: d.banner, systemJoin: $('#gSys').checked, welcomeCid: $('#gWel').value || null }, 'Grupo salvo.');
@@ -2476,9 +2485,9 @@ function drawSettings() {
     $('#pAccC').oninput = e => { draft.accent = e.target.value; prev(); };
     $('#pFr').onclick = e => { const x = e.target.closest('[data-fr]'); if (x) { draft.frame = x.dataset.fr || null; prev(); } };
     $('#pFx').onclick = e => { const x = e.target.closest('[data-fx]'); if (x) { draft.effect = x.dataset.fx || null; prev(); } };
-    $('#pAv').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 384, square: true }); if (url) { draft.avatar = url; prev(); } };
+    $('#pAv').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 384, square: true, crop: 'avatar' }); if (url) { draft.avatar = url; prev(); } };
     $('#pAvX').onclick = () => { draft.avatar = null; prev(); };
-    $('#pBan').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 1200 }); if (url) { draft.banner = url; prev(); } };
+    $('#pBan').onclick = async () => { const f = await pickFile(); if (!f) return; const url = await uploadImage(f, { max: 1200, crop: 'banner' }); if (url) { draft.banner = url; prev(); } };
     $('#pBanC').oninput = e => { draft.banner = e.target.value; prev(); };
     $('#pBanX').onclick = () => { draft.banner = null; prev(); };
     $('#pFull').onclick = () => openFullProfile(u.id, 'sobre', preview());
@@ -2589,7 +2598,7 @@ function drawSettings() {
     $('#avs').onchange = e => setPref('avatars', e.target.checked); $('#c24').onchange = e => setPref('clock24', e.target.checked);
     $('#anm').onchange = e => setPref('anim', e.target.checked); $('#mbs').onchange = e => setPref('showMembers', e.target.checked);
     $('#pfx').onchange = e => setPref('profileFx', e.target.checked); $('#lite').onchange = e => setPref('lite', e.target.checked);
-    $('#bgUp').onclick = async () => { const f = await pickFile(); if (!f) return; let d = await readFile(f); d = await shrink(d, 1920, .82); prefs.bgImage = d; setPref('bg', 'custom'); drawSettings(); };
+    $('#bgUp').onclick = async () => { const f = await pickFile(); if (!f) return; let d = await cropFile(f, 'fundo'); if (!d) return; d = await shrink(d, 1920, .82); prefs.bgImage = d; setPref('bg', 'custom'); drawSettings(); };
     if ($('#bgX')) $('#bgX').onclick = () => { prefs.bgImage = null; setPref('bg', 'none'); drawSettings(); };
     $('#rstA').onclick = () => { ['theme', 'accent', 'font', 'fontSize', 'density', 'radius', 'layout', 'avatars', 'clock24', 'bg', 'bgImage', 'glass', 'anim', 'showMembers', 'profileFx', 'lite'].forEach(k => prefs[k] = DEFAULT_PREFS[k]); savePrefs(); applyPrefs(); render(); drawSettings(); };
   }
@@ -4052,7 +4061,7 @@ function gsFigurinhas(g, b) {
     const f = await pickFile('image/png,image/webp,image/gif'); if (!f) return;
     if (!/^image\/(png|webp|gif)$/.test(f.type)) return toast('Use PNG, WEBP ou GIF.', true);
     if (f.size > 4 * 1024 * 1024) return toast('A imagem passa de 4 MB.', true);
-    data = await readFile(f);
+    data = await cropFile(f, 'figurinha'); if (!data) return;
     if (!/^data:image\/gif/.test(data)) data = await shrinkAlpha(data, 320);
     $('#fgPrev').innerHTML = `<img src="${data}" alt="">`;
     if (!$('#fgName').value.trim()) $('#fgName').value = f.name.replace(/\.[^.]+$/, '').slice(0, 32);
@@ -4449,6 +4458,7 @@ window.addEventListener('beforeunload', () => { if (V.room) socket?.emit('voice:
 
 /* =============== RPG de Mesa (rpg.js): o que ele usa do app =============== */
 if (window.anarchyRpg) window.anarchyRpg.init({ S, esc, ic, av, user, nameOf, emit, toast, modal, confirmBox, pickFile, readFile, api, tone, gCan, openGroupSettings, get socket() { return socket; } });
+window.anarchyToast = toast; // o editor de recorte (recorte.js) avisa por aqui
 if (window.anarchyBox) window.anarchyBox.init({ S, esc, avWith, tone, reduceMotion, emit, toast, giftSparks, AVFX, AVFX_IDS, AVR, BOX_COST, PLATES, plateRow, openCase: () => openCase() });
 if (window.anarchyFun) window.anarchyFun.init({ S, esc, av, nameOf, emit, toast, modal, confirmBox, pop, closePops, tone, confetti, md, gCan, reduceMotion, viewingCid: () => viewingCid(), renderMessages: () => renderMessages(), inCall: () => !!V.room,
   avfx: id => AVFX[id], avWith, rarName: t => (AVR[t] || [t])[0], plate: id => PLATES[id], plateRow, renderStage: () => renderStageSlot(),

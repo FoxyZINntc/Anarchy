@@ -1,0 +1,29 @@
+/* Anarchy — Editor de recorte (recorte.js). Fica acima das janelas do app (60) e dos menus (70). */
+.crp-back { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .7); animation: fade .15s; }
+.crp { width: min(620px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--elev, #1e2128); color: var(--text, #fff); box-shadow: var(--shadow); }
+.crp-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.crp-h b { font-size: 17px; }
+.crp-gif { font-size: 11px; font-weight: 700; color: #ffd36b; background: rgba(255, 200, 60, .12); border: 1px solid rgba(255, 200, 60, .35); border-radius: 99px; padding: 2px 8px; }
+.crp-stage { position: relative; height: min(380px, 55vh); border-radius: 12px; overflow: hidden; cursor: grab; touch-action: none; user-select: none;
+  background: repeating-conic-gradient(#2a2d35 0 25%, #22252c 0 50%) 0 0 / 20px 20px; }
+.crp-stage.drag { cursor: grabbing; }
+.crp-stage img { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; pointer-events: none; }
+.crp-frame { position: absolute; box-shadow: 0 0 0 9999px rgba(8, 9, 12, .62); outline: 2px solid #fff; pointer-events: none; }
+.crp-frame.circle { border-radius: 50%; }
+.crp-frame.round { border-radius: 22%; }
+/* linhas de terço para ajudar a centralizar */
+.crp-frame::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(90deg, transparent calc(33.3% - .5px), rgba(255, 255, 255, .28) 0 calc(33.3% + .5px), transparent 0 calc(66.6% - .5px), rgba(255, 255, 255, .28) 0 calc(66.6% + .5px), transparent 0), linear-gradient(180deg, transparent calc(33.3% - .5px), rgba(255, 255, 255, .28) 0 calc(33.3% + .5px), transparent 0 calc(66.6% - .5px), rgba(255, 255, 255, .28) 0 calc(66.6% + .5px), transparent 0); opacity: 0; transition: opacity .2s; }
+.crp-stage.drag .crp-frame::before { opacity: 1; }
+.crp-tip { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); font-size: 11px; color: #fffc; background: #0009; padding: 3px 10px; border-radius: 99px; pointer-events: none; white-space: nowrap; }
+.crp-ctl { display: grid; gap: 10px; }
+.crp-asp { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.crp-asp button { border: 1px solid var(--line, #333); background: var(--panel, #2a2d35); color: inherit; border-radius: 99px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.crp-asp button.on { border-color: var(--accent, #6c7cff); background: color-mix(in srgb, var(--accent, #6c7cff) 25%, var(--panel, #2a2d35)); }
+.crp-zoom { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.crp-zoom input { flex: 1; accent-color: var(--accent, #6c7cff); }
+.crp-acts { display: flex; gap: 6px; justify-content: center; }
+.crp-prog { position: relative; height: 22px; border-radius: 99px; background: var(--panel, #2a2d35); overflow: hidden; }
+.crp-prog i { position: absolute; inset: 0 auto 0 0; background: var(--accent, #6c7cff); transition: width .2s; }
+.crp-prog span { position: relative; display: block; text-align: center; font-size: 12px; line-height: 22px; font-weight: 700; }
+.crp-f { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+@media (max-width: 560px) { .crp { padding: 12px; } .crp-stage { height: 50vh; } .crp-tip { display: none; } }
