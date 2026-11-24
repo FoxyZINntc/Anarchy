@@ -3222,7 +3222,8 @@ function attachAudio(sid, stream) {
   AUD.set(stream.id, { sid, el: a, gain: null, src: null });
   applyVolumes();
   a.play().catch(() => toast('Clique em qualquer lugar para liberar o áudio da call.'));
-  watchLevel(sid, stream);
+  // o medidor de "quem está falando" é só da voz: o som da tela compartilhada substituía o da voz da pessoa
+  const p = peerInfo(sid); if (!p || p.screen !== stream.id) watchLevel(sid, stream);
 }
 function dropAudio(filter) {
   AUD.forEach((a, id) => { if (filter(a, id)) { try { a.src && a.src.disconnect(); a.gain && a.gain.disconnect(); } catch {} a.el.remove(); AUD.delete(id); } });
@@ -3243,6 +3244,11 @@ function musicSync() {
     // link direto sem duração: avisa o servidor quanto dura (para ele passar para a próxima na hora certa)
     MU.el.addEventListener('loadedmetadata', () => { const s = djState(); if (s && s.cur && s.cur.id === MU.id && !s.cur.dur && isFinite(MU.el.duration)) socket.emit('music:dur', { roomId: V.room, id: MU.id, dur: MU.el.duration }); });
     MU.el.addEventListener('error', () => { if (MU.id) clog('O áudio do DJ falhou ao carregar.', 'aviso'); });
+    // carregando/travado: enquanto o áudio espera chegar, não fica pulando de ponto (cada pulo recomeçava a espera
+    // e, com a internet ocupada por uma tela compartilhada, a música nunca chegava a tocar)
+    MU.el.addEventListener('waiting', () => { MU.waitingAt = MU.waitingAt || Date.now(); });
+    MU.el.addEventListener('stalled', () => { MU.waitingAt = MU.waitingAt || Date.now(); });
+    MU.el.addEventListener('playing', () => { if (MU.waitingAt && Date.now() - MU.waitingAt > 4000) clog(`O áudio do DJ ficou ${Math.round((Date.now() - MU.waitingAt) / 1000)} s carregando (internet lenta ou ocupada).`, 'aviso'); MU.waitingAt = 0; });
   }
   if (prefs.spkId && MU.el.setSinkId && MU.el.__sink !== prefs.spkId) { MU.el.__sink = prefs.spkId; MU.el.setSinkId(prefs.spkId).catch(() => {}); }
   if (MU.id !== cur.id) { MU.id = cur.id; MU.el.src = '/api/music/' + encodeURIComponent(cur.id); }
@@ -3251,7 +3257,7 @@ function musicSync() {
   if (st.pausedAt !== null) { MU.el.pause(); if (Math.abs((MU.el.currentTime || 0) - pos) > 0.5) try { MU.el.currentTime = pos; } catch {} return; }
   if (pos < 0) { MU.el.pause(); try { MU.el.currentTime = 0; } catch {} MU.wait = setTimeout(musicSync, -pos * 1000); return; }
   if (cur.dur && pos > cur.dur + 1) { MU.el.pause(); return; }
-  if (Math.abs((MU.el.currentTime || 0) - pos) > 0.8) try { MU.el.currentTime = pos; } catch {}
+  if (!MU.waitingAt && Math.abs((MU.el.currentTime || 0) - pos) > 0.8) { try { MU.el.currentTime = pos; MU.seekAt = Date.now(); } catch {} }
   if (MU.el.paused) MU.el.play().catch(() => toast('Clique em qualquer lugar para ouvir o DJ.'));
 }
 // o ouvido percebe volume em curva: com a barra em linha reta, 5% ainda soava alto e depois só vinha o 0.
@@ -3265,8 +3271,18 @@ function musicVol() {
 // fica conferindo se está no ponto certo (o áudio pode atrasar ao carregar); atualiza a barra de tempo
 setInterval(() => {
   const st = djState();
-  if (st && st.cur && MU.el && MU.id === st.cur.id && st.pausedAt === null && !MU.el.paused) {
-    const pos = djPos(st); if (pos > 0 && Math.abs(MU.el.currentTime - pos) > 1.2) try { MU.el.currentTime = pos; } catch {}
+  if (st && st.cur && MU.el && MU.id === st.cur.id && st.pausedAt === null) {
+    const pos = djPos(st), cur = st.cur;
+    // parou sozinho (o navegador pausou, o áudio travou...) e ainda deveria estar tocando: volta a tocar
+    if (MU.el.paused && pos > 0 && (!cur.dur || pos < cur.dur) && MU.el.readyState >= 2 && Date.now() - (MU.resumeAt || 0) > 3000) {
+      MU.resumeAt = Date.now(); MU.el.play().then(() => clog('O DJ tinha parado sozinho e voltou a tocar.', 'aviso')).catch(() => {});
+    }
+    if (!MU.el.paused && !MU.waitingAt && pos > 0) {
+      const drift = MU.el.currentTime - pos;
+      // muito longe do ponto certo: pula (no máximo a cada 6 s); um pouco atrás/adiantado: acelera ou freia de leve, sem cortar o som
+      if (Math.abs(drift) > 3 && Date.now() - (MU.seekAt || 0) > 6000) { try { MU.el.currentTime = pos; MU.seekAt = Date.now(); } catch {} MU.el.playbackRate = 1; }
+      else MU.el.playbackRate = Math.abs(drift) < 0.25 ? 1 : drift > 0 ? 0.97 : 1.03;
+    }
   }
   $$('.dj-card').forEach(c => { const s = S.music[c.dataset.room]; if (!s || !s.cur) return; const p = clamp(djPos(s), 0, s.cur.dur || 1e9); const bar = $('.dj-prog i', c), tm = $('.dj-time', c); if (bar && s.cur.dur) bar.style.width = (100 * p / s.cur.dur) + '%'; if (tm) tm.textContent = fmtDur(p) + (s.cur.dur ? ' / ' + fmtDur(s.cur.dur) : ''); });
 }, 500);
