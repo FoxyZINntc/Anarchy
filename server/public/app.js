@@ -2988,7 +2988,8 @@ function tuneSenders(pc) {
     if (V.screen && V.screen.getTracks().includes(t)) {
       e.active = !!(p && p.wantScreen); // ninguém assistindo daqui: pausa o envio para essa pessoa
       e.priority = 'low'; e.networkPriority = 'low';
-      if (t.kind === 'video') { e.maxBitrate = per * 1000; e.maxFramerate = q[1]; e.scaleResolutionDownBy = per < q[0] * .55 ? 1.5 : 1; prm.degradationPreference = q[1] >= 60 ? 'maintain-framerate' : 'maintain-resolution'; }
+      // modo leve (PC sobrecarregado ao codificar a tela): 15 quadros e resolução menor, para sobrar processador para a voz
+      if (t.kind === 'video') { e.maxBitrate = per * 1000; e.maxFramerate = V.scrLight ? 15 : q[1]; e.scaleResolutionDownBy = V.scrLight ? (q[0] >= 3200 ? 2 : 1.5) : per < q[0] * .55 ? 1.5 : 1; prm.degradationPreference = V.scrLight ? 'balanced' : q[1] >= 60 ? 'maintain-framerate' : 'maintain-resolution'; }
       else e.maxBitrate = 96000;
     }
     else if (t.kind === 'audio') { e.maxBitrate = 96000; e.priority = 'high'; e.networkPriority = 'high'; }
@@ -2997,6 +2998,46 @@ function tuneSenders(pc) {
   });
 }
 const retuneAll = () => V.peers.forEach(p => tuneSenders(p.pc));
+/* ---- vigia do compartilhamento: em PC mais fraco, codificar a tela tira processador da voz
+   (a voz recebida falha e "abaixa", e o cancelamento de eco deixa passar eco). A cada 5 s, quem compartilha confere:
+   - o próprio WebRTC dizendo que a tela está limitada pelo processador (qualityLimitationReason = 'cpu');
+   - a voz que está chegando com muitos pedaços "remendados" (concealedSamples), sinal de processador sem folga.
+   Se acontecer duas vezes seguidas, passa a tela para o modo leve e avisa. Tudo fica no Registro da call. */
+const SCRMON = { t: null, cpu: 0, bad: 0, last: new Map(), logAt: 0 };
+function screenMonitor(on) {
+  clearInterval(SCRMON.t); SCRMON.t = null; SCRMON.cpu = SCRMON.bad = 0; SCRMON.last.clear();
+  if (!on) { if (V.scrLight) { V.scrLight = false; } return; }
+  SCRMON.t = setInterval(async () => {
+    if (!V.screen || !V.room) return screenMonitor(false);
+    if (!screenWatchers()) return; // ninguém assistindo: o envio está pausado
+    let limit = '', enc = '', res = '', worst = 0;
+    for (const p of V.peers.values()) {
+      let st; try { st = await p.pc.getStats(); } catch { continue; }
+      st.forEach(r => {
+        if (r.type === 'outbound-rtp' && r.kind === 'video' && r.frameWidth && p.wantScreen) {
+          if (r.qualityLimitationReason === 'cpu') limit = 'cpu'; else if (!limit && r.qualityLimitationReason && r.qualityLimitationReason !== 'none') limit = r.qualityLimitationReason;
+          enc = r.encoderImplementation || enc; res = `${r.frameWidth}x${r.frameHeight} ${Math.round(r.framesPerSecond || 0)}fps`;
+        }
+        if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+          const prev = SCRMON.last.get(r.id), tot = r.totalSamplesReceived || 0, con = r.concealedSamples || 0;
+          SCRMON.last.set(r.id, { tot, con });
+          if (prev && tot - prev.tot > 20000) worst = Math.max(worst, (con - prev.con) / (tot - prev.tot));
+        }
+      });
+    }
+    SCRMON.cpu = limit === 'cpu' ? SCRMON.cpu + 1 : 0;
+    SCRMON.bad = worst > 0.08 ? SCRMON.bad + 1 : 0;
+    if (Date.now() - SCRMON.logAt > 30000 || SCRMON.cpu === 2 || SCRMON.bad === 2) {
+      SCRMON.logAt = Date.now();
+      clog(`Tela: ${res || '?'} · codificando com ${enc || '?'}${limit ? ` · limitada por: ${limit === 'cpu' ? 'processador' : limit === 'bandwidth' ? 'internet' : limit}` : ''} · voz recebida com ${Math.round(worst * 100)}% de falhas${V.scrLight ? ' · modo leve' : ''}.`, limit === 'cpu' || worst > 0.08 ? 'aviso' : '');
+    }
+    if (!V.scrLight && (SCRMON.cpu >= 2 || SCRMON.bad >= 2)) {
+      V.scrLight = true; retuneAll();
+      clog(`O PC ficou pesado compartilhando a tela (${SCRMON.cpu >= 2 ? 'processador no limite' : 'a voz recebida começou a falhar'}): a tela passou para o modo leve (15 quadros, resolução menor).`, 'aviso');
+      toast('Seu PC ficou pesado com a tela compartilhada: diminuí a qualidade da tela para a voz não falhar.', true, 8000);
+    }
+  }, 5000);
+}
 // tela em H.264 (codificado pela placa de vídeo na maioria dos PCs); se não tiver, fica no padrão
 function preferScreenCodec(pc) {
   if (!V.screen || !window.RTCRtpSender || !RTCRtpSender.getCapabilities) return;
@@ -3461,7 +3502,7 @@ async function toggleScreen() {
   const vt = V.screen.getVideoTracks()[0]; if (vt) { vt.contentHint = prefs.quality === '1080p60' ? 'motion' : 'detail'; vt.onended = () => stopStream('screen'); }
   // ninguém recebe ainda: cada um clica em "Assistir" (o envio só liga para quem assiste)
   V.peers.forEach(p => { p.wantScreen = false; V.screen.getTracks().forEach(t => p.pc.addTrack(t, V.screen)); preferScreenCodec(p.pc); });
-  V.ownPreview = false;
+  V.ownPreview = false; V.scrLight = false; screenMonitor(true);
   sendState(); render(); openStage();
   toast('Você está compartilhando a tela. Quem quiser ver clica em "Assistir".');
 }
@@ -3480,7 +3521,7 @@ function stopStream(kind) {
   const tracks = s.getTracks(); tracks.forEach(t => t.stop());
   V.peers.forEach(p => p.pc.getSenders().forEach(snd => { if (snd.track && tracks.includes(snd.track)) try { p.pc.removeTrack(snd); } catch {} }));
   V[kind] = null; V.videoCache.delete(kind + ':' + S.mySid);
-  if (kind === 'screen') V.peers.forEach(p => { p.wantScreen = false; });
+  if (kind === 'screen') { V.peers.forEach(p => { p.wantScreen = false; }); screenMonitor(false); }
   if (S.focusTile === kind + ':' + S.mySid) S.focusTile = null;
   sendState(); render();
 }
