@@ -1232,6 +1232,12 @@ async function sendImage(file) {
    Cada mudança que as pessoas notam ganha um item aqui (o mais novo em cima). Quem abre o app depois de uma
    atualização vê um popup só com o que ainda não viu. Também abre em Configurações > Novidades. */
 const NEWS = [
+  { id: '2026-11-24-tela-win10', date: '24/11/2026', title: 'Compartilhar a tela ficou melhor', emoji: '🖥️', items: [
+    'No Windows 10, o som da tela compartilhada não leva mais as vozes da call junto: acabou o eco de quem fala. Atualize o app de computador (versão 1.4.2).',
+    'Se o PC ficar pesado compartilhando a tela, ela passa sozinha para um modo leve para a voz não falhar.',
+    'Nova opção em Configurações → Voz e vídeo: <b>Compartilhar o som do PC</b>. Desligada, vai só a imagem.',
+    'O DJ não para mais quando alguém compartilha a tela: se a música travar, ela volta sozinha.'
+  ] },
   { id: '2026-11-13-caixas-fundos', date: '13/11/2026', title: 'Caixas mais emocionantes e fundos animados', emoji: '🌌', items: [
     'A Caixa Anarchy agora abre de <b>9 jeitos</b>: roleta, caça-níquel, baú, cartas, cápsula, portal, meteoro, roda da sorte e ovo surpresa.',
     'Escolha a sua animação no Inventário ou deixe em <b>Surpresa</b>. Tem também o botão de pular.',
