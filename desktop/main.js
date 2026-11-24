@@ -373,7 +373,14 @@ function askSource() {
    Tela inteira: som de tudo MENOS o Anarchy (as vozes da call não voltam para quem falou).
    Janela: só o som do programa daquela janela. */
 const SOMTELA = app.isPackaged ? path.join(process.resourcesPath, 'somtela.exe') : path.join(__dirname, 'native', 'somtela.exe');
-const somtelaOk = process.platform === 'win32' && +(require('os').release().split('.')[2] || 0) >= 19041 && fs.existsSync(SOMTELA);
+const WIN_BUILD = process.platform === 'win32' ? +(require('os').release().split('.')[2] || 0) : 0;
+const somtelaOk = process.platform === 'win32' && WIN_BUILD >= 19041 && fs.existsSync(SOMTELA);
+// Antes do Windows 20348 (quase todo Windows 10), "excluir o Anarchy e os processos filhos" não pega os filhos:
+// o som do app (vozes da call, DJ) sai pelo processo "Audio Service" do Electron e voltava na tela compartilhada
+// (quem falava ouvia o próprio eco). Nesses Windows, exclui direto o processo que toca o som.
+function audioPid() {
+  try { const m = app.getAppMetrics().find(x => x.type === 'Utility' && /audio/i.test(`${x.serviceName || ''} ${x.name || ''}`)); return m ? m.pid : null; } catch { return null; }
+}
 let lastShare = null, somProc = null;
 function somStop() { const p = somProc; somProc = null; if (p) { try { p.stdin.end(); } catch {} try { p.kill(); } catch {} } }
 ipcMain.handle('somtela:start', e => new Promise(resolve => {
@@ -382,7 +389,7 @@ ipcMain.handle('somtela:start', e => new Promise(resolve => {
   // janela do próprio Anarchy: o som dela são as vozes da call, então vai sem som
   if (BrowserWindow.getAllWindows().some(w => { try { return w.getMediaSourceId() === lastShare.id; } catch { return false; } })) return resolve(false);
   const m = /^window:(\d+):/.exec(lastShare.id);
-  const args = m ? ['janela', m[1]] : ['excluir', String(process.pid)];
+  const args = m ? ['janela', m[1]] : ['excluir', String(WIN_BUILD < 20348 ? audioPid() || process.pid : process.pid)];
   let p;
   try { p = spawn(SOMTELA, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }); } catch { return resolve(false); }
   somProc = p;
