@@ -2635,6 +2635,7 @@ function drawSettings() {
       <div class="set-card"><h3>Vídeo</h3>
         <label class="field">Câmera<select id="dCam"><option value="">Padrão do sistema</option></select></label>
         ${setRow('Qualidade da tela compartilhada', 'Mais qualidade usa mais internet.', seg('vQ', [['720p30', '720p'], ['1080p30', '1080p'], ['1080p60', '1080p 60fps']], prefs.quality))}
+        ${setRow('Compartilhar o som do PC', 'Quem assiste a sua tela ouve o som do seu PC (jogo, vídeo, música). Desligado, vai só a imagem. Se o som do Anarchy baixar quando você compartilha, teste com isto desligado.', sw('vScrSnd', prefs.screenSound !== false))}
       </div>
       <div class="set-card"><h3>Sons</h3>${setRow('Sons de entrar e sair', 'Tocar um som quando alguém entra ou sai da call.', sw('vJs', prefs.joinSounds))}</div>
       <div class="set-card"><h3>Registro da call</h3>
@@ -2665,6 +2666,7 @@ function drawSettings() {
     $('#vSbOn').onchange = e => { prefs.sbOn = e.target.checked; savePrefs(); };
     $('#oTest').onclick = toggleOutTest;
     $('#vJs').onchange = e => { prefs.joinSounds = e.target.checked; savePrefs(); };
+    $('#vScrSnd').onchange = e => { prefs.screenSound = e.target.checked; savePrefs(); if (V.screen) toast('Vale a partir do próximo compartilhamento de tela.'); };
     bindSeg('vQ', v => { prefs.quality = v; savePrefs(); V.peers.forEach(p => tuneSenders(p.pc)); });
     $('#vKey').onclick = () => {
       capturingKey = true; $('#vKey').textContent = 'Aperte uma tecla...';
@@ -3446,7 +3448,8 @@ async function toggleScreen() {
   const ask = audio => navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: q[0], max: q[0] }, height: { ideal: q[1], max: q[1] }, frameRate: { ideal: q[2], max: q[2] } },
     audio: audio && sup.restrictOwnAudio ? { restrictOwnAudio: true } : audio });
   const fail = e => { if (e && e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast('Não consegui compartilhar a tela: ' + (e.message || e.name), true); };
-  try { V.screen = await ask(true); }
+  // "Compartilhar o som do PC" desligado (Configurações de voz): vai só a imagem (o somtela.exe nem é aberto)
+  try { V.screen = await ask(prefs.screenSound !== false); }
   catch (e) {
     // tela inteira: às vezes o Windows não deixa capturar o som do PC. Aí compartilha só a imagem.
     if (e && (e.name === 'NotReadableError' || /audio/i.test(e.message || ''))) {
